@@ -1,0 +1,39 @@
+# Variables de entorno y credenciales locales
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Python y herramientas de desarrollo
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+
+# Configuración local del editor
+.vscode/
+.idea/
+
+# Logs, temporales y archivos del sistema
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini

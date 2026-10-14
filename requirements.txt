@@ -1,0 +1,8 @@
+# Dependencias directas con las versiones verificadas para esta etapa.
+fastapi==0.143.1
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+pydantic-settings==2.16.0
+
+# Preparado para RDS MySQL; aún no se abre ninguna conexión.
+PyMySQL[rsa]==1.2.3
