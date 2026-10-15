@@ -10,13 +10,19 @@ from app.errors.database import (
     DatabaseTransactionError,
     DatabaseUnavailableError,
 )
-from app.errors.domain import ResourceNotFoundError
+from app.errors.domain import ResourceConflictError, ResourceNotFoundError
 
 
 async def resource_not_found_handler(
     _request: Request, error: ResourceNotFoundError
 ) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": str(error)})
+
+
+async def resource_conflict_handler(
+    _request: Request, error: ResourceConflictError
+) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(error)})
 
 
 async def database_error_handler(_request: Request, error: DatabaseError) -> JSONResponse:
@@ -36,4 +42,5 @@ def register_exception_handlers(application: FastAPI) -> None:
     """Registrar errores de dominio y persistencia sin exponer el driver."""
 
     application.add_exception_handler(ResourceNotFoundError, resource_not_found_handler)
+    application.add_exception_handler(ResourceConflictError, resource_conflict_handler)
     application.add_exception_handler(DatabaseError, database_error_handler)
