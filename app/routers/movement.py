@@ -10,6 +10,7 @@ from app.dependencies import get_database
 from app.models.common import ErrorResponse, INT_MAX
 from app.models.movement import MovementRequest, MovementResponse
 from app.services.movement import MovementService
+from app.security.api_key import SECURITY_RESPONSES, require_api_key
 from app.websocket.publisher import MovementEventPublisher, get_movement_publisher
 
 
@@ -27,6 +28,7 @@ def get_movement_service(
 @router.post(
     "",
     response_model=MovementResponse,
+    dependencies=[Depends(require_api_key)],
     summary="Registrar un movimiento individual del vehículo",
     description=(
         "Recibe únicamente id_comando de un comando existente del vehículo. Comprueba "
@@ -54,6 +56,7 @@ def get_movement_service(
         },
         500: {"model": ErrorResponse, "description": "No fue posible procesar la operación."},
         503: {"model": ErrorResponse, "description": "La base de datos no está disponible."},
+        **SECURITY_RESPONSES,
     },
 )
 async def execute_movement(

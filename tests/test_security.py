@@ -1,0 +1,288 @@
+"""API key local con ASGI real y servicios ficticios, sin .env ni RDS."""
+
+from datetime import datetime
+from hmac import compare_digest
+import json
+from types import SimpleNamespace
+import unittest
+from unittest.mock import AsyncMock, Mock, patch
+
+from fastapi import FastAPI
+from pydantic import SecretStr
+
+from app.config.settings import Settings, get_settings
+from app.errors.handlers import register_exception_handlers
+from app.execution.dependencies import get_demo_execution_manager
+from app.models.demo_execution import DemoExecutionResponse
+from app.models.movement import MovementResponse
+from app.models.vehicles import VehicleResponse
+from app.routers import commands, demo_execution, demos, health, history, movement, state, vehicles
+from app.services.commands import CommandService
+from app.services.database_health import DatabaseHealthService
+from app.services.demo_execution import DemoExecutionService
+from app.services.demos import DemoMovementService, DemoService
+from app.services.history import HistoryService
+from app.services.movement import MovementService
+from app.services.state import StateService
+from app.services.vehicles import VehicleService
+from app.websocket.publisher import get_movement_publisher
+
+
+TEST_KEY = "ficticio-api-key-solo-pruebas-7e2c"
+PROTECTED_ROUTES = (
+    ("POST", "/vehiculos/3/movimientos", {"id_comando": 7}, 200),
+    ("POST", "/vehiculos/3/demos/5/ejecutar", None, 202),
+    ("POST", "/vehiculos/3/demos/5/cancelar", None, 200),
+    ("DELETE", "/vehiculos/3", None, 204),
+    ("DELETE", "/vehiculos/3/comandos/7", None, 204),
+    ("DELETE", "/vehiculos/3/demos/5", None, 204),
+    ("DELETE", "/vehiculos/3/demos/5/movimientos/11", None, 204),
+)
+
+
+def fake_settings(key: str) -> Settings:
+    return Settings(
+        _env_file=None, app_name="API de pruebas", app_env="development",
+        db_host="database.example.invalid", db_port=3306, db_name="security_test",
+        db_user="test_user", db_password=SecretStr("db-ficticio-no-utilizable"),
+        api_key=SecretStr(key),
+    )
+
+
+class SecurityHTTPTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.settings = fake_settings(TEST_KEY)
+        self.application = FastAPI()
+        for module in (health, vehicles, commands, state, history, movement, demos, demo_execution):
+            self.application.include_router(module.router)
+        register_exception_handlers(self.application)
+        self.application.dependency_overrides[get_settings] = lambda: self.settings
+        self.vehicle = Mock(spec=VehicleService)
+        self.vehicle.list.return_value = []
+        self.vehicle.get.return_value = VehicleResponse(
+            id_vehiculo=3, nombre="Vehículo ficticio", modelo=None, descripcion=None,
+            microcontrolador=None, fecha_registro=None, activo=True,
+        )
+        self.vehicle.delete.return_value = None
+        self.command = Mock(spec=CommandService)
+        self.command.list_for_vehicle.return_value = []
+        self.command.delete.return_value = None
+        self.demo = Mock(spec=DemoService)
+        self.demo.list_for_vehicle.return_value = []
+        self.demo.delete.return_value = None
+        self.demo_movement = Mock(spec=DemoMovementService)
+        self.demo_movement.list_for_demo.return_value = []
+        self.demo_movement.delete.return_value = None
+        self.state = Mock(spec=StateService)
+        self.state.get.return_value = None
+        self.history = Mock(spec=HistoryService)
+        self.history.list_for_vehicle.return_value = []
+        self.health = Mock(spec=DatabaseHealthService)
+        self.health.check.return_value = None
+        self.movement = Mock(spec=MovementService)
+        self.movement.execute.return_value = MovementResponse(
+            resultado="ok", id_vehiculo=3, id_comando=7, comando="REVERSA", codigo=-5,
+            fecha_actualizacion=datetime(2026, 10, 14, 12, 30), conectado=False, origen="API",
+        )
+        self.publisher = SimpleNamespace(publish=AsyncMock())
+        self.execution_service = Mock(spec=DemoExecutionService)
+        self.execution_manager = SimpleNamespace(
+            start=AsyncMock(return_value=DemoExecutionResponse(id_vehiculo=3, id_demo=5, estado="iniciada")),
+            cancel=AsyncMock(return_value=DemoExecutionResponse(id_vehiculo=3, id_demo=5, estado="cancelada")),
+        )
+        overrides = {
+            vehicles.get_vehicle_service: self.vehicle,
+            commands.get_command_service: self.command,
+            demos.get_demo_service: self.demo,
+            demos.get_demo_movement_service: self.demo_movement,
+            state.get_state_service: self.state,
+            history.get_history_service: self.history,
+            health.get_database_health_service: self.health,
+            movement.get_movement_service: self.movement,
+            get_movement_publisher: self.publisher,
+            demo_execution.get_demo_execution_service: self.execution_service,
+            get_demo_execution_manager: self.execution_manager,
+        }
+        for dependency, value in overrides.items():
+            self.application.dependency_overrides[dependency] = self.provider(value)
+        for target in ("app.config.settings.Settings", "app.database.connection.pymysql.connect"):
+            guard = patch(target, side_effect=AssertionError("La prueba no puede cargar .env ni usar RDS."))
+            guarded = guard.start()
+            self.addCleanup(guard.stop)
+            self.addCleanup(guarded.assert_not_called)
+
+    @staticmethod
+    def provider(value):
+        def dependency():
+            return value
+        return dependency
+
+    def business_mocks(self):
+        return (
+            self.vehicle, self.command, self.demo, self.demo_movement, self.state,
+            self.history, self.health, self.movement, self.execution_service,
+            self.publisher.publish, self.execution_manager.start, self.execution_manager.cancel,
+        )
+
+    def reset_business_mocks(self):
+        for mock in self.business_mocks():
+            mock.reset_mock()
+
+    def assert_no_business_calls(self):
+        for mock in self.business_mocks():
+            self.assertEqual(mock.mock_calls, [])
+
+    async def request(self, method, path, payload=None, headers=()):
+        body = b"" if payload is None else json.dumps(payload).encode("utf-8")
+        response_messages = []
+        received = False
+
+        async def receive():
+            nonlocal received
+            if received:
+                return {"type": "http.disconnect"}
+            received = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        async def send(message):
+            response_messages.append(message)
+
+        scope = {
+            "type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1", "method": method, "scheme": "http", "path": path,
+            "raw_path": path.encode("ascii"), "query_string": b"", "root_path": "",
+            "headers": [(b"content-type", b"application/json"), *((name.lower(), value) for name, value in headers)],
+            "client": ("test.invalid", 50000), "server": ("test.invalid", 80),
+        }
+        await self.application(scope, receive, send)
+        start = next(message for message in response_messages if message["type"] == "http.response.start")
+        self.response_headers = dict(start["headers"])
+        content = b"".join(message.get("body", b"") for message in response_messages if message["type"] == "http.response.body")
+        return start["status"], content
+
+    async def test_all_seven_protected_routes_require_header_and_skip_business_execution(self):
+        for method, path, payload, _ in PROTECTED_ROUTES:
+            with self.subTest(path=path, method=method):
+                status, content = await self.request(method, path, payload)
+                self.assertEqual(status, 401)
+                self.assertTrue(self.response_headers[b"www-authenticate"].startswith(b"ApiKey"))
+                self.assertEqual(set(json.loads(content)), {"detail"})
+                self.assertNotIn(TEST_KEY.encode(), content)
+        self.assert_no_business_calls()
+
+    async def test_incorrect_and_present_empty_headers_are_403_on_all_seven_routes(self):
+        for value in (b"incorrecta-ficticia", b""):
+            for method, path, payload, _ in PROTECTED_ROUTES:
+                with self.subTest(path=path, value=value):
+                    status, content = await self.request(method, path, payload, [(b"x-api-key", value)])
+                    self.assertEqual(status, 403)
+                    self.assertEqual(set(json.loads(content)), {"detail"})
+                    self.assertNotIn(TEST_KEY.encode(), content)
+                    self.assertNotIn(b"incorrecta-ficticia", content)
+        self.assert_no_business_calls()
+
+    async def test_correct_key_preserves_normal_route_behavior_on_all_seven_operations(self):
+        for method, path, payload, expected in PROTECTED_ROUTES:
+            with self.subTest(path=path):
+                self.reset_business_mocks()
+                status, content = await self.request(method, path, payload, [(b"X-API-Key", TEST_KEY.encode())])
+                self.assertEqual(status, expected)
+                if method == "DELETE":
+                    self.assertEqual(content, b"")
+                elif path.endswith("/movimientos"):
+                    self.assertEqual(json.loads(content)["resultado"], "ok")
+                    self.movement.execute.assert_called_once()
+                    self.publisher.publish.assert_awaited_once()
+                elif path.endswith("/ejecutar"):
+                    self.assertEqual(json.loads(content)["estado"], "iniciada")
+                    self.execution_manager.start.assert_awaited_once_with(3, 5, self.execution_service)
+                else:
+                    self.assertEqual(json.loads(content)["estado"], "cancelada")
+                    self.execution_manager.cancel.assert_awaited_once_with(3, 5)
+                if method == "DELETE":
+                    self.assertEqual(sum(mock.delete.call_count for mock in (self.vehicle, self.command, self.demo, self.demo_movement)), 1)
+
+    async def test_duplicate_headers_are_rejected_even_when_both_values_are_correct(self):
+        for values in ((TEST_KEY.encode(), TEST_KEY.encode()), (TEST_KEY.encode(), b"incorrecta")):
+            for method, path, payload, _ in PROTECTED_ROUTES:
+                with self.subTest(path=path, values=values):
+                    status, _ = await self.request(method, path, payload, [(b"x-api-key", value) for value in values])
+                    self.assertEqual(status, 403)
+        self.assert_no_business_calls()
+
+    async def test_non_ascii_and_whitespace_candidates_fail_safely_without_normalization(self):
+        for value in (b"\xff", b" ", b" " + TEST_KEY.encode(), TEST_KEY.encode() + b" "):
+            with self.subTest(value=value):
+                status, content = await self.request("DELETE", "/vehiculos/3", headers=[(b"x-api-key", value)])
+                self.assertEqual(status, 403)
+                self.assertNotIn(TEST_KEY.encode(), content)
+        self.assert_no_business_calls()
+
+    async def test_missing_or_placeholder_server_configuration_fails_closed_before_business_calls(self):
+        for key in ("", "   ", "change-me", "changeme"):
+            self.settings = fake_settings(key)
+            for method, path, payload, _ in PROTECTED_ROUTES:
+                with self.subTest(configured=key, path=path):
+                    status, content = await self.request(method, path, payload, [(b"x-api-key", TEST_KEY.encode())])
+                    self.assertEqual(status, 503)
+                    self.assertNotIn(TEST_KEY.encode(), content)
+                    self.assertNotIn(b"change-me", content)
+        self.assert_no_business_calls()
+
+    async def test_public_gets_remain_accessible_without_key_even_when_not_configured(self):
+        self.settings = fake_settings("")
+        paths = (
+            "/", "/health/database", "/vehiculos", "/vehiculos/3", "/vehiculos/3/comandos",
+            "/vehiculos/3/estado", "/vehiculos/3/historial", "/vehiculos/3/demos",
+            "/vehiculos/3/demos/5/movimientos", "/docs", "/openapi.json",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                status, _ = await self.request("GET", path)
+                self.assertEqual(status, 200)
+
+    async def test_openapi_declares_exactly_seven_operations_with_header_scheme(self):
+        schema = self.application.openapi()
+        scheme = schema["components"]["securitySchemes"]["LocalApiKey"]
+        self.assertEqual({name: scheme[name] for name in ("type", "in", "name")}, {
+            "type": "apiKey", "in": "header", "name": "X-API-Key",
+        })
+        expected = {
+            ("/vehiculos/{id_vehiculo}/movimientos", "post"),
+            ("/vehiculos/{id_vehiculo}/demos/{id_demo}/ejecutar", "post"),
+            ("/vehiculos/{id_vehiculo}/demos/{id_demo}/cancelar", "post"),
+            ("/vehiculos/{id_vehiculo}", "delete"),
+            ("/vehiculos/{id_vehiculo}/comandos/{id_comando}", "delete"),
+            ("/vehiculos/{id_vehiculo}/demos/{id_demo}", "delete"),
+            ("/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos/{id_demo_movimiento}", "delete"),
+        }
+        secured = set()
+        for path, methods in schema["paths"].items():
+            for method, operation in methods.items():
+                if operation.get("security"):
+                    secured.add((path, method))
+                    self.assertEqual(operation["security"], [{"LocalApiKey": []}])
+                    self.assertTrue({"401", "403", "503"}.issubset(operation["responses"]))
+        self.assertEqual(secured, expected)
+        self.assert_no_business_calls()
+
+    async def test_authorization_uses_constant_time_comparison_of_bytes(self):
+        with patch("app.security.api_key.compare_digest", wraps=compare_digest) as compare:
+            status, _ = await self.request("DELETE", "/vehiculos/3", headers=[(b"x-api-key", TEST_KEY.encode())])
+            self.assertEqual(status, 204)
+            compare.assert_called_once_with(TEST_KEY.encode("utf-8"), TEST_KEY.encode("utf-8"))
+            self.reset_business_mocks()
+            compare.reset_mock()
+            status, _ = await self.request("DELETE", "/vehiculos/3", headers=[(b"x-api-key", b"\xff")])
+            self.assertEqual(status, 403)
+            compare.assert_called_once_with("ÿ".encode("utf-8"), TEST_KEY.encode("utf-8"))
+            self.assert_no_business_calls()
+
+    def test_configured_api_key_is_not_exposed_by_settings_representation(self):
+        self.assertNotIn(TEST_KEY, repr(self.settings))
+        self.assertNotIn(TEST_KEY, str(self.settings))
+        self.assertEqual(Settings.model_fields["api_key"].default.get_secret_value(), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

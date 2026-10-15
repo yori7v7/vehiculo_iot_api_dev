@@ -21,6 +21,7 @@ from app.errors.database import (
 from app.errors.handlers import register_exception_handlers
 from app.routers.commands import router as command_router
 from app.routers.vehicles import router as vehicle_router
+from app.security.api_key import require_api_key
 
 
 class MemoryDatabase:
@@ -170,6 +171,7 @@ class ResourceHTTPTests(unittest.IsolatedAsyncioTestCase):
         self.application.include_router(vehicle_router)
         self.application.include_router(command_router)
         self.application.dependency_overrides[get_database] = lambda: self.database
+        self.application.dependency_overrides[require_api_key] = lambda: None
 
         for module in ("vehicles", "commands"):
             executor_patch = patch(
@@ -412,6 +414,8 @@ class ResourceHTTPTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn("requestBody", operation)
                 if method == "delete":
                     self.assertNotIn("content", operation["responses"]["204"])
+                    self.assertIn("401", operation["responses"])
+                    self.assertIn("403", operation["responses"])
 
 
 if __name__ == "__main__":

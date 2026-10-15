@@ -39,10 +39,10 @@ def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
         title=settings.app_name,
-        version="0.6.0",
+        version="0.7.0",
         description=(
-            "API local para la práctica 2.5. Etapa 6: CRUD de DEMO y movimientos, "
-            "ejecución asíncrona y cancelación. Consultar README para eventos WebSocket."
+            "API local para la práctica 2.5. Operaciones de control y eliminación "
+            "protegidas mediante X-API-Key. Consultar README para WebSocket y pruebas funcionales."
         ),
         lifespan=lifespan,
         docs_url="/docs",

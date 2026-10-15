@@ -11,6 +11,7 @@ from app.execution.manager import DemoExecutionManager
 from app.models.common import EntityId, ErrorResponse
 from app.models.demo_execution import DemoExecutionResponse
 from app.services.demo_execution import DemoExecutionService
+from app.security.api_key import SECURITY_RESPONSES, require_api_key
 
 
 router = APIRouter(prefix="/vehiculos/{id_vehiculo}/demos/{id_demo}", tags=["DEMO"])
@@ -24,6 +25,7 @@ def get_demo_execution_service(
 
 @router.post(
     "/ejecutar", status_code=202, response_model=DemoExecutionResponse,
+    dependencies=[Depends(require_api_key)],
     summary="Iniciar DEMO en segundo plano",
     description=(
         "Sin cuerpo. Comprueba vehículo activo mediante sp_obtener_vehiculo y DEMO "
@@ -44,6 +46,7 @@ def get_demo_execution_service(
         409: {"model": ErrorResponse, "description": "Recurso inactivo, comando no disponible, secuencia vacía/incoherente o vehículo ocupado."},
         500: {"model": ErrorResponse, "description": "Datos o procedimiento inesperados."},
         503: {"model": ErrorResponse, "description": "Base de datos no disponible."},
+        **SECURITY_RESPONSES,
     },
 )
 async def execute_demo(
@@ -56,6 +59,7 @@ async def execute_demo(
 
 @router.post(
     "/cancelar", response_model=DemoExecutionResponse,
+    dependencies=[Depends(require_api_key)],
     summary="Cancelar la DEMO activa del vehículo",
     description=(
         "Sin cuerpo ni SP propio. Interrumpe inmediatamente las esperas de duración "
@@ -67,6 +71,8 @@ async def execute_demo(
     responses={
         200: {"description": "Ejecución recogida y vehículo liberado."},
         404: {"model": ErrorResponse, "description": "No hay ejecución activa de esa DEMO para ese vehículo."},
+        500: {"model": ErrorResponse, "description": "No fue posible procesar la cancelación."},
+        **SECURITY_RESPONSES,
     },
 )
 async def cancel_demo(

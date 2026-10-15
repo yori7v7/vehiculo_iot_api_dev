@@ -13,6 +13,7 @@ from app.dependencies import get_database
 from app.errors.handlers import register_exception_handlers
 from app.models.movement import MovementResponse
 from app.routers.movement import router
+from app.security.api_key import require_api_key
 from app.websocket.events import MovementEvent
 from app.websocket.manager import WebSocketManager
 
@@ -65,6 +66,7 @@ class MovementWebSocketTests(movement_tests.MovementFixture, unittest.IsolatedAs
         self.application.include_router(router)
         register_exception_handlers(self.application)
         self.application.dependency_overrides[get_database] = lambda: self.database
+        self.application.dependency_overrides[require_api_key] = lambda: None
         self.addAsyncCleanup(self.manager.close_all)
         # MovementFixture crea Settings(_env_file=None) con datos ficticios.
         # Ninguna dependencia HTTP debe volver a cargar Settings desde .env.

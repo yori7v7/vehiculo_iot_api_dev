@@ -9,6 +9,7 @@ from app.dependencies import get_database
 from app.models.commands import CommandCreate, CommandResponse, CommandUpdate
 from app.models.common import ErrorResponse, INT_MAX
 from app.services.commands import CommandService
+from app.security.api_key import SECURITY_RESPONSES, require_api_key
 
 
 router = APIRouter(prefix="/vehiculos/{id_vehiculo}/comandos", tags=["Comandos"])
@@ -128,6 +129,7 @@ def update_command(
     "/{id_comando}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    dependencies=[Depends(require_api_key)],
     summary="Eliminar un comando del vehículo",
     description=(
         "Comprueba el padre con sp_obtener_vehiculo(p_id_vehiculo), verifica la "
@@ -139,6 +141,7 @@ def update_command(
     responses={
         **WRITE_ERRORS,
         204: {"description": "Comando eliminado; respuesta sin contenido."},
+        **SECURITY_RESPONSES,
     },
 )
 def delete_command(

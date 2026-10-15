@@ -27,6 +27,7 @@ from app.models.common import INT_MAX
 from app.models.movement import MovementRequest
 from app.routers.movement import router
 from app.services.movement import MovementService
+from app.security.api_key import require_api_key
 
 
 DATABASE_TIMESTAMP = datetime(2026, 10, 14, 12, 30, 45)
@@ -470,6 +471,7 @@ class MovementHttpTests(MovementFixture, unittest.IsolatedAsyncioTestCase):
         self.application.include_router(router)
         register_exception_handlers(self.application)
         self.application.dependency_overrides[get_database] = lambda: self.database
+        self.application.dependency_overrides[require_api_key] = lambda: None
 
     async def request_http(self, path, payload):
         body = json.dumps(payload).encode("utf-8")
@@ -549,7 +551,7 @@ class MovementHttpTests(MovementFixture, unittest.IsolatedAsyncioTestCase):
         schema = self.application.openapi()
         operation = schema["paths"]["/vehiculos/{id_vehiculo}/movimientos"]["post"]
         self.assertEqual(operation["tags"], ["Movimientos"])
-        self.assertEqual(set(operation["responses"]), {"200", "404", "409", "422", "500", "503"})
+        self.assertEqual(set(operation["responses"]), {"200", "401", "403", "404", "409", "422", "500", "503"})
         for name in (
             "sp_obtener_vehiculo", "sp_obtener_comandos_vehiculo", "sp_obtener_estado",
             "sp_actualizar_estado", "sp_registrar_historial",

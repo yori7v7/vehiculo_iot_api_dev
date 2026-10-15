@@ -5,7 +5,7 @@ Pydantic y una arquitectura por capas, preparada para utilizar los Stored
 Procedures de Amazon RDS MySQL. La API se ejecuta localmente en
 <http://localhost:8000>; la infraestructura remota prevista se limita a RDS.
 
-## Estado al terminar la sexta etapa
+## Estado de la etapa 7
 
 Implementado: configuración mediante variables de entorno, modelo Pydantic de
 salud, router independiente, punto de entrada mínimo, Swagger UI, conexión a RDS,
@@ -16,14 +16,16 @@ con actualización de estado y registro de historial atómicos. El WebSocket
 por vehículo envía el estado inicial desde RDS y difunde movimientos confirmados.
 También están implementados el CRUD de DEMO y sus movimientos, la ejecución
 asíncrona, la cancelación lógica y los cinco eventos de ejecución por WebSocket.
+Las operaciones de control y todas las eliminaciones se protegen con una API
+key local mediante una dependencia reutilizable y el header `X-API-Key`.
 El arranque y GET `/` no abren conexiones a RDS. GET `/health/database` sí abre
 una conexión y ejecuta exclusivamente un SP de lectura.
 
 Se utilizan funcionalmente los **21 SP existentes**, conservando su definición
-SQL; ver [auditoría de integración](docs/auditoria_sp.md). Pendiente de etapas posteriores:
-autenticación/autorización. No se controla hardware físico.
-En esta etapa, las comprobaciones reales contra RDS son exclusivamente de
-lectura; la Prueba Funcional 1 de movimiento real queda pendiente.
+SQL; ver [auditoría de integración](docs/auditoria_sp.md). No se controla hardware
+físico. Las comprobaciones reales contra RDS de esta etapa son exclusivamente
+de lectura. Las **tres pruebas oficiales de Thunder Client siguen pendientes**:
+no se ha ejecutado el POST real de movimiento ni una DEMO real mediante la API.
 
 ## Requisitos e instalación en Windows
 
@@ -56,8 +58,8 @@ intérprete, sin modificar políticas de ejecución:
 standard, Pydantic, pydantic-settings y PyMySQL con soporte RSA. PyMySQL queda
 como driver de RDS MySQL: es síncrono y su API permite gestionar explícitamente
 una conexión y sus transacciones. Se reutiliza la versión 1.2.3 instalada en la
-etapa 1, sin agregar dependencias en esta etapa. La conexión real se verificó
-con Python 3.14.8.
+etapa 1. La seguridad utiliza FastAPI y la biblioteca estándar, sin añadir
+dependencias. La conexión real se verificó con Python 3.14.8.
 
 ## Configuración local
 
@@ -78,14 +80,16 @@ if (-not (Test-Path -LiteralPath .env)) {
 | `DB_NAME` | Base de datos existente | vehiculo_iot |
 | `DB_USER` | Usuario real de RDS | Vacío |
 | `DB_PASSWORD` | Contraseña real de RDS | Vacío |
+| `API_KEY` | Clave privada para control y eliminación | `change-me`, marcador que debe reemplazarse sólo en `.env` |
 | `DB_SSL_CA` | CA pública de RDS, ruta absoluta o relativa al proyecto | .certs/rds-global-bundle.pem |
 | `DB_CONNECT_TIMEOUT` | Espera máxima de conexión, segundos (1–60) | 5 |
 | `DB_READ_TIMEOUT` | Espera máxima de lectura, segundos (1–120) | 10 |
 | `DB_WRITE_TIMEOUT` | Espera máxima de escritura, segundos (1–120) | 10 |
 
 La clase `Settings` lee `.env` desde la raíz del proyecto y valida sus valores.
-Las variables del proceso tienen prioridad sobre el archivo. La contraseña usa
-`SecretStr` y no se devuelve en las respuestas. Las credenciales vacías permiten
+Las variables del proceso tienen prioridad sobre el archivo. La contraseña y
+la API key usan `SecretStr`, se excluyen de la representación de configuración
+y no se devuelven en las respuestas. Las credenciales RDS vacías permiten
 verificar GET `/`, pero el diagnóstico de base de datos devolverá 503. Los
 timeouts y la ruta de CA son opcionales; el `.env` existente no necesita cambios
 si se aceptan los valores predeterminados. Reiniciar el servidor después de editar `.env`, ya
@@ -108,6 +112,92 @@ la verificación TLS como alternativa.
 Completar datos reales únicamente en `.env`. Git excluye `.env`, sus variantes,
 `.venv`, cachés, claves privadas y temporales. No incluir secretos en código,
 README, capturas, logs ni commits. `.env.example` debe permanecer sin secretos.
+
+## Seguridad y autorización local
+
+Configurar `API_KEY` con una clave privada local dentro de `.env`. El valor
+`change-me` de `.env.example` es un marcador público y no autoriza solicitudes.
+La clave real no se copia al código, tests, README ni archivos exportados.
+Reiniciar Uvicorn después de cambiarla para recargar la configuración.
+
+En una copia nueva, después de crear `.env`, este comando genera la clave sin
+imprimirla. Conserva una clave existente y sólo reemplaza un valor vacío o un
+marcador público; si hay definiciones duplicadas se detiene sin escribir:
+
+```powershell
+@'
+from pathlib import Path
+import re
+import secrets
+import shlex
+
+path = Path(".env")
+if not path.is_file():
+    raise SystemExit("Primero crea .env a partir de .env.example.")
+lines = path.read_text(encoding="utf-8-sig").splitlines()
+indices = [i for i, line in enumerate(lines)
+           if re.match(r"^\s*(?:export\s+)?API_KEY\s*=", line, re.IGNORECASE)]
+if len(indices) > 1:
+    raise SystemExit("API_KEY está duplicada; revisa .env sin compartir sus valores.")
+if indices:
+    raw = lines[indices[0]].split("=", 1)[1].strip()
+    try:
+        parts = shlex.split(raw, comments=True)
+    except ValueError:
+        raise SystemExit("Revisa el formato de API_KEY en .env sin compartir su valor.")
+    value = "" if not parts else (parts[0] if len(parts) == 1 else raw)
+    if value.lower() not in {"", "change-me", "changeme"}:
+        raise SystemExit("Se conserva la clave local existente; no se muestra.")
+    lines[indices[0]] = "API_KEY=" + secrets.token_urlsafe(32)
+else:
+    lines.append("API_KEY=" + secrets.token_urlsafe(32))
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+print("API_KEY configurada únicamente en .env; su valor no se muestra.")
+'@ | .\.venv\Scripts\python.exe -
+```
+
+Esta autorización compartida se aplica a exactamente siete operaciones:
+
+| Método | Ruta protegida | Éxito |
+| --- | --- | --- |
+| POST | `/vehiculos/{id_vehiculo}/movimientos` | 200 |
+| POST | `/vehiculos/{id_vehiculo}/demos/{id_demo}/ejecutar` | 202 |
+| POST | `/vehiculos/{id_vehiculo}/demos/{id_demo}/cancelar` | 200 |
+| DELETE | `/vehiculos/{id_vehiculo}` | 204 sin cuerpo |
+| DELETE | `/vehiculos/{id_vehiculo}/comandos/{id_comando}` | 204 sin cuerpo |
+| DELETE | `/vehiculos/{id_vehiculo}/demos/{id_demo}` | 204 sin cuerpo |
+| DELETE | `/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos/{id_demo_movimiento}` | 204 sin cuerpo |
+
+Los GET, Swagger y el WebSocket de monitoreo siguen siendo públicos dentro de
+esta API local. Los POST de configuración de catálogos y los PUT conservan su
+comportamiento actual. Consultar la API o abrir un WebSocket no autoriza a
+controlar un vehículo ni cambia su estado persistido.
+
+Con una clave válida configurada, cada operación protegida exige un único
+header `X-API-Key`:
+
+```text
+X-API-Key: <clave local>
+```
+
+- Header ausente: **401 Unauthorized**.
+- Header presente pero incorrecto, vacío o duplicado: **403 Forbidden**.
+- Con un header único no vacío, si `API_KEY` está configurada vacía o con los
+  marcadores `change-me`/`changeme`: **503 Service Unavailable**; el control
+  queda bloqueado hasta corregirla.
+
+Estos fallos devuelven un mensaje público sanitizado, sin mostrar la clave
+esperada ni el valor recibido. Una solicitud rechazada no ejecuta el flujo de
+control o eliminación.
+
+En [Swagger UI](http://localhost:8000/docs), pulsar **Authorize** y completar
+el esquema **LocalApiKey** con la clave local, sin prefijo `Bearer`. Swagger
+envía `X-API-Key` en las operaciones protegidas y muestra sus candados. En
+Thunder Client, agregar el mismo header únicamente a las solicitudes que lo
+requieren. No colocar la clave en la URL, query string ni cuerpo JSON; ocultarla
+en capturas y quitarla antes de exportar una colección. En esta etapa se puede
+revisar la interfaz de autorización, pero **no ejecutar operaciones reales de
+escritura** desde Swagger o Thunder Client.
 
 ## Ejecutar FastAPI localmente
 
@@ -142,6 +232,12 @@ El servidor escucha en la interfaz local. Detenerlo con `Ctrl+C`.
 | GET | `/vehiculos/{id_vehiculo}/estado` | Consultar estado almacenado | 200, `StateResponse` o null; 404 | `sp_obtener_vehiculo` y `sp_obtener_estado` |
 | GET | `/vehiculos/{id_vehiculo}/historial` | Consultar hasta diez registros recientes | 200, lista de `HistoryResponse`; 404 | `sp_obtener_vehiculo` y `sp_obtener_historial` |
 | POST | `/vehiculos/{id_vehiculo}/movimientos` | Registrar un movimiento de un comando existente | 200, `MovementResponse`; 404/409 | Lecturas de vehículo/comandos/estado, `sp_actualizar_estado`, `sp_registrar_historial` y relectura de estado |
+
+Las tablas resumen éxito y errores de negocio. Swagger declara los errores
+relevantes de cada operación, incluidos 422, 500 y 503 cuando corresponden.
+Las siete operaciones de la sección de seguridad añaden 401/403 y el fallo
+503 de configuración de autorización; las consultas no requieren API key.
+La [auditoría HTTP](docs/auditoria_http.md) detalla los códigos por operación.
 
 GET `/` no requiere parámetros ni cuerpo. Con la configuración inicial responde:
 
@@ -266,9 +362,14 @@ Ruta: **POST `/vehiculos/{id_vehiculo}/movimientos`**. Usa un comando existente
 del catálogo; no crea un comando. Cuerpo mínimo, mostrado sólo para preparar la
 futura prueba, sin ejecutarlo contra RDS durante esta etapa:
 
-```json
-{"id_comando": 1}
+```text
+{"id_comando": <id_comando_real_del_catalogo>}
 ```
+
+La plantilla se completa con un entero obtenido de GET
+`/vehiculos/{id_vehiculo}/comandos`; el marcador no es JSON ejecutable.
+La solicitud requiere `X-API-Key`. No se supone que un comando tenga el mismo
+ID en distintos vehículos.
 
 `MovementRequest` sólo admite `id_comando`, entero JSON estricto positivo hasta
 2147483647. Rechaza valores booleanos, conversiones de texto/flotantes y campos
@@ -312,7 +413,8 @@ la orden persistida; no confirma que el hardware la haya ejecutado físicamente.
 
 ## Arquitectura
 
-Se conservan todas las carpetas iniciales y se incorpora `app/errors/`.
+Se conservan las carpetas iniciales y se añaden las capas `app/errors/`,
+`app/execution/` y `app/security/` para errores, ejecución y autorización.
 
 ```text
 app/
@@ -324,7 +426,7 @@ app/
 ├── errors/
 │   ├── database.py       # Excepciones controlables sin datos sensibles
 │   ├── domain.py         # Recursos inexistentes
-│   └── handlers.py       # Traducción HTTP 404/409/500/503
+│   └── handlers.py       # Traducción de errores de dominio y persistencia
 ├── models/
 │   ├── common.py         # IDs, solicitudes sin extras y error público
 │   ├── health.py         # Salud HTTP y RDS
@@ -363,6 +465,8 @@ app/
 ├── execution/
 │   ├── manager.py        # DemoExecutionManager: tareas, tiempos y cancelación
 │   └── dependencies.py   # Manager por aplicación
+├── security/
+│   └── api_key.py        # Dependencia require_api_key y esquema LocalApiKey
 ├── websocket/
 │   ├── events.py         # Modelos de estado_actual y movimiento
 │   ├── manager.py        # WebSocketManager: clientes y difusión por vehículo
@@ -450,7 +554,7 @@ repositorio, define las seis tablas y los 21 Stored Procedures existentes de
 `vehiculo_iot`. Debe consultarse antes de implementar acceso a datos; no ejecutar
 el script para arrancar esta API ni alterar la estructura de RDS.
 
-Los tags Salud, Vehículos, Comandos, Estado, Historial y Movimientos están
+Los tags Salud, Vehículos, Comandos, Estado, Historial, Movimientos y DEMO están
 disponibles en Swagger. WebSocket se documenta a continuación porque OpenAPI
 no representa una suscripción como un endpoint HTTP convencional.
 
@@ -459,6 +563,8 @@ no representa una suscripción como un endpoint HTTP convencional.
 URL exacta: **`ws://localhost:8000/ws/vehiculos/{id_vehiculo}`**.
 Ejemplo de lectura: `ws://localhost:8000/ws/vehiculos/1`.
 `id_vehiculo` debe ser un entero positivo de hasta 2147483647.
+Esta suscripción pública de monitoreo no requiere API key; nunca añadir la
+clave a la URL del WebSocket.
 
 Al conectar, la ruta reutiliza `StateService.get`: comprueba el vehículo con
 `sp_obtener_vehiculo` y consulta `sp_obtener_estado` en la misma transacción
@@ -567,6 +673,8 @@ Esta comprobación sólo lee. No ejecutar el POST real durante esta etapa.
 
 Todos los endpoints siguientes aparecen bajo el tag **DEMO** de Swagger.
 `id_vehiculo`, `id_demo` e `id_demo_movimiento` son IDs positivos INT.
+Iniciar, cancelar y ambos DELETE requieren `X-API-Key`; los GET, POST de
+configuración y PUT conservan el acceso descrito en la sección de seguridad.
 
 | Método | Ruta exacta | Éxito | SP principal |
 | --- | --- | --- | --- |
@@ -614,7 +722,8 @@ internos. Entradas inválidas producen 422 y errores de infraestructura 500/503.
 
 ### Inicio, orden y tiempos
 
-El POST de ejecución no recibe cuerpo. `DemoExecutionService.prepare` consulta
+El POST de ejecución requiere `X-API-Key` y no recibe cuerpo.
+`DemoExecutionService.prepare` consulta
 el vehículo, DEMO, comandos y **N pasos de `sp_obtener_movimientos_demo`** en una
 transacción READ ONLY. Valida activo, propiedad, secuencia no vacía y coherencia
 del comando. No hay IDs, códigos, seis pasos ni tiempos de la DEMO real en el
@@ -686,7 +795,7 @@ Todos los suscriptores del vehículo reciben sus eventos; los de otros vehículo
 quedan aislados. La ausencia o desconexión de clientes no detiene la DEMO;
 un fallo de entrega no revierte persistencia ni afecta a los demás clientes.
 
-POST `.../cancelar`, sin cuerpo, interrumpe las esperas de duración/pausa y evita
+POST `.../cancelar`, con `X-API-Key` y sin cuerpo, interrumpe las esperas de duración/pausa y evita
 iniciar más pasos. Si una operación MySQL ya está en curso, se señala cancelación
 cooperativa antes de actualizar y antes del commit cuando todavía es posible;
 se espera a su rollback/cierre o al cierre de un commit que ya haya empezado.
@@ -710,6 +819,27 @@ instancia de Uvicorn, sin coordinación distribuida ni reanudación tras reinici
 Durante esta etapa las escrituras y ejecuciones se verifican sólo mediante
 fakes. **No ejecutar una DEMO real ni POST, PUT o DELETE contra RDS todavía.**
 
+### DETENER y prioridad de cancelación
+
+DETENER es un comando ya existente del catálogo. Para utilizarlo se consulta
+GET `/vehiculos/{id_vehiculo}/comandos`, se identifica su fila y se toma su
+`id_comando` real. Se envía ese ID mediante el mismo POST
+`/vehiculos/{id_vehiculo}/movimientos`, con `X-API-Key`; no existe un ID fijo
+de DETENER para todos los vehículos ni se crea un comando nuevo.
+
+Si hay una DEMO activa, primero se solicita POST
+`/vehiculos/{id_vehiculo}/demos/{id_demo}/cancelar` y se espera su **200**.
+Esa respuesta confirma que la tarea y cualquier operación MySQL en curso se
+recogieron y que el vehículo quedó liberado. No iniciar otra secuencia antes
+de completar esta cancelación.
+
+Sólo si el usuario solicita explícitamente un movimiento DETENER se envía
+después el POST individual con el ID leído del catálogo. Ese movimiento sí
+registra una fila individual con `origen="API"`. La cancelación por sí sola
+no actualiza estado a un comando supuesto, no llama `sp_registrar_historial`
+y no añade un DETENER al historial. Es una cancelación lógica; todavía no
+representa una parada física del ESP8266.
+
 ## Manejo de errores
 
 La configuración con tipos o rangos inválidos impide el arranque; revisar la
@@ -725,22 +855,31 @@ valores de conexión, parámetros SQL ni mensajes originales. El diagnóstico
 traduce estos fallos a 503 con un detalle público fijo. GET `/` puede seguir
 respondiendo aunque RDS no esté disponible.
 
-Los catálogos ya utilizan estos códigos:
+Los códigos se utilizan según el flujo; no se fuerzan respuestas que no
+corresponden a una operación:
 
+- 200: consulta, actualización, movimiento individual confirmado o cancelación.
+- 201: creación de un recurso de catálogo.
+- 202: DEMO validada y aceptada para ejecución asíncrona; no acredita finalización.
+- 204: eliminación exitosa, sin cuerpo.
+- 401: falta `X-API-Key` en una operación protegida, con autorización configurada.
+- 403: header proporcionado pero incorrecto, vacío o duplicado.
 - 422: entrada inválida, campos adicionales o IDs fuera de rango.
 - 404: vehículo inexistente o comando que no pertenece al vehículo indicado.
 - 409: duplicado MySQL (1062), conflicto de referencia (1451/1452) o vehículo/
   comando inactivo al solicitar un movimiento (`ResourceConflictError`).
-- 503: configuración/conexión no disponible, desconexión durante el SP o fallo
-  al completar la transacción.
+- 503: autorización sin clave utilizable, configuración/conexión no disponible,
+  desconexión durante el SP o fallo al completar la transacción.
 - 500: fallo de procedimiento o estructura de resultados inesperada.
 
 Los manejadores de `app/errors/handlers.py` devuelven únicamente `detail` con
 un mensaje público. Las filas que no se ajustan al modelo se rechazan dentro de
 la transacción, antes de confirmar una escritura. Las colecciones válidas
-vacías son listas vacías con 200. Autenticación/autorización queda pendiente.
+vacías son listas vacías con 200. La dependencia reutilizable
+`app/security/api_key.py` gestiona la autorización sin repetir comprobaciones
+en cada handler. Los rechazos de seguridad tampoco revelan credenciales.
 
-## Comprobaciones de esta etapa
+## Verificación de lectura y pruebas automatizadas
 
 Con el servidor activo:
 
@@ -754,6 +893,11 @@ if ($vehiculos.Count -gt 0) {
     Invoke-RestMethod -Uri "http://localhost:8000/vehiculos/$idVerificado/comandos"
     Invoke-RestMethod -Uri "http://localhost:8000/vehiculos/$idVerificado/estado"
     Invoke-RestMethod -Uri "http://localhost:8000/vehiculos/$idVerificado/historial"
+    $demosLeidas = @(Invoke-RestMethod -Uri "http://localhost:8000/vehiculos/$idVerificado/demos")
+    if ($demosLeidas.Count -gt 0) {
+        $idDemoLeida = $demosLeidas[0].id_demo
+        Invoke-RestMethod -Uri "http://localhost:8000/vehiculos/$idVerificado/demos/$idDemoLeida/movimientos"
+    }
 }
 (Invoke-WebRequest -Uri http://localhost:8000/docs).StatusCode
 (Invoke-RestMethod -Uri http://localhost:8000/openapi.json).info.title
@@ -761,11 +905,12 @@ git check-ignore .env .venv app/__pycache__
 git status --short --branch
 ```
 
-En Swagger se muestran Salud, Vehículos, Comandos, Estado, Historial y
-Movimientos, con modelos de solicitud/respuesta, parámetros y los SP de cada
+En Swagger se muestran Salud, Vehículos, Comandos, Estado, Historial,
+Movimientos y DEMO, con modelos de solicitud/respuesta, parámetros y los SP de cada
 operación. La descripción del POST documenta explícitamente la transacción de
 estado más historial, con un solo commit y rollback conjunto. Para esta
-comprobación real usar **Try it out** → **Execute** sólo en los GET. El ID debe
+comprobación real usar **Try it out** → **Execute** sólo en los GET. Se puede
+revisar **Authorize / LocalApiKey** sin enviar una operación protegida. El ID debe
 tomarse del listado existente, sin suponerlo. Se verifican listado de vehículos,
 detalle de uno existente, sus comandos, estado e historial contra RDS, además
 de salud y Swagger. No se ejecuta el POST real ni se insertan, actualizan o
@@ -787,6 +932,8 @@ repositorios reales con una conexión/cursores simulados y snapshots para
 verificar commit único, rollback de ambas escrituras, fallo durante drenado,
 relectura o commit y conservación de conectado. No ejecutan escrituras en RDS.
 
+### Evidencia histórica de la etapa 5
+
 En la etapa 5 pasaron **226 pruebas: 174 anteriores y 52 nuevas** de
 WebSocket y publicación después del commit. Se comprueban suscripciones ASGI, modelos,
 clientes simultáneos, aislamiento por vehículo, desconexión/reconexión, timeouts,
@@ -794,7 +941,7 @@ limpieza y entrega inicial sin escrituras. Las pruebas POST + WebSocket usan
 el servicio y transacciones simuladas: observan commit y cierre antes del envío,
 ningún evento tras rollback y éxito HTTP aunque falle un cliente o no haya ninguno.
 
-La comprobación real de esta etapa devolvió 200 en GET `/`, `/health/database`,
+La comprobación real de la etapa 5 devolvió 200 en GET `/`, `/health/database`,
 `/docs`, `/openapi.json` y `/vehiculos/1/estado`. Swagger cargó su interfaz con
 versión 0.5.0 y todos los tags HTTP. Una conexión real a
 `ws://localhost:8000/ws/vehiculos/1` recibió `estado_actual` desde RDS, cuyo
@@ -862,6 +1009,57 @@ La [auditoría de los 21 SP](docs/auditoria_sp.md) muestra repositorio, servicio
 endpoint/flujo para cada procedimiento. Esto acredita la integración de código
 y pruebas aisladas; la ejecución real y las pruebas funcionales oficiales
 siguen pendientes.
+
+## Verificación de la etapa 7
+
+Resultado: **326 pruebas aprobadas: 306 anteriores y 20 nuevas**. Las nuevas
+incluyen diez pruebas de seguridad y diez de auditoría HTTP/OpenAPI. Se
+verifican los siete endpoints protegidos, 401/403/503, ausencia de filtración
+en errores, acceso público de lectura y esquema `LocalApiKey`. La regresión
+usa conexiones y servicios simulados, sin escrituras reales en RDS.
+
+Las comprobaciones reales de lectura devolvieron 200:
+
+| Lectura | Resultado observado |
+| --- | --- |
+| GET `/` y `/health/database` | Proceso y lectura RDS disponibles |
+| GET `/vehiculos` y `/vehiculos/1` | Vehículo 1: Mini RC Forklift IoT |
+| GET `/vehiculos/1/comandos` | 11 comandos; DETENER identificado en su catálogo real |
+| GET `/vehiculos/1/estado` | Estado sin cambios |
+| GET `/vehiculos/1/historial` | Los cinco registros permanecen idénticos |
+| GET `/vehiculos/1/demos` | Una DEMO activa: ID 1, Demo programada |
+| GET `/vehiculos/1/demos/1/movimientos` | Seis movimientos intactos |
+| GET `/docs` y `/openapi.json` | Versión 0.7.0 y esquema de seguridad |
+
+Swagger mostró **Authorize / LocalApiKey** y los candados de las siete
+operaciones protegidas. `pip check` no encontró dependencias incompatibles;
+`requirements.txt` y `.gitignore` conservaron su contenido auditado. Las
+auditorías de [HTTP](docs/auditoria_http.md) y [los 21 SP](docs/auditoria_sp.md)
+documentan la correspondencia con los flujos reales.
+
+La API key privada se configuró sólo en `.env`, sin mostrarla. Durante esta
+etapa no se ejecutó movimiento individual, DEMO, DELETE, PUT ni creación real.
+El historial y la configuración de DEMO permanecen conservados para las
+evidencias oficiales. La auditoría final no detectó exposición de secretos en
+archivos ni en el historial local de Git. `.env`, `.venv`, cachés y temporales
+siguen excluidos; código y README permanecen incluidos. El commit se conserva
+localmente, sin push ni despliegue.
+
+## Preparación de las tres pruebas oficiales
+
+Estado: **pendientes, no ejecutadas en la etapa 7**. La guía
+[pruebas funcionales con Thunder Client](docs/pruebas_funcionales.md) prepara
+las solicitudes y evidencias sin generar datos ni iniciar escrituras.
+
+| Prueba | Solicitud principal | Comprobación prevista |
+| --- | --- | --- |
+| 1 | POST `/vehiculos/{id_vehiculo}/movimientos`, con `X-API-Key` | 200, estado correcto y un nuevo registro individual API |
+| 2 | GET `/vehiculos/{id_vehiculo}/historial`, público | Hasta diez registros, orden descendente y sin borrar los anteriores |
+| 3 | `ws://localhost:8000/ws/vehiculos/{id_vehiculo}` + POST `/vehiculos/{id_vehiculo}/demos/{id_demo}/ejecutar`, con `X-API-Key` en el POST | Estado inicial, inicio, N movimientos ordenados, finalización y mismo historial antes/después |
+
+El POST de inicio forma parte de la tercera prueba. No representa una cuarta
+prueba. La API key se introduce sólo en la interfaz local y no se muestra en
+evidencias ni exportaciones. La secuencia e IDs se obtienen de los GET reales.
 
 ## Git
 

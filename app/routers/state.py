@@ -35,7 +35,6 @@ def get_state_service(
     responses={
         200: {"description": "Estado almacenado o null si todavía no existe una fila de estado."},
         404: {"model": ErrorResponse, "description": "El vehículo no existe."},
-        422: {"description": "El ID debe ser un entero positivo de hasta 2147483647."},
         500: {"model": ErrorResponse, "description": "El SP falló o devolvió datos inesperados."},
         503: {"model": ErrorResponse, "description": "La base de datos no está disponible o configurada."},
     },

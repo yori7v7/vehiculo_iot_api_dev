@@ -402,6 +402,8 @@ class VehicleRouterTests(unittest.TestCase):
             self.assertEqual(parameter["exclusiveMinimum"], 0)
             self.assertEqual(parameter["maximum"], INT_MAX)
         self.assertIn("409", item["delete"]["responses"])
+        self.assertIn("401", item["delete"]["responses"])
+        self.assertIn("403", item["delete"]["responses"])
         self.assertNotIn("409", collection["post"]["responses"])
         self.assertNotIn("409", item["put"]["responses"])
         update_schema = schema["components"]["schemas"]["VehicleUpdate"]

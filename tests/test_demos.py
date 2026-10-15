@@ -27,6 +27,7 @@ from app.models.demos import (
 )
 from app.repositories.demos import DemoMovementRepository, DemoRepository
 from app.routers.demos import router
+from app.security.api_key import require_api_key
 from app.services.demos import DemoMovementService, DemoService
 
 
@@ -568,6 +569,7 @@ class DemoHttpTests(DemoFixture, unittest.IsolatedAsyncioTestCase):
         self.application.include_router(router)
         register_exception_handlers(self.application)
         self.application.dependency_overrides[get_database] = lambda: self.database
+        self.application.dependency_overrides[require_api_key] = lambda: None
 
     async def request(self, method, path, payload=None):
         body = b"" if payload is None else json.dumps(payload).encode("utf-8")
@@ -710,8 +712,13 @@ class DemoHttpTests(DemoFixture, unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(operation["tags"], ["DEMO"])
                 self.assertIn(procedure, operation["description"])
                 self.assertTrue({status, "404", "422", "500", "503"}.issubset(operation["responses"]))
-                if method != "get":
+                if procedure in ("sp_crear_demo", "sp_agregar_movimiento_demo", "sp_actualizar_movimiento_demo"):
                     self.assertIn("409", operation["responses"])
+                else:
+                    self.assertNotIn("409", operation["responses"])
+                if method == "delete":
+                    self.assertIn("401", operation["responses"])
+                    self.assertIn("403", operation["responses"])
         fields = schema["components"]["schemas"]["DemoMovementResponse"]["properties"]
         self.assertEqual(set(fields), {"id_demo_movimiento", "orden", "id_comando", "comando", "codigo", "duracion_ms", "pausa_ms"})
 

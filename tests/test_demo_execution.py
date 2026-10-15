@@ -19,6 +19,7 @@ from app.models.demos import DemoMovementResponse, DemoResponse
 from app.models.state import StateResponse
 from app.routers.demo_execution import get_demo_execution_service, router
 from app.services.demo_execution import DemoExecutionCancelled
+from app.security.api_key import require_api_key
 from app.websocket.manager import WebSocketManager
 
 
@@ -176,6 +177,7 @@ class DemoExecutionTests(unittest.IsolatedAsyncioTestCase):
         register_exception_handlers(self.application)
         self.application.dependency_overrides[get_demo_execution_service] = lambda: self.service
         self.application.dependency_overrides[get_demo_execution_manager] = lambda: self.manager
+        self.application.dependency_overrides[require_api_key] = lambda: None
         for target in ("app.config.settings.Settings", "app.database.connection.pymysql.connect"):
             guard = patch(target, side_effect=AssertionError("Prueba sin .env ni red."))
             mock = guard.start()
@@ -497,6 +499,9 @@ class DemoExecutionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(operation["tags"], ["DEMO"])
             self.assertNotIn("requestBody", operation)
             self.assertIn(success, operation["responses"])
+            self.assertIn("401", operation["responses"])
+            self.assertIn("403", operation["responses"])
+            self.assertIn("503", operation["responses"])
         description = schema["paths"]["/vehiculos/{id_vehiculo}/demos/{id_demo}/ejecutar"]["post"]["description"]
         for name in ("sp_obtener_movimientos_demo", "sp_actualizar_estado", "duracion_ms", "pausa_ms"):
             self.assertIn(name, description)

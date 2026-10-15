@@ -16,6 +16,7 @@ from app.models.demos import (
     DemoUpdate,
 )
 from app.services.demos import DemoMovementService, DemoService
+from app.security.api_key import SECURITY_RESPONSES, require_api_key
 
 
 router = APIRouter(prefix="/vehiculos/{id_vehiculo}/demos", tags=["DEMO"])
@@ -30,10 +31,11 @@ READ_ERRORS = {
 }
 WRITE_ERRORS = {
     **READ_ERRORS,
-    409: {"model": ErrorResponse, "description": "Conflicto de integridad o comando inactivo."},
+    409: {"model": ErrorResponse, "description": "Conflicto de integridad al escribir."},
 }
 MOVEMENT_ERRORS = {
     **WRITE_ERRORS,
+    409: {"model": ErrorResponse, "description": "Orden duplicado, conflicto de referencia o comando inactivo."},
     404: {
         "model": ErrorResponse,
         "description": "No existe el vehículo, la DEMO, su movimiento o el comando del vehículo.",
@@ -96,7 +98,7 @@ def list_demos(id_vehiculo: VehiclePath, service: DemoServiceDependency) -> list
         "PUT exige nombre y activo booleano; omitir descripción la asigna a null. "
         "No cambia propietario ni ejecuta la secuencia."
     ),
-    responses={**WRITE_ERRORS, 200: {"description": "Representación completa de la DEMO actualizada."}},
+    responses={**READ_ERRORS, 200: {"description": "Representación completa de la DEMO actualizada."}},
 )
 def update_demo(
     id_vehiculo: VehiclePath, id_demo: DemoPath, data: DemoUpdate, service: DemoServiceDependency
@@ -106,6 +108,7 @@ def update_demo(
 
 @router.delete(
     "/{id_demo}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response,
+    dependencies=[Depends(require_api_key)],
     summary="Eliminar una DEMO del vehículo",
     description=(
         "Comprueba el vehículo con sp_obtener_vehiculo(p_id_vehiculo), comprueba la DEMO "
@@ -113,7 +116,7 @@ def update_demo(
         "sp_eliminar_demo(p_id_demo) en la misma transacción. La eliminación física "
         "aplica la cascada de movimientos definida por MySQL. No recibe cuerpo."
     ),
-    responses={**WRITE_ERRORS, 204: {"description": "DEMO eliminada, sin contenido."}},
+    responses={**READ_ERRORS, **SECURITY_RESPONSES, 204: {"description": "DEMO eliminada, sin contenido."}},
 )
 def delete_demo(
     id_vehiculo: VehiclePath, id_demo: DemoPath, service: DemoServiceDependency
@@ -188,6 +191,7 @@ def update_demo_movement(
 @router.delete(
     "/{id_demo}/movimientos/{id_demo_movimiento}", status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response, summary="Eliminar un movimiento de la DEMO",
+    dependencies=[Depends(require_api_key)],
     description=(
         "Comprueba vehículo y DEMO con sp_obtener_vehiculo(p_id_vehiculo) y "
         "sp_obtener_demos(p_id_vehiculo), y pertenencia del movimiento con "
@@ -195,7 +199,9 @@ def update_demo_movement(
         "p_id_demo_movimiento) y relee la ausencia en una misma transacción. "
         "La eliminación es física; responde 204 sin contenido. No ejecuta comandos."
     ),
-    responses={**MOVEMENT_ERRORS, 204: {"description": "Movimiento eliminado, sin contenido."}},
+    responses={**READ_ERRORS, **SECURITY_RESPONSES,
+               404: {"model": ErrorResponse, "description": "El vehículo, la DEMO o su movimiento no existe."},
+               204: {"description": "Movimiento eliminado, sin contenido."}},
 )
 def delete_demo_movement(
     id_vehiculo: VehiclePath, id_demo: DemoPath, id_demo_movimiento: MovementPath,

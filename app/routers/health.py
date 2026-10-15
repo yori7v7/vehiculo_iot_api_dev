@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.config.settings import Settings, get_settings
 from app.database.connection import MySQLDatabase
 from app.errors.database import DatabaseError
+from app.models.common import ErrorResponse
 from app.models.health import (
     DatabaseHealthErrorResponse,
     DatabaseHealthResponse,
@@ -27,7 +28,10 @@ router = APIRouter(tags=["Salud"])
         "no consulta RDS y no ejecuta Stored Procedures. "
         "No comprueba la conexión de un vehículo físico."
     ),
-    responses={200: {"description": "El proceso HTTP está disponible."}},
+    responses={
+        200: {"description": "El proceso HTTP está disponible."},
+        500: {"model": ErrorResponse, "description": "No fue posible procesar la solicitud."},
+    },
 )
 async def health(
     settings: Annotated[Settings, Depends(get_settings)],
@@ -62,6 +66,7 @@ def get_database_health_service(
     ),
     responses={
         200: {"description": "Conexión y Stored Procedure de lectura disponibles."},
+        500: {"model": ErrorResponse, "description": "No fue posible procesar la solicitud."},
         503: {
             "description": "No fue posible completar el diagnóstico de lectura.",
             "model": DatabaseHealthErrorResponse,

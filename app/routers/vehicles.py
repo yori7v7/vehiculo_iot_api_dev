@@ -9,6 +9,7 @@ from app.dependencies import get_database
 from app.models.common import EntityId, ErrorResponse
 from app.models.vehicles import VehicleCreate, VehicleResponse, VehicleUpdate
 from app.services.vehicles import VehicleService
+from app.security.api_key import SECURITY_RESPONSES, require_api_key
 
 
 router = APIRouter(prefix="/vehiculos", tags=["Vehículos"])
@@ -111,6 +112,7 @@ def update_vehicle(
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
     response_model=None,
+    dependencies=[Depends(require_api_key)],
     summary="Eliminar vehículo",
     description=(
         "Comprueba existencia con sp_obtener_vehiculo(id_vehiculo) y ejecuta "
@@ -119,7 +121,7 @@ def update_vehicle(
         "las cascadas del esquema SQL; admite vehículos inactivos. "
         "Devuelve 404 si no existe o 204 sin cuerpo al eliminarlo."
     ),
-    responses={**DELETE_ERRORS, **NOT_FOUND},
+    responses={**DELETE_ERRORS, **NOT_FOUND, **SECURITY_RESPONSES},
 )
 def delete_vehicle(id_vehiculo: EntityId, service: VehicleServiceDependency) -> Response:
     service.delete(id_vehiculo)

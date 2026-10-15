@@ -22,6 +22,7 @@ from app.errors.handlers import register_exception_handlers
 from app.routers.history import router as history_router
 from app.routers.movement import router as movement_router
 from app.routers.state import router as state_router
+from app.security.api_key import require_api_key
 
 
 class MovementDatabase:
@@ -209,6 +210,7 @@ class MovementHTTPTests(unittest.IsolatedAsyncioTestCase):
         for router in (state_router, history_router, movement_router):
             self.application.include_router(router)
         self.application.dependency_overrides[get_database] = lambda: self.database
+        self.application.dependency_overrides[require_api_key] = lambda: None
         for module in ("state", "history", "movement"):
             executor_patch = patch(
                 f"app.services.{module}.StoredProcedureExecutor", MovementProcedureExecutor
@@ -507,6 +509,8 @@ class MovementHTTPTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn(procedure, operation["description"])
         movement = schema["paths"]["/vehiculos/{id_vehiculo}/movimientos"]["post"]
         self.assertIn("409", movement["responses"])
+        self.assertIn("401", movement["responses"])
+        self.assertIn("403", movement["responses"])
         self.assertNotIn("201", movement["responses"])
         for phrase in ("misma conexión", "transacción", "revierte"):
             self.assertIn(phrase, movement["description"])

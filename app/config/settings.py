@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     app_name: str = Field(default="Vehículo IoT API", min_length=1)
     app_env: Literal["development"] = "development"
+    api_key: SecretStr = Field(default=SecretStr(""), repr=False)
 
     db_host: str = ""
     db_port: int = Field(default=3306, ge=1, le=65535)

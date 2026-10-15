@@ -38,9 +38,16 @@ async def database_error_handler(_request: Request, error: DatabaseError) -> JSO
     return JSONResponse(status_code=status_code, content={"detail": str(error)})
 
 
+async def unexpected_error_handler(_request: Request, _error: Exception) -> JSONResponse:
+    """No reflejar mensajes internos de errores imprevistos en la respuesta."""
+
+    return JSONResponse(status_code=500, content={"detail": "No fue posible procesar la solicitud."})
+
+
 def register_exception_handlers(application: FastAPI) -> None:
     """Registrar errores de dominio y persistencia sin exponer el driver."""
 
     application.add_exception_handler(ResourceNotFoundError, resource_not_found_handler)
     application.add_exception_handler(ResourceConflictError, resource_conflict_handler)
     application.add_exception_handler(DatabaseError, database_error_handler)
+    application.add_exception_handler(Exception, unexpected_error_handler)
