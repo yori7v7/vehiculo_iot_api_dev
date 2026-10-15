@@ -32,3 +32,15 @@ class StoredProcedureExecutionError(DatabaseError):
     """Falló la ejecución o la lectura de algún conjunto de resultados."""
 
     message = "No fue posible ejecutar el Stored Procedure."
+
+
+class DatabaseConflictError(DatabaseError):
+    """La operación viola unicidad o una restricción de claves foráneas."""
+
+    message = "La operación entra en conflicto con datos únicos o referencias existentes."
+
+
+class DatabaseResultError(DatabaseError):
+    """El SP no devolvió la estructura necesaria para completar la operación."""
+
+    message = "La base de datos devolvió una respuesta inesperada."

@@ -5,18 +5,19 @@ Pydantic y una arquitectura por capas, preparada para utilizar los Stored
 Procedures de Amazon RDS MySQL. La API se ejecuta localmente en
 <http://localhost:8000>; la infraestructura remota prevista se limita a RDS.
 
-## Estado al terminar la segunda etapa
+## Estado al terminar la tercera etapa
 
 Implementado: configuración mediante variables de entorno, modelo Pydantic de
 salud, router independiente, punto de entrada mínimo, Swagger UI, conexión a RDS,
-gestión de transacciones y ejecución reutilizable de Stored Procedures.
+gestión de transacciones, ejecución reutilizable de Stored Procedures y los
+catálogos HTTP completos de Vehículos y Comandos.
 El arranque y GET `/` no abren conexiones a RDS. GET `/health/database` sí abre
 una conexión y ejecuta exclusivamente un SP de lectura.
 
-Pendiente de etapas posteriores: repositorios y operaciones de vehículos y
-comandos, movimiento individual, historial, DEMO, WebSocket y autorización de
-operaciones sensibles. No se controla todavía hardware físico ni se implementan
-individualmente los 21 procedimientos.
+Se utilizan los cinco SP de Vehículos y los cuatro de Comandos, conservando su
+definición SQL. Pendiente de etapas posteriores: movimiento individual, estado,
+historial, DEMO, WebSocket y autenticación/autorización. No se controla hardware
+físico ni se ejecutan todavía los demás flujos de los 21 procedimientos.
 
 ## Requisitos e instalación en Windows
 
@@ -123,8 +124,17 @@ El servidor escucha en la interfaz local. Detenerlo con `Ctrl+C`.
 | --- | --- | --- | --- | --- |
 | GET | `/` | Comprobar que FastAPI responde | 200, `HealthResponse` | Ninguno |
 | GET | `/health/database` | Verificar Python → RDS → SP de lectura | 200, `DatabaseHealthResponse`; 503 ante fallo | `sp_obtener_vehiculos()` |
+| POST | `/vehiculos` | Crear vehículo | 201, `VehicleResponse` | `sp_crear_vehiculo` y `sp_obtener_vehiculo` |
+| GET | `/vehiculos` | Listar activos e inactivos | 200, lista de `VehicleResponse` | `sp_obtener_vehiculos` |
+| GET | `/vehiculos/{id_vehiculo}` | Obtener por ID | 200, `VehicleResponse`; 404 | `sp_obtener_vehiculo` |
+| PUT | `/vehiculos/{id_vehiculo}` | Reemplazar campos editables | 200, `VehicleResponse`; 404 | `sp_obtener_vehiculo`, `sp_actualizar_vehiculo` y relectura |
+| DELETE | `/vehiculos/{id_vehiculo}` | Eliminar físicamente | 204 sin cuerpo; 404/409 | `sp_obtener_vehiculo` y `sp_eliminar_vehiculo` |
+| POST | `/vehiculos/{id_vehiculo}/comandos` | Crear comando del vehículo | 201, `CommandResponse`; 404/409 | `sp_obtener_vehiculo`, `sp_crear_comando` y `sp_obtener_comandos_vehiculo` |
+| GET | `/vehiculos/{id_vehiculo}/comandos` | Listar comandos del padre | 200, lista de `CommandResponse`; 404 | `sp_obtener_vehiculo` y `sp_obtener_comandos_vehiculo` |
+| PUT | `/vehiculos/{id_vehiculo}/comandos/{id_comando}` | Reemplazar un comando propio | 200, `CommandResponse`; 404/409 | Lecturas de padre/comandos, `sp_actualizar_comando` y relectura |
+| DELETE | `/vehiculos/{id_vehiculo}/comandos/{id_comando}` | Eliminar un comando propio | 204 sin cuerpo; 404/409 | Lecturas de padre/comandos y `sp_eliminar_comando` |
 
-No requiere parámetros ni cuerpo. Con la configuración inicial responde:
+GET `/` no requiere parámetros ni cuerpo. Con la configuración inicial responde:
 
 ```json
 {
@@ -158,6 +168,61 @@ El diagnóstico no devuelve registros de vehículos, host, usuario, contraseña 
 mensajes originales del driver. La función de ruta es síncrona (`def`), por lo
 que FastAPI ejecuta toda la operación en su pool de hilos, fuera del event loop.
 
+## Modelos y validación de catálogos
+
+`VehicleCreate`, `VehicleUpdate` y `VehicleResponse` separan creación,
+actualización y respuesta. Lo mismo hacen `CommandCreate`, `CommandUpdate` y
+`CommandResponse`. Los identificadores se envían en la ruta; los modelos de
+entrada rechazan campos adicionales, incluidos IDs y fechas asignados por MySQL.
+
+| Dato | Validación de entrada |
+| --- | --- |
+| IDs de vehículo y comando | Entero positivo, máximo 2147483647 |
+| Nombre de vehículo | Obligatorio, no vacío ni sólo espacios, máximo 80 caracteres |
+| Modelo de vehículo | NULL u opcional, máximo 80 caracteres |
+| Descripción | NULL u opcional, máximo 255 caracteres |
+| Microcontrolador | NULL u opcional, máximo 50 caracteres |
+| Nombre de comando | Obligatorio, no vacío ni sólo espacios, máximo 60 caracteres |
+| Código de comando | Entero JSON estricto, de -2147483648 a 2147483647; admite cero y negativos |
+| Activo en PUT | Booleano JSON estricto y obligatorio: `true` o `false` |
+
+Los POST no reciben `activo`; los SP utilizan el valor predeterminado TRUE de
+MySQL. Los PUT realizan reemplazo completo de los campos editables: exigen
+nombre y activo, y además código en comandos. Los campos opcionales omitidos
+quedan en NULL. El propietario de un comando no se cambia mediante PUT.
+No se interpretan los códigos como movimientos ni se impone un catálogo nuevo.
+
+Las respuestas incluyen las columnas reales. `fecha_registro` de vehículo se
+representa como fecha/hora o NULL según el resultado de MySQL. El TINYINT 0/1 de
+`activo` se convierte en booleano. Los SP de lectura incluyen inactivos; estos
+catálogos permiten consultarlos, modificarlos y reactivarlos.
+
+## Existencia, pertenencia y escrituras
+
+`VehicleService` y `CommandService` coordinan una transacción por operación.
+Las lecturas usan `READ ONLY`. Las escrituras consultan los recursos necesarios,
+ejecutan el SP y validan la representación resultante antes de un único commit.
+Si una validación o un SP falla, se solicita rollback y no se comunica éxito.
+Un PUT idéntico al registro actual sigue siendo una operación válida con 200.
+
+Antes de actualizar/eliminar vehículos se consulta `sp_obtener_vehiculo`.
+Comandos verifica ese padre antes de cualquier operación. Como no existe un SP
+individual de comandos, el servicio localiza el ID entre los resultados de
+`sp_obtener_comandos_vehiculo` para comprobar pertenencia antes de modificarlo.
+Un recurso ausente o un comando de otro vehículo produce 404; un listado
+válido vacío devuelve 200 con `[]`.
+
+MySQL resuelve las restricciones UNIQUE de comandos `(id_vehiculo, codigo)` y
+`(id_vehiculo, nombre)`. No se intenta reproducir su collation en Python: con
+`utf8mb4_0900_ai_ci` nombres que difieren sólo en mayúsculas o acentos pueden
+entrar en conflicto. Se responde 409 sin mostrar valores ni mensajes de MySQL.
+
+DELETE aplica la eliminación física del SP. En vehículos conserva el
+comportamiento de cascadas del esquema; en comandos, referencias de movimientos
+de DEMO pueden impedir eliminar y producir 409. Esta etapa implementa y prueba
+las escrituras con datos simulados: **no se ejecutan POST, PUT ni DELETE contra
+los datos académicos existentes durante la verificación real**.
+
 ## Arquitectura
 
 Se conservan todas las carpetas iniciales y se incorpora `app/errors/`.
@@ -170,19 +235,32 @@ app/
 │   ├── connection.py     # MySQLDatabase: apertura, transacciones y cierre
 │   └── procedures.py     # StoredProcedureExecutor y ProcedureResult
 ├── errors/
-│   └── database.py       # Excepciones controlables sin datos sensibles
+│   ├── database.py       # Excepciones controlables sin datos sensibles
+│   ├── domain.py         # Recursos inexistentes
+│   └── handlers.py       # Traducción HTTP 404/409/500/503
 ├── models/
-│   └── health.py         # Modelos de salud HTTP, salud RDS y error de diagnóstico
-├── repositories/         # Acceso a datos por entidad, pendiente
+│   ├── common.py         # IDs, solicitudes sin extras y error público
+│   ├── health.py         # Salud HTTP y RDS
+│   ├── vehicles.py       # VehicleCreate/Update/Response
+│   └── commands.py       # CommandCreate/Update/Response
+├── repositories/
+│   ├── base.py           # Validación de filas e IDs devueltos por SP
+│   ├── vehicles.py       # Los cinco SP de Vehículos
+│   └── commands.py       # Los cuatro SP de Comandos
 ├── routers/
-│   └── health.py         # Salud HTTP y diagnóstico RDS
+│   ├── health.py         # Salud HTTP y diagnóstico RDS
+│   ├── vehicles.py       # CRUD de vehículos
+│   └── commands.py       # Comandos por vehículo
 ├── services/
-│   └── database_health.py # Lectura segura con sp_obtener_vehiculos
+│   ├── database_health.py # Lectura segura con sp_obtener_vehiculos
+│   ├── vehicles.py       # Existencia y transacciones de vehículos
+│   └── commands.py       # Padre, pertenencia y transacciones de comandos
 ├── websocket/            # Conexiones y difusión por vehículo, pendientes
+├── dependencies.py       # Composición de la fábrica de conexiones por solicitud
 └── main.py               # Construcción de FastAPI y registro de routers
 ```
 
-Flujo previsto: cliente HTTP → router → servicio → repositorio → ejecutor de
+Flujo actual: cliente HTTP → router → servicio → repositorio → ejecutor de
 Stored Procedures → conexión a RDS. Los servicios se comunicarán con el gestor
 WebSocket para distribuir eventos por vehículo. La conexión, el ejecutor,
 los repositorios, los servicios y el gestor tienen o tendrán clases con
@@ -247,7 +325,7 @@ with database.transaction(read_only=True) as connection:
     vehicles = result.fetch_all()
 ```
 
-Los servicios coordinarán las transacciones. Movimiento individual deberá
+Los servicios de catálogos ya coordinan sus transacciones. Movimiento individual deberá
 actualizar estado y registrar historial en una misma conexión y transacción,
 con rollback ante fallos y emisión WebSocket únicamente después del commit.
 El servicio DEMO tendrá su propia coordinación asíncrona y no registrará
@@ -260,11 +338,9 @@ repositorio, define las seis tablas y los 21 Stored Procedures existentes de
 `vehiculo_iot`. Debe consultarse antes de implementar acceso a datos; no ejecutar
 el script para arrancar esta API ni alterar la estructura de RDS.
 
-Los futuros routers se documentarán en Swagger con los tags Vehículos,
-Comandos, Estado, Historial y DEMO. Cubrirán los CRUD solicitados, el movimiento
-individual, la consulta de estado, los diez movimientos individuales más
-recientes y el inicio/cancelación de una DEMO existente. Sus rutas, modelos y
-firmas se concretarán en etapas posteriores con el SQL como referencia.
+Los tags Vehículos y Comandos ya están disponibles en Swagger. Los futuros
+routers de Estado, Historial y DEMO se concretarán en etapas posteriores con el
+SQL como referencia, al igual que el movimiento individual y el WebSocket.
 
 ## WebSocket y DEMO previstos
 
@@ -292,17 +368,26 @@ Una ruta no registrada devuelve 404. Si el puerto 8000 está ocupado, detener la
 instancia anterior antes de volver a iniciar el servidor.
 
 La infraestructura convierte errores del driver en `DatabaseConfigurationError`,
-`DatabaseUnavailableError`, `DatabaseTransactionError` o
-`StoredProcedureExecutionError`, todos derivados de `DatabaseError`, sin incluir
+`DatabaseUnavailableError`, `DatabaseTransactionError`,
+`StoredProcedureExecutionError`, `DatabaseConflictError` o `DatabaseResultError`,
+todos derivados de `DatabaseError`, sin incluir
 valores de conexión, parámetros SQL ni mensajes originales. El diagnóstico
 traduce estos fallos a 503 con un detalle público fijo. GET `/` puede seguir
 respondiendo aunque RDS no esté disponible.
 
-En las próximas etapas se ampliará la traducción de errores:
-validación de entrada (422), recurso inexistente (404), conflicto (409), servicio
-no disponible (503) y fallos internos (500), según cada operación. Las
-colecciones válidas vacías se devolverán como listas vacías. Autorización y
-otros códigos se incorporarán sólo cuando el flujo implementado los requiera.
+Los catálogos ya utilizan estos códigos:
+
+- 422: entrada inválida, campos adicionales o IDs fuera de rango.
+- 404: vehículo inexistente o comando que no pertenece al vehículo indicado.
+- 409: duplicado MySQL (1062) o conflicto de referencia (1451/1452).
+- 503: configuración/conexión no disponible, desconexión durante el SP o fallo
+  al completar la transacción.
+- 500: fallo de procedimiento o estructura de resultados inesperada.
+
+Los manejadores de `app/errors/handlers.py` devuelven únicamente `detail` con
+un mensaje público. Las filas que no se ajustan al modelo se rechazan dentro de
+la transacción, antes de confirmar una escritura. Las colecciones válidas
+vacías son listas vacías con 200. Autenticación/autorización queda pendiente.
 
 ## Comprobaciones de esta etapa
 
@@ -311,26 +396,42 @@ Con el servidor activo:
 ```powershell
 Invoke-RestMethod -Uri http://localhost:8000/
 Invoke-RestMethod -Uri http://localhost:8000/health/database
+$vehiculos = @(Invoke-RestMethod -Uri http://localhost:8000/vehiculos)
+if ($vehiculos.Count -gt 0) {
+    $idVerificado = $vehiculos[0].id_vehiculo
+    Invoke-RestMethod -Uri "http://localhost:8000/vehiculos/$idVerificado"
+    Invoke-RestMethod -Uri "http://localhost:8000/vehiculos/$idVerificado/comandos"
+}
 (Invoke-WebRequest -Uri http://localhost:8000/docs).StatusCode
 (Invoke-RestMethod -Uri http://localhost:8000/openapi.json).info.title
 git check-ignore .env .venv app/__pycache__
 git status --short --branch
 ```
 
-En Swagger, abrir el tag Salud y ejecutar GET `/` y GET `/health/database`
-mediante **Try it out** → **Execute**. Deben devolver 200 y sus JSON mostrados.
-La prueba real de la segunda etapa utilizó `sp_obtener_vehiculos()` en modo
-`READ ONLY`, terminó con rollback y produjo la respuesta de disponibilidad.
-No se insertaron, actualizaron ni eliminaron registros.
+En Swagger se muestran Salud, Vehículos y Comandos, con modelos de creación,
+actualización y respuesta, parámetros y los SP de cada operación. Para esta
+comprobación real usar **Try it out** → **Execute** sólo en los GET. El ID debe
+tomarse del listado existente, sin suponerlo. Se verifican listado de vehículos,
+detalle de uno existente y sus comandos contra RDS, además de salud y Swagger.
+No se insertan, actualizan ni eliminan registros.
 
-Pruebas unitarias de infraestructura, sin RDS ni credenciales reales:
+Pruebas automatizadas de infraestructura, modelos, repositorios, servicios y
+HTTP, sin RDS ni credenciales reales:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
 Estas pruebas simulan conexiones y cursores para verificar commit/rollback,
-limpieza, drenado de resultados y errores. No prueban escrituras reales en RDS.
+limpieza, drenado de resultados, orden de parámetros, validaciones, creación,
+PUT completo, eliminación, pertenencia, colecciones vacías y errores. Las
+pruebas HTTP usan ASGI y datos ficticios, sin agregar dependencias de pruebas.
+No ejecutan escrituras reales en RDS.
+Al cierre de la etapa 3 pasaron **107 pruebas**. La comprobación real devolvió
+200 para salud, diagnóstico RDS, listado de vehículos (1 registro), detalle del
+vehículo 1 y sus comandos (11 registros ordenados por código y con el mismo
+`id_vehiculo`). Swagger mostró las nueve operaciones nuevas bajo Vehículos y
+Comandos. La verificación real utilizó exclusivamente GET.
 Las comprobaciones de esta etapa no sustituyen las tres pruebas funcionales
 posteriores en Thunder Client:
 

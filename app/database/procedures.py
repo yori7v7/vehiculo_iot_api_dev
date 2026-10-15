@@ -7,8 +7,13 @@ from typing import Any
 
 import pymysql
 from pymysql.connections import Connection
+from pymysql.constants import CR, ER
 
-from app.errors.database import StoredProcedureExecutionError
+from app.errors.database import (
+    DatabaseConflictError,
+    DatabaseUnavailableError,
+    StoredProcedureExecutionError,
+)
 
 
 type Row = dict[str, Any]
@@ -64,7 +69,15 @@ class StoredProcedureExecutor:
                     # consume; un error tardío debe propagarse antes del commit.
                     if not cursor.nextset():
                         break
-        except (pymysql.MySQLError, OSError):
+        except (pymysql.MySQLError, OSError) as error:
+            error_code = error.args[0] if error.args and type(error.args[0]) is int else None
+            if error_code in (ER.DUP_ENTRY, ER.ROW_IS_REFERENCED_2, ER.NO_REFERENCED_ROW_2):
+                raise DatabaseConflictError() from None
+            if isinstance(error, (pymysql.InterfaceError, OSError)) or error_code in (
+                CR.CR_SERVER_GONE_ERROR,
+                CR.CR_SERVER_LOST,
+            ):
+                raise DatabaseUnavailableError() from None
             raise StoredProcedureExecutionError() from None
 
         return ProcedureResult(result_sets=tuple(result_sets))

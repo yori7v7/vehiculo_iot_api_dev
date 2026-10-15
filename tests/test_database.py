@@ -15,6 +15,7 @@ from app.database.connection import MySQLDatabase
 from app.database.procedures import ProcedureResult, StoredProcedureExecutor
 from app.errors.database import (
     DatabaseConfigurationError,
+    DatabaseConflictError,
     DatabaseTransactionError,
     DatabaseUnavailableError,
     StoredProcedureExecutionError,
@@ -374,10 +375,35 @@ class StoredProcedureExecutorTests(unittest.TestCase):
         cursor.nextset.side_effect = pymysql.err.OperationalError(
             2013, "detalle privado del segundo resultado"
         )
-        with self.assertRaises(StoredProcedureExecutionError) as raised:
+        with self.assertRaises(DatabaseUnavailableError) as raised:
             executor.execute("sp_consultar")
         self.assertNotIn("detalle privado", str(raised.exception))
         cursor.close.assert_called_once_with()
+
+    def test_unique_and_foreign_key_conflicts_are_sanitized(self):
+        for code in (1062, 1451, 1452):
+            with self.subTest(code=code):
+                executor, connection, cursor = self.executor_with_results([None])
+                cursor.callproc.side_effect = pymysql.err.IntegrityError(
+                    code, "consulta privada con valores que no deben exponerse"
+                )
+                with self.assertRaises(DatabaseConflictError) as raised:
+                    executor.execute("sp_crear_comando", (1, "Prueba", 1, None))
+                self.assertNotIn("consulta privada", str(raised.exception))
+                cursor.close.assert_called_once_with()
+                connection.commit.assert_not_called()
+
+    def test_disconnection_during_a_procedure_is_service_unavailable(self):
+        for code in (2006, 2013):
+            with self.subTest(code=code):
+                executor, _, cursor = self.executor_with_results([None])
+                cursor.callproc.side_effect = pymysql.err.OperationalError(
+                    code, "host y detalle privados"
+                )
+                with self.assertRaises(DatabaseUnavailableError) as raised:
+                    executor.execute("sp_obtener_vehiculos")
+                self.assertNotIn("detalle privados", str(raised.exception))
+                cursor.close.assert_called_once_with()
 
 
 class DatabaseHealthServiceTests(unittest.TestCase):
