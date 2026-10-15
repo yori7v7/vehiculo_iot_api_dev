@@ -5,20 +5,21 @@ Pydantic y una arquitectura por capas, preparada para utilizar los Stored
 Procedures de Amazon RDS MySQL. La API se ejecuta localmente en
 <http://localhost:8000>; la infraestructura remota prevista se limita a RDS.
 
-## Estado al terminar la cuarta etapa
+## Estado al terminar la quinta etapa
 
 Implementado: configuración mediante variables de entorno, modelo Pydantic de
 salud, router independiente, punto de entrada mínimo, Swagger UI, conexión a RDS,
 gestión de transacciones, ejecución reutilizable de Stored Procedures y los
 catálogos HTTP completos de Vehículos y Comandos. También están implementados
 la consulta de estado, la consulta de historial y el movimiento individual
-con actualización de estado y registro de historial atómicos.
+con actualización de estado y registro de historial atómicos. El WebSocket
+por vehículo envía el estado inicial desde RDS y difunde movimientos confirmados.
 El arranque y GET `/` no abren conexiones a RDS. GET `/health/database` sí abre
 una conexión y ejecuta exclusivamente un SP de lectura.
 
 Se utilizan los cinco SP de Vehículos, cuatro de Comandos, dos de Estado y dos
 de Historial, conservando su definición SQL. Pendiente de etapas posteriores:
-DEMO, WebSocket y autenticación/autorización. No se controla hardware físico.
+autenticación/autorización. No se controla hardware físico.
 En esta etapa, las comprobaciones reales contra RDS son exclusivamente de
 lectura; la Prueba Funcional 1 de movimiento real queda pendiente.
 
@@ -224,8 +225,8 @@ MySQL resuelve las restricciones UNIQUE de comandos `(id_vehiculo, codigo)` y
 entrar en conflicto. Se responde 409 sin mostrar valores ni mensajes de MySQL.
 
 DELETE aplica la eliminación física del SP. En vehículos conserva el
-comportamiento de cascadas del esquema; en comandos, referencias de movimientos
-de DEMO pueden impedir eliminar y producir 409. Esta etapa implementa y prueba
+comportamiento de cascadas del esquema; en comandos, referencias existentes
+pueden impedir eliminar y producir 409. Esta etapa implementa y prueba
 las escrituras con datos simulados: **no se ejecutan POST, PUT ni DELETE contra
 los datos académicos existentes durante la verificación real**.
 
@@ -255,8 +256,7 @@ El repositorio conserva todas las filas del SP. `HistoryService` aplica
 lo entrega MySQL, no reordena, no borra y **no filtra por origen**. Incluye
 `WORKBENCH`, `MANUAL`, `API` y cualquier otro valor ya almacenado. Los cinco
 registros WORKBENCH existentes corresponden a pruebas manuales de la práctica
-anterior, según confirmó el usuario. La futura ejecución de DEMO deberá evitar
-llamar a `sp_registrar_historial`; no se ocultan registros mediante etiquetas.
+anterior, según confirmó el usuario. No se ocultan registros mediante etiquetas.
 
 ## Movimiento individual y atomicidad
 
@@ -284,7 +284,9 @@ que comparte con los repositorios:
 5. Ejecuta `sp_registrar_historial(id_vehiculo, id_comando, "API")`.
 6. Relee `sp_obtener_estado`, valida que los datos correspondan al movimiento y
    construye la respuesta con su timestamp real dentro de la transacción.
-7. Sale del contexto, realiza **un solo commit** y sólo entonces devuelve 200.
+7. Sale del contexto, realiza **un solo commit** y cierra la conexión.
+8. El router recibe el resultado confirmado, publica un evento `movimiento`
+   sólo a los suscriptores de ese vehículo y devuelve 200.
 
 Si falla una validación, SP, result set, relectura o commit, la excepción se
 propaga y el contexto intenta rollback de toda la transacción y cierra la
@@ -303,8 +305,8 @@ false se conserva false. No existe parámetro HTTP para manipularlo.
 `comando`, `codigo`, `fecha_actualizacion`, `conectado` y `origen="API"`.
 La fecha se obtiene del SP, sin fabricar un timestamp del POST ni asignarle una
 zona horaria no indicada por MySQL. No se inventan IDs de movimiento/historial.
-El origen API es fijo y no lo decide el cliente. No se emiten eventos WebSocket
-ni se afirma que el hardware haya ejecutado físicamente la orden.
+El origen API es fijo y no lo decide el cliente. El evento WebSocket representa
+la orden persistida; no confirma que el hardware la haya ejecutado físicamente.
 
 ## Arquitectura
 
@@ -349,16 +351,21 @@ app/
 │   ├── state.py          # Padre y estado sin escrituras
 │   ├── history.py        # Padre y máximo diez, sin filtro de origen
 │   └── movement.py       # Reglas y transacción atómica de movimiento
-├── websocket/            # Conexiones y difusión por vehículo, pendientes
+├── websocket/
+│   ├── events.py         # Modelos de estado_actual y movimiento
+│   ├── manager.py        # WebSocketManager: clientes y difusión por vehículo
+│   ├── dependencies.py   # Manager compartido por aplicación
+│   ├── router.py         # Suscripción y estado inicial de sólo lectura
+│   └── publisher.py      # Publicación del movimiento ya confirmado
 ├── dependencies.py       # Composición de la fábrica de conexiones por solicitud
 └── main.py               # Construcción de FastAPI y registro de routers
 ```
 
 Flujo actual: cliente HTTP → router → servicio → repositorio → ejecutor de
-Stored Procedures → conexión a RDS. Los servicios se comunicarán con el gestor
-WebSocket para distribuir eventos por vehículo. La conexión, el ejecutor,
-los repositorios, los servicios y el gestor tienen o tendrán clases con
-responsabilidades separadas. `main.py` sigue siendo el punto de composición.
+Stored Procedures → conexión a RDS. Tras retornar el servicio de movimiento,
+el router llama a `MovementEventPublisher`, que difunde el resultado mediante
+`WebSocketManager`. El servicio de persistencia no administra sockets.
+`main.py` sigue siendo el punto de composición y cierra los clientes al terminar.
 
 ## Conexiones y transacciones reutilizables
 
@@ -419,40 +426,129 @@ with database.transaction(read_only=True) as connection:
     vehicles = result.fetch_all()
 ```
 
-Los servicios de catálogos y movimiento individual ya coordinan sus
-transacciones. El futuro WebSocket sólo podrá anunciar éxito después de la
-confirmación de la transacción. El servicio DEMO tendrá su propia coordinación
-asíncrona y no llamará al registro de historial individual. Esos dos servicios
-todavía no están implementados.
+Los servicios de catálogos y movimiento individual coordinan sus transacciones.
+El publicador WebSocket recibe únicamente el resultado que el servicio devuelve
+después de confirmar la transacción; no participa en ella.
 
-## Fuente de verdad y próximos módulos
+## Fuente de verdad
 
 El archivo proporcionado `vehiculo_iot_rds.sql`, actualmente externo al
 repositorio, define las seis tablas y los 21 Stored Procedures existentes de
 `vehiculo_iot`. Debe consultarse antes de implementar acceso a datos; no ejecutar
 el script para arrancar esta API ni alterar la estructura de RDS.
 
-Los tags Salud, Vehículos, Comandos, Estado, Historial y Movimientos ya están
-disponibles en Swagger. DEMO y WebSocket se concretarán en etapas posteriores
-con el SQL como referencia.
+Los tags Salud, Vehículos, Comandos, Estado, Historial y Movimientos están
+disponibles en Swagger. WebSocket se documenta a continuación porque OpenAPI
+no representa una suscripción como un endpoint HTTP convencional.
 
-## WebSocket y DEMO previstos
+## WebSocket por vehículo
 
-El servicio WebSocket estará asociado a `id_vehiculo`, admitirá varios clientes
-por vehículo y distribuirá sus eventos sólo a esos clientes. La desconexión de
-uno no afectará a los demás. No existe todavía una ruta WebSocket disponible.
+URL exacta: **`ws://localhost:8000/ws/vehiculos/{id_vehiculo}`**.
+Ejemplo de lectura: `ws://localhost:8000/ws/vehiculos/1`.
+`id_vehiculo` debe ser un entero positivo de hasta 2147483647.
 
-Los mensajes JSON incluirán `tipo`, `id_vehiculo`, `comando`, `codigo` y
-`timestamp`. Para DEMO se utilizarán los eventos `demo_inicio`,
-`demo_movimiento`, `demo_fin`, `demo_cancelada` y `error`. El formato definitivo
-y los ejemplos con datos válidos se documentarán al implementar el servicio.
+Al conectar, la ruta reutiliza `StateService.get`: comprueba el vehículo con
+`sp_obtener_vehiculo` y consulta `sp_obtener_estado` en la misma transacción
+`READ ONLY`. PyMySQL se ejecuta en un hilo mediante `run_in_threadpool`, fuera
+del event loop. No se actualizan estado, historial ni el campo `conectado`.
+Un suscriptor de monitoreo no acredita conectividad del hardware.
 
-Una DEMO existente se iniciará mediante POST; el servicio consultará sus
-movimientos por Stored Procedure, respetará `orden`, `duracion_ms` y `pausa_ms`
-sin bloquear FastAPI, actualizará estado y permitirá cancelación. Se impedirá
-ejecutar dos DEMO simultáneas para el mismo vehículo. No se escribirá en
-`historial_comandos` durante su ejecución. El WebSocket representará movimientos,
-sin controlar físicamente el ESP8266 en esta práctica.
+La primera entrega es `estado_actual`. Ejemplo ilustrativo de una fila existente
+(los valores siempre se consultan en RDS):
+
+```json
+{
+  "tipo_evento": "estado_actual",
+  "id_vehiculo": 1,
+  "comando": "DETENER",
+  "codigo": 0,
+  "timestamp": "2026-10-06T23:54:43",
+  "estado": {
+    "id_vehiculo": 1,
+    "vehiculo": "Mini RC Forklift IoT",
+    "id_comando": 1,
+    "comando": "DETENER",
+    "codigo": 0,
+    "conectado": true,
+    "fecha_actualizacion": "2026-10-06T23:54:43"
+  }
+}
+```
+
+Si el vehículo existe pero aún no tiene estado, se entrega sin crear ninguna fila:
+
+```json
+{"tipo_evento":"estado_actual","id_vehiculo":1,"comando":null,"codigo":null,"timestamp":null,"estado":null}
+```
+
+El evento `movimiento` reutiliza los valores de la respuesta HTTP confirmada:
+
+```json
+{
+  "tipo_evento": "movimiento",
+  "id_vehiculo": 1,
+  "comando": "DETENER",
+  "codigo": 0,
+  "timestamp": "2026-10-14T12:30:45",
+  "id_comando": 1,
+  "conectado": true,
+  "origen": "API"
+}
+```
+
+Todos los eventos incluyen `tipo_evento`, `id_vehiculo`, `comando`, `codigo` y
+`timestamp`. La fecha proviene de `fecha_actualizacion` de MySQL, admite `null`
+y no incorpora una zona horaria inventada. El estado puede contener comando
+y código `null` según el LEFT JOIN del SP.
+
+`WebSocketManager` mantiene grupos en memoria por ID de vehículo y varios
+sockets por grupo. Cada cliente recibe primero su estado y después los eventos
+del vehículo que monitorea. Un lock por vehículo coordina lectura inicial,
+registro y difusión para que una publicación concurrente no se pierda entre
+la lectura y la suscripción. Los envíos a distintos clientes de un grupo se
+realizan concurrentemente. Vehículos distintos tienen grupos y locks separados.
+
+El POST conserva su transacción original: **commit exitoso → cierre de conexión
+RDS → publicación WebSocket → respuesta HTTP**. Cada POST exitoso solicita una
+sola difusión. Ante rollback o fallo de commit no publica ningún movimiento.
+Si no hay suscriptores, responde normalmente; un fallo de notificación tampoco
+revierte una escritura confirmada ni la reintenta.
+
+La desconexión normal o inesperada elimina al cliente sin afectar a los demás.
+Un fallo o timeout de envío elimina y cierra sólo ese socket. Los envíos y
+cierres tienen una espera acotada de cinco segundos. La limpieza completa el
+cierre acotado aunque se cancele la tarea que lo solicitó. Los grupos vacíos se
+eliminan cuando no quedan operaciones pendientes. Reconectar crea una nueva
+suscripción y vuelve a leer el estado actual. La ruta sólo recibe mensajes para
+detectar el cierre; no ejecuta órdenes enviadas por el cliente WebSocket.
+
+ID inválido o vehículo ausente: cierre controlado 1008. Error al consultar RDS:
+cierre 1011, con razón pública fija. Se rechaza antes de aceptar la conexión,
+por lo que un cliente de red puede observar HTTP 403 durante el handshake en
+lugar del código de cierre. No se registra el socket rechazado ni se muestran
+errores internos. Al detener o recargar la aplicación se cierran los clientes
+activos con 1001.
+
+El manager pertenece a una aplicación/proceso. Usar una sola instancia de
+Uvicorn en este entorno local. Reinicios requieren reconectar; los eventos
+transitorios no tienen replay ni entrega persistente. RDS conserva la fuente
+de verdad y cada reconexión vuelve a consultarla.
+
+Para comprobar sólo el estado inicial con la dependencia `websockets` que ya
+incluye Uvicorn standard, ejecutar este Python desde el entorno del proyecto:
+
+```python
+import asyncio
+from websockets.asyncio.client import connect
+
+async def comprobar_estado():
+    async with connect("ws://localhost:8000/ws/vehiculos/1", open_timeout=30) as ws:
+        print(await asyncio.wait_for(ws.recv(), timeout=30))
+
+asyncio.run(comprobar_estado())
+```
+
+Esta comprobación sólo lee. No ejecutar el POST real durante esta etapa.
 
 ## Manejo de errores
 
@@ -513,7 +609,7 @@ comprobación real usar **Try it out** → **Execute** sólo en los GET. El ID d
 tomarse del listado existente, sin suponerlo. Se verifican listado de vehículos,
 detalle de uno existente, sus comandos, estado e historial contra RDS, además
 de salud y Swagger. No se ejecuta el POST real ni se insertan, actualizan o
-eliminan registros. Tampoco se inicia todavía Thunder Client o una DEMO.
+eliminan registros. Tampoco se inicia todavía Thunder Client.
 
 Pruebas automatizadas de infraestructura, modelos, repositorios, servicios y
 HTTP, sin RDS ni credenciales reales:
@@ -531,9 +627,18 @@ repositorios reales con una conexión/cursores simulados y snapshots para
 verificar commit único, rollback de ambas escrituras, fallo durante drenado,
 relectura o commit y conservación de conectado. No ejecutan escrituras en RDS.
 
-Al cierre de la etapa 4 pasaron **174 pruebas** (107 anteriores y 67 nuevas).
-La comprobación real devolvió 200 en salud, diagnóstico RDS y los GET nuevos.
-El estado real del vehículo 1 quedó leído así, sin modificarlo:
+Al cierre de la etapa 5 pasan **226 pruebas: 174 anteriores y 52 nuevas** de
+WebSocket y publicación después del commit. Se comprueban suscripciones ASGI, modelos,
+clientes simultáneos, aislamiento por vehículo, desconexión/reconexión, timeouts,
+limpieza y entrega inicial sin escrituras. Las pruebas POST + WebSocket usan
+el servicio y transacciones simuladas: observan commit y cierre antes del envío,
+ningún evento tras rollback y éxito HTTP aunque falle un cliente o no haya ninguno.
+
+La comprobación real de esta etapa devolvió 200 en GET `/`, `/health/database`,
+`/docs`, `/openapi.json` y `/vehiculos/1/estado`. Swagger cargó su interfaz con
+versión 0.5.0 y todos los tags HTTP. Una conexión real a
+`ws://localhost:8000/ws/vehiculos/1` recibió `estado_actual` desde RDS, cuyo
+campo `estado` coincidió exactamente con el GET:
 
 ```json
 {
@@ -547,19 +652,12 @@ El estado real del vehículo 1 quedó leído así, sin modificarlo:
 }
 ```
 
-`sp_obtener_historial(1)` devolvió **5 registros totales**, todos de origen
-`WORKBENCH`; el GET devolvió esos mismos cinco en orden descendente, sin filtro.
-El comando confirmado para la futura prueba es ID 1, `DETENER`, código 0,
-activo y perteneciente al vehículo 1. **No se ejecutó el POST de movimiento.**
-El historial actual se conserva para la evidencia antes/después de Thunder
-Client. Swagger mostró las tres operaciones nuevas bajo sus tags respectivos.
-Las comprobaciones de esta etapa no sustituyen las tres pruebas funcionales
-posteriores en Thunder Client:
-
-1. POST de movimiento individual: respuesta, estado y nuevo historial en RDS.
-2. GET de historial: máximo diez, orden descendente y sólo movimientos individuales.
-3. WebSocket + DEMO: inicio por POST, movimientos ordenados, tiempos, finalización
-   y mismo historial antes y después. El POST de inicio forma parte de esta prueba.
+Se consultó el historial antes y después de abrir/cerrar el WebSocket: los
+**cinco registros WORKBENCH permanecieron idénticos**, sin filtros de origen.
+**No se ejecutó el POST real de movimiento.** El historial se conserva para la
+evidencia antes/después de Thunder Client.
+Las comprobaciones de esta etapa no sustituyen las pruebas funcionales
+posteriores en Thunder Client.
 
 ## Git
 

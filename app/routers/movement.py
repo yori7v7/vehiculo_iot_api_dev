@@ -3,12 +3,14 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path
+from starlette.concurrency import run_in_threadpool
 
 from app.database.connection import MySQLDatabase
 from app.dependencies import get_database
 from app.models.common import ErrorResponse, INT_MAX
 from app.models.movement import MovementRequest, MovementResponse
 from app.services.movement import MovementService
+from app.websocket.publisher import MovementEventPublisher, get_movement_publisher
 
 
 router = APIRouter(prefix="/vehiculos/{id_vehiculo}/movimientos", tags=["Movimientos"])
@@ -35,6 +37,8 @@ def get_movement_service(
         "y después sp_registrar_historial(p_id_vehiculo, p_id_comando, p_origen), con origen "
         "fijo API. Relee sp_obtener_estado para devolver los valores reales y confirma "
         "una sola vez antes de responder. Si falla cualquier paso revierte ambas escrituras. "
+        "Sólo después del commit exitoso publica un evento movimiento a los clientes "
+        "WebSocket de ese vehículo. La ausencia o fallo de clientes no revierte el commit. "
         "La operación registra la orden en la base de datos; el control y la confirmación "
         "del hardware corresponden a una integración futura."
     ),
@@ -52,11 +56,15 @@ def get_movement_service(
         503: {"model": ErrorResponse, "description": "La base de datos no está disponible."},
     },
 )
-def execute_movement(
+async def execute_movement(
     id_vehiculo: Annotated[
         int, Path(gt=0, le=INT_MAX, description="Identificador positivo del vehículo.")
     ],
     data: MovementRequest,
     service: Annotated[MovementService, Depends(get_movement_service)],
+    publisher: Annotated[MovementEventPublisher, Depends(get_movement_publisher)],
 ) -> MovementResponse:
-    return service.execute(id_vehiculo, data)
+    # El servicio sólo retorna después del commit y del cierre de su conexión.
+    response = await run_in_threadpool(service.execute, id_vehiculo, data)
+    await publisher.publish(response)
+    return response
