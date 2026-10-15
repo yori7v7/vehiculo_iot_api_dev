@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    """Parámetros de desarrollo; las credenciales RDS no son necesarias aún."""
+    """Parámetros de desarrollo; RDS se valida al solicitar una conexión."""
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     db_name: str = Field(default="vehiculo_iot", min_length=1)
     db_user: str = ""
     db_password: SecretStr = Field(default=SecretStr(""), repr=False)
+    db_ssl_ca: Path = PROJECT_ROOT / ".certs" / "rds-global-bundle.pem"
+    db_connect_timeout: int = Field(default=5, ge=1, le=60)
+    db_read_timeout: int = Field(default=10, ge=1, le=120)
+    db_write_timeout: int = Field(default=10, ge=1, le=120)
 
 
 @lru_cache

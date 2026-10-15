@@ -12,12 +12,14 @@ def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
-        description="API local para la práctica 2.5. Etapa 1: salud y configuración.",
+        version="0.2.0",
+        description=(
+            "API local para la práctica 2.5. Etapa 2: conexión RDS y diagnóstico de lectura."
+        ),
         docs_url="/docs",
         openapi_url="/openapi.json",
         openapi_tags=[
-            {"name": "Salud", "description": "Disponibilidad del proceso HTTP local."}
+            {"name": "Salud", "description": "Salud HTTP y diagnóstico de RDS MySQL."}
         ],
     )
     application.include_router(health_router)
