@@ -5,7 +5,7 @@ Pydantic y una arquitectura por capas, preparada para utilizar los Stored
 Procedures de Amazon RDS MySQL. La API se ejecuta localmente en
 <http://localhost:8000>; la infraestructura remota prevista se limita a RDS.
 
-## Estado al terminar la quinta etapa
+## Estado al terminar la sexta etapa
 
 Implementado: configuración mediante variables de entorno, modelo Pydantic de
 salud, router independiente, punto de entrada mínimo, Swagger UI, conexión a RDS,
@@ -14,11 +14,13 @@ catálogos HTTP completos de Vehículos y Comandos. También están implementado
 la consulta de estado, la consulta de historial y el movimiento individual
 con actualización de estado y registro de historial atómicos. El WebSocket
 por vehículo envía el estado inicial desde RDS y difunde movimientos confirmados.
+También están implementados el CRUD de DEMO y sus movimientos, la ejecución
+asíncrona, la cancelación lógica y los cinco eventos de ejecución por WebSocket.
 El arranque y GET `/` no abren conexiones a RDS. GET `/health/database` sí abre
 una conexión y ejecuta exclusivamente un SP de lectura.
 
-Se utilizan los cinco SP de Vehículos, cuatro de Comandos, dos de Estado y dos
-de Historial, conservando su definición SQL. Pendiente de etapas posteriores:
+Se utilizan funcionalmente los **21 SP existentes**, conservando su definición
+SQL; ver [auditoría de integración](docs/auditoria_sp.md). Pendiente de etapas posteriores:
 autenticación/autorización. No se controla hardware físico.
 En esta etapa, las comprobaciones reales contra RDS son exclusivamente de
 lectura; la Prueba Funcional 1 de movimiento real queda pendiente.
@@ -330,33 +332,44 @@ app/
 │   ├── commands.py       # CommandCreate/Update/Response
 │   ├── state.py          # StateResponse con columnas reales del SP
 │   ├── history.py        # HistoryResponse con BIGINT de historial
-│   └── movement.py       # MovementRequest y MovementResponse
+│   ├── movement.py       # MovementRequest y MovementResponse
+│   ├── demos.py          # DEMO y movimientos configurados
+│   └── demo_execution.py # Snapshot congelado y respuesta de control
 ├── repositories/
 │   ├── base.py           # Validación de filas e IDs devueltos por SP
 │   ├── vehicles.py       # Los cinco SP de Vehículos
 │   ├── commands.py       # Los cuatro SP de Comandos
 │   ├── state.py          # Obtener/actualizar estado
-│   └── history.py        # Consultar/registrar historial
+│   ├── history.py        # Consultar/registrar historial
+│   └── demos.py          # DemoRepository y DemoMovementRepository
 ├── routers/
 │   ├── health.py         # Salud HTTP y diagnóstico RDS
 │   ├── vehicles.py       # CRUD de vehículos
 │   ├── commands.py       # Comandos por vehículo
 │   ├── state.py          # GET estado
 │   ├── history.py        # GET historial
-│   └── movement.py       # POST movimiento individual
+│   ├── movement.py       # POST movimiento individual
+│   ├── demos.py          # CRUD de DEMO y sus movimientos
+│   └── demo_execution.py # Inicio y cancelación
 ├── services/
 │   ├── database_health.py # Lectura segura con sp_obtener_vehiculos
 │   ├── vehicles.py       # Existencia y transacciones de vehículos
 │   ├── commands.py       # Padre, pertenencia y transacciones de comandos
 │   ├── state.py          # Padre y estado sin escrituras
 │   ├── history.py        # Padre y máximo diez, sin filtro de origen
-│   └── movement.py       # Reglas y transacción atómica de movimiento
+│   ├── movement.py       # Reglas y transacción atómica de movimiento
+│   ├── demos.py          # CRUD de DEMO y sus movimientos
+│   └── demo_execution.py # Preparación y transacción por paso
+├── execution/
+│   ├── manager.py        # DemoExecutionManager: tareas, tiempos y cancelación
+│   └── dependencies.py   # Manager por aplicación
 ├── websocket/
 │   ├── events.py         # Modelos de estado_actual y movimiento
 │   ├── manager.py        # WebSocketManager: clientes y difusión por vehículo
 │   ├── dependencies.py   # Manager compartido por aplicación
 │   ├── router.py         # Suscripción y estado inicial de sólo lectura
-│   └── publisher.py      # Publicación del movimiento ya confirmado
+│   ├── publisher.py      # Publicación del movimiento ya confirmado
+│   └── demo_events.py    # Los cinco eventos de ejecución DEMO
 ├── dependencies.py       # Composición de la fábrica de conexiones por solicitud
 └── main.py               # Construcción de FastAPI y registro de routers
 ```
@@ -550,6 +563,153 @@ asyncio.run(comprobar_estado())
 
 Esta comprobación sólo lee. No ejecutar el POST real durante esta etapa.
 
+## DEMO: configuración y ejecución
+
+Todos los endpoints siguientes aparecen bajo el tag **DEMO** de Swagger.
+`id_vehiculo`, `id_demo` e `id_demo_movimiento` son IDs positivos INT.
+
+| Método | Ruta exacta | Éxito | SP principal |
+| --- | --- | --- | --- |
+| POST | `/vehiculos/{id_vehiculo}/demos` | 201, `DemoResponse` | `sp_crear_demo` |
+| GET | `/vehiculos/{id_vehiculo}/demos` | 200, lista | `sp_obtener_demos` |
+| PUT | `/vehiculos/{id_vehiculo}/demos/{id_demo}` | 200, `DemoResponse` | `sp_actualizar_demo` |
+| DELETE | `/vehiculos/{id_vehiculo}/demos/{id_demo}` | 204 | `sp_eliminar_demo` |
+| POST | `/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos` | 201, `DemoMovementResponse` | `sp_agregar_movimiento_demo` |
+| GET | `/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos` | 200, lista | `sp_obtener_movimientos_demo` |
+| PUT | `/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos/{id_demo_movimiento}` | 200, `DemoMovementResponse` | `sp_actualizar_movimiento_demo` |
+| DELETE | `/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos/{id_demo_movimiento}` | 204 | `sp_eliminar_movimiento_demo` |
+| POST | `/vehiculos/{id_vehiculo}/demos/{id_demo}/ejecutar` | 202, `DemoExecutionResponse` | Lecturas de validación y `sp_actualizar_estado` por paso |
+| POST | `/vehiculos/{id_vehiculo}/demos/{id_demo}/cancelar` | 200, `DemoExecutionResponse` | Control de tarea; ningún SP propio |
+
+El CRUD comprueba vehículo y pertenencia de la DEMO; los movimientos comprueban
+además su pertenencia a la DEMO. Un recurso ausente o ajeno devuelve 404; una
+colección válida vacía devuelve 200 `[]`. Las escrituras releen y validan el
+resultado antes del commit. Crear un movimiento identifica su ID mediante
+diferencia de IDs y orden único: el SP de alta no devuelve `LAST_INSERT_ID`.
+No se añade SQL directo. La auditoría enlazada arriba detalla todos los SP de
+validación y relectura, además de los principales de esta tabla.
+
+Crear DEMO recibe `{"nombre":"Recorrido","descripcion":null}`; nombre no
+vacío hasta 80 caracteres, descripción opcional hasta 255. PUT añade `activo`,
+booleano JSON estricto obligatorio. Los campos adicionales se rechazan. El
+CRUD permite administrar catálogos inactivos; ejecutar exige vehículo y DEMO
+activos. La creación usa el default activo de MySQL.
+
+Crear un movimiento recibe, por ejemplo:
+
+```json
+{"id_comando":1,"orden":1,"duracion_ms":1200,"pausa_ms":300}
+```
+
+El comando debe estar activo y pertenecer al vehículo. `orden` es positivo;
+`duracion_ms` y `pausa_ms` son enteros JSON estrictos no negativos. Todos llegan
+a SP con parámetros INT firmados, por lo que su máximo de entrada es 2147483647.
+En POST, `pausa_ms` omitida usa cero; PUT exige todos los campos, incluida la
+pausa. Las lecturas admiten hasta 4294967295 ms almacenados porque las columnas
+son INT UNSIGNED, aunque las firmas de escritura sean INT. Se conserva también
+el orden INT firmado de filas existentes; la ejecución rechaza órdenes no
+positivos, repetidos o fuera de secuencia. No se impone que sean consecutivos.
+MySQL resuelve UNIQUE `(id_demo, orden)`; un conflicto devuelve 409 sin detalles
+internos. Entradas inválidas producen 422 y errores de infraestructura 500/503.
+
+### Inicio, orden y tiempos
+
+El POST de ejecución no recibe cuerpo. `DemoExecutionService.prepare` consulta
+el vehículo, DEMO, comandos y **N pasos de `sp_obtener_movimientos_demo`** en una
+transacción READ ONLY. Valida activo, propiedad, secuencia no vacía y coherencia
+del comando. No hay IDs, códigos, seis pasos ni tiempos de la DEMO real en el
+código. El resultado es un snapshot congelado; el CRUD posterior no modifica
+los pasos que ya se validaron para esa ejecución.
+
+`DemoExecutionManager` reserva el vehículo antes de validar para impedir carreras
+de inicio. Tras la validación crea una tarea y responde, sin esperar los N pasos:
+
+```json
+{"id_vehiculo":1,"id_demo":1,"estado":"iniciada"}
+```
+
+La respuesta es **202 Accepted**. Cada paso, en el orden exacto del SP, realiza:
+
+1. Revalidar vehículo, DEMO y comando, incluidos activo y datos del comando.
+2. Leer el estado actual para conservar `conectado`, o usar false si no existe.
+3. Ejecutar `sp_actualizar_estado`, releer y validar el resultado.
+4. Hacer commit y cerrar la conexión; sólo entonces emitir `demo_movimiento`.
+5. Esperar `duracion_ms / 1000` segundos y luego `pausa_ms / 1000` segundos.
+
+La pausa se aplica después de **cada** paso, incluido el último: `demo_fin`
+se emite después de su duración y pausa. Cero es válido y permite continuar
+cooperativamente. Las esperas usan asyncio y pueden sustituirse en pruebas.
+PyMySQL se ejecuta en hilos, sin bloquear el event loop. Cada paso tiene una
+transacción nueva; cancelar o fallar un paso no revierte pasos ya confirmados.
+No se fuerza `conectado=true`, ni se usa el valor inicial durante toda la DEMO:
+se vuelve a leer en cada actualización.
+
+**DEMO nunca llama `sp_registrar_historial`.** No reutiliza el servicio del
+movimiento individual. El historial no se filtra por origen para ocultar DEMO;
+su exclusión se garantiza evitando el registro. La ejecución todavía no
+controla físicamente el ESP8266 ni acredita una orden ejecutada por hardware.
+
+### Eventos, concurrencia y cancelación
+
+Se reutiliza **`ws://localhost:8000/ws/vehiculos/{id_vehiculo}`**. Cada cliente
+recibe su `estado_actual` al conectar y después, para la ejecución de su vehículo:
+
+```text
+demo_inicio → demo_movimiento (N veces) → demo_fin
+                                     ↘ demo_cancelada o demo_error
+```
+
+Todos los eventos DEMO contienen `tipo_evento`, `id_vehiculo`, `id_demo`,
+`nombre_demo`, `comando`, `codigo` y `timestamp`. Los campos que no corresponden
+a ese evento son null. Ejemplo ilustrativo de un movimiento confirmado:
+
+```json
+{
+  "tipo_evento":"demo_movimiento",
+  "id_vehiculo":1,"id_demo":1,"nombre_demo":"Recorrido",
+  "id_demo_movimiento":9,"id_comando":1,"comando":"DETENER","codigo":0,
+  "orden":2,"duracion_ms":1200,"pausa_ms":300,
+  "conectado":true,"timestamp":"2026-10-14T12:30:45","mensaje":null
+}
+```
+
+`demo_movimiento` usa el timestamp y los valores del estado SQL confirmado.
+Los eventos de control usan la hora UTC de la aplicación. `demo_error` lleva
+un mensaje público fijo; no incluye excepciones, SQL ni credenciales.
+No se presenta un movimiento como exitoso si falla su actualización o commit.
+Los errores detienen los pasos posteriores y liberan la tarea activa.
+
+El manager mantiene una reserva/tarea por `id_vehiculo`, con sincronización de
+inicio y limpieza. Una segunda DEMO del mismo vehículo devuelve 409, incluso
+durante la validación. Otros vehículos pueden ejecutarse simultáneamente.
+Todos los suscriptores del vehículo reciben sus eventos; los de otros vehículos
+quedan aislados. La ausencia o desconexión de clientes no detiene la DEMO;
+un fallo de entrega no revierte persistencia ni afecta a los demás clientes.
+
+POST `.../cancelar`, sin cuerpo, interrumpe las esperas de duración/pausa y evita
+iniciar más pasos. Si una operación MySQL ya está en curso, se señala cancelación
+cooperativa antes de actualizar y antes del commit cuando todavía es posible;
+se espera a su rollback/cierre o al cierre de un commit que ya haya empezado.
+Cancelar un await no puede detener físicamente el driver síncrono: por eso el
+vehículo se libera **después de recoger esa operación**, sin hilos/tareas de
+transacción abandonados. No se emiten movimientos posteriores a la cancelación
+ni se inventa una orden DETENER. Lo ya confirmado permanece en RDS.
+
+Se publica `demo_cancelada` y la respuesta es:
+
+```json
+{"id_vehiculo":1,"id_demo":1,"estado":"cancelada"}
+```
+
+Tras responder puede iniciarse otra DEMO. Sin esa ejecución activa se devuelve
+404. La finalización, cancelación y error tienen un único resultado terminal.
+Al apagar la aplicación se recogen primero las tareas y después se cierran
+los clientes WebSocket. El manager es local a un proceso: esta etapa usa una
+instancia de Uvicorn, sin coordinación distribuida ni reanudación tras reinicio.
+
+Durante esta etapa las escrituras y ejecuciones se verifican sólo mediante
+fakes. **No ejecutar una DEMO real ni POST, PUT o DELETE contra RDS todavía.**
+
 ## Manejo de errores
 
 La configuración con tipos o rangos inválidos impide el arranque; revisar la
@@ -627,7 +787,7 @@ repositorios reales con una conexión/cursores simulados y snapshots para
 verificar commit único, rollback de ambas escrituras, fallo durante drenado,
 relectura o commit y conservación de conectado. No ejecutan escrituras en RDS.
 
-Al cierre de la etapa 5 pasan **226 pruebas: 174 anteriores y 52 nuevas** de
+En la etapa 5 pasaron **226 pruebas: 174 anteriores y 52 nuevas** de
 WebSocket y publicación después del commit. Se comprueban suscripciones ASGI, modelos,
 clientes simultáneos, aislamiento por vehículo, desconexión/reconexión, timeouts,
 limpieza y entrega inicial sin escrituras. Las pruebas POST + WebSocket usan
@@ -658,6 +818,50 @@ Se consultó el historial antes y después de abrir/cerrar el WebSocket: los
 evidencia antes/después de Thunder Client.
 Las comprobaciones de esta etapa no sustituyen las pruebas funcionales
 posteriores en Thunder Client.
+
+## Verificación de la etapa 6
+
+Resultado final: **306 pruebas aprobadas: 226 anteriores y 80 nuevas**.
+De las nuevas, 46 cubren CRUD, 22 la preparación/transacción por paso, 11 el
+manager y sus endpoints, y una la cancelación de envíos encolados en WebSocket.
+
+Las pruebas nuevas de CRUD cubren los ocho endpoints, SP y parámetros reales,
+pertenencia, validación, conflictos de orden, relecturas y rollback. Las de datos
+de ejecución usan la fábrica de transacciones, ejecutor y repositorios reales
+con conexiones simuladas; rechazan cualquier llamada al historial. Las del
+manager usan servicios síncronos ficticios, WebSocket real en memoria y sleeps
+controlados: no esperan los segundos de la DEMO real.
+
+Se comprueban eventos después del commit/cierre, N pasos dinámicos, las dos
+esperas por paso, respuesta 202 sin esperar la secuencia, carreras de inicio,
+cancelación, tareas recogidas y clientes aislados o fallidos. Las 226 pruebas
+anteriores se conservan sin modificación.
+
+La lectura real de esta etapa devolvió 200 en salud, diagnóstico RDS, Swagger,
+OpenAPI y los nuevos GET. La aplicación anuncia versión **0.6.0** y diez
+operaciones HTTP bajo DEMO. GET `/vehiculos/1/demos` devolvió una DEMO activa,
+ID 1, **Demo programada**. Su GET de movimientos devolvió:
+
+| Orden | Comando | Código | Duración ms | Pausa ms |
+| --- | --- | --- | --- | --- |
+| 1 | DETENER | 0 | 0 | 700 |
+| 2 | AVANZAR | 1 | 3000 | 700 |
+| 3 | AVANZAR_DERECHA | 9 | 5000 | 1000 |
+| 4 | RETROCEDER_IZQUIERDA | 6 | 5000 | 700 |
+| 5 | CLAXON | 128 | 500 | 0 |
+| 6 | DETENER | 0 | 0 | 0 |
+
+Estos son datos observados en RDS, **no una secuencia implementada en Python**.
+Se cotejaron los JSON de ambos GET con llamadas reales a `sp_obtener_demos` y
+`sp_obtener_movimientos_demo` en una transacción READ ONLY: coincidieron.
+Antes y después se comprobaron estado e historial: el estado permaneció igual
+y los cinco registros WORKBENCH fueron idénticos. No se creó, modificó, eliminó
+ni ejecutó ninguna DEMO; tampoco se ejecutó el POST individual real.
+
+La [auditoría de los 21 SP](docs/auditoria_sp.md) muestra repositorio, servicio y
+endpoint/flujo para cada procedimiento. Esto acredita la integración de código
+y pruebas aisladas; la ejecución real y las pruebas funcionales oficiales
+siguen pendientes.
 
 ## Git
 

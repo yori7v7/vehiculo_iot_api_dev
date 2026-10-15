@@ -7,7 +7,10 @@ from fastapi import FastAPI
 
 from app.config.settings import get_settings
 from app.errors.handlers import register_exception_handlers
+from app.execution.manager import DemoExecutionManager
 from app.routers.commands import router as commands_router
+from app.routers.demos import router as demos_router
+from app.routers.demo_execution import router as demo_execution_router
 from app.routers.health import router as health_router
 from app.routers.history import router as history_router
 from app.routers.movement import router as movement_router
@@ -24,7 +27,10 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        await application.state.websocket_manager.close_all()
+        try:
+            await application.state.demo_execution_manager.close_all()
+        finally:
+            await application.state.websocket_manager.close_all()
 
 
 def create_app() -> FastAPI:
@@ -33,10 +39,10 @@ def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
         title=settings.app_name,
-        version="0.5.0",
+        version="0.6.0",
         description=(
-            "API local para la práctica 2.5. Etapa 5: WebSocket por vehículo y "
-            "eventos de movimiento después del commit. Consultar README para WebSocket."
+            "API local para la práctica 2.5. Etapa 6: CRUD de DEMO y movimientos, "
+            "ejecución asíncrona y cancelación. Consultar README para eventos WebSocket."
         ),
         lifespan=lifespan,
         docs_url="/docs",
@@ -48,15 +54,19 @@ def create_app() -> FastAPI:
             {"name": "Estado", "description": "Consulta del estado persistido del vehículo."},
             {"name": "Historial", "description": "Hasta diez registros recientes, sin filtrar por origen."},
             {"name": "Movimientos", "description": "Movimiento individual con estado e historial en una transacción."},
+            {"name": "DEMO", "description": "Configuración, ejecución asíncrona y cancelación lógica por vehículo."},
         ],
     )
     application.state.websocket_manager = WebSocketManager()
+    application.state.demo_execution_manager = DemoExecutionManager(application.state.websocket_manager)
     application.include_router(health_router)
     application.include_router(vehicles_router)
     application.include_router(commands_router)
     application.include_router(state_router)
     application.include_router(history_router)
     application.include_router(movement_router)
+    application.include_router(demos_router)
+    application.include_router(demo_execution_router)
     application.include_router(websocket_router)
     register_exception_handlers(application)
     return application

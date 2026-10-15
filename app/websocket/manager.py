@@ -104,7 +104,14 @@ class WebSocketManager:
             finally:
                 group.clients.pop(id(websocket), None)
 
-    async def _send_one(self, websocket: WebSocketConnection, event: dict[str, Any]) -> bool:
+    async def _send_one(
+        self, websocket: WebSocketConnection, event: dict[str, Any],
+        should_send: Callable[[], bool] | None = None,
+    ) -> bool | None:
+        # Cancelar una DEMO puede coincidir con un envío ya encolado. Evaluar
+        # la señal justo antes del transporte; omitir no significa cliente muerto.
+        if should_send is not None and not should_send():
+            return None
         try:
             await asyncio.wait_for(websocket.send_json(event), timeout=self._send_timeout)
         except Exception:
@@ -141,13 +148,21 @@ class WebSocketManager:
             asyncio.gather(*(self._bounded_close(client, code=code) for client in clients))
         )
 
-    async def broadcast(self, vehicle_id: int, event: dict[str, Any]) -> None:
+    async def broadcast(
+        self, vehicle_id: int, event: dict[str, Any],
+        *, should_send: Callable[[], bool] | None = None,
+    ) -> None:
         async with self._group(vehicle_id, create=False) as group:
-            if group is None or not group.clients:
+            if (
+                group is None or not group.clients
+                or (should_send is not None and not should_send())
+            ):
                 return
             clients = tuple(group.clients.values())
-            delivered = await asyncio.gather(*(self._send_one(client, event) for client in clients))
-            failed = [client for client, success in zip(clients, delivered) if not success]
+            delivered = await asyncio.gather(*(
+                self._send_one(client, event, should_send) for client in clients
+            ))
+            failed = [client for client, success in zip(clients, delivered) if success is False]
             try:
                 await self._close_clients(tuple(failed), code=1011)
             finally:

@@ -132,6 +132,27 @@ class WebSocketManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.manager.connection_count(4), 1)
         self.assertEqual(self.manager.vehicle_count, 2)
 
+    async def test_cancel_guard_skips_queued_send_without_removing_healthy_clients(self):
+        first, second = FakeSocket(), FakeSocket()
+        await self.connect(first)
+        await self.connect(second)
+        stopped = asyncio.Event()
+        original_send = first.send_json
+
+        async def send_then_cancel(event):
+            await original_send(event)
+            stopped.set()
+
+        first.send_json = send_then_cancel
+        await self.manager.broadcast(
+            3, movement_event(), should_send=lambda: not stopped.is_set()
+        )
+        self.assertEqual(first.messages, [initial_event(), movement_event()])
+        self.assertEqual(second.messages, [initial_event()])
+        self.assertEqual(self.manager.connection_count(3), 2)
+        self.assertEqual(second.close_codes, [])
+        self.assertEqual(self.manager.vehicle_count, 1)
+
     async def test_empty_broadcast_and_unknown_disconnect_do_not_create_groups(self):
         for vehicle_id in range(50):
             await self.manager.broadcast(vehicle_id, movement_event(vehicle_id))
