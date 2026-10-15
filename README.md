@@ -23,9 +23,9 @@ una conexión y ejecuta exclusivamente un SP de lectura.
 
 Se utilizan funcionalmente los **21 SP existentes**, conservando su definición
 SQL; ver [auditoría de integración](docs/auditoria_sp.md). No se controla hardware
-físico. Las comprobaciones reales contra RDS de esta etapa son exclusivamente
-de lectura. Las **tres pruebas oficiales de Thunder Client siguen pendientes**:
-no se ha ejecutado el POST real de movimiento ni una DEMO real mediante la API.
+físico. Las comprobaciones documentadas de las etapas 1 a 7 fueron de lectura.
+Posteriormente se completaron las tres pruebas funcionales reales de movimiento,
+historial y WebSocket con DEMO; véase la sección de pruebas funcionales.
 
 ## Requisitos e instalación en Windows
 
@@ -1008,7 +1008,7 @@ ni ejecutó ninguna DEMO; tampoco se ejecutó el POST individual real.
 La [auditoría de los 21 SP](docs/auditoria_sp.md) muestra repositorio, servicio y
 endpoint/flujo para cada procedimiento. Esto acredita la integración de código
 y pruebas aisladas; la ejecución real y las pruebas funcionales oficiales
-siguen pendientes.
+quedaron pendientes para una etapa posterior.
 
 ## Verificación de la etapa 7
 
@@ -1045,13 +1045,17 @@ archivos ni en el historial local de Git. `.env`, `.venv`, cachés y temporales
 siguen excluidos; código y README permanecen incluidos. El commit se conserva
 localmente, sin push ni despliegue.
 
-## Preparación de las tres pruebas oficiales
+## Pruebas funcionales
 
-Estado: **pendientes, no ejecutadas en la etapa 7**. La guía
-[pruebas funcionales con Thunder Client](docs/pruebas_funcionales.md) prepara
-las solicitudes y evidencias sin generar datos ni iniciar escrituras.
+Estado: **las tres pruebas funcionales fueron completadas**. La guía de
+[preparación de las pruebas](docs/pruebas_funcionales.md) se conserva como
+referencia de las solicitudes y los criterios utilizados.
 
-| Prueba | Solicitud principal | Comprobación prevista |
+Las solicitudes HTTP se realizaron con Thunder Client. El WebSocket de la DEMO
+se verificó con Postman, porque esa función requería un plan de pago en la
+versión gratuita instalada de Thunder Client.
+
+| Prueba | Solicitud principal | Comprobación |
 | --- | --- | --- |
 | 1 | POST `/vehiculos/{id_vehiculo}/movimientos`, con `X-API-Key` | 200, estado correcto y un nuevo registro individual API |
 | 2 | GET `/vehiculos/{id_vehiculo}/historial`, público | Hasta diez registros, orden descendente y sin borrar los anteriores |
@@ -1063,9 +1067,10 @@ evidencias ni exportaciones. La secuencia e IDs se obtienen de los GET reales.
 
 ## Git
 
-Revisar `git status` y el contenido preparado antes de cada commit. Mantener
-commits locales pequeños y descriptivos. No realizar push ni publicar o
-desplegar la API durante esta etapa.
+Revisar `git status` y el contenido preparado antes de cada commit. El repositorio
+publica únicamente código fuente, pruebas y documentación; `.env`, `.venv` y los
+secretos permanecen excluidos. Publicar el código no despliega la API, que se
+ejecuta localmente.
 
 Referencias técnicas: [FastAPI y Uvicorn](https://fastapi.tiangolo.com/deployment/manually/),
 [configuración de Pydantic](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) y
