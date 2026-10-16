@@ -1,4 +1,4 @@
-"""Configuración validada desde el entorno y el archivo .env local."""
+"""Configuración validada para desarrollo y producción."""
 
 from functools import lru_cache
 from pathlib import Path
@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    """Parámetros de desarrollo; RDS se valida al solicitar una conexión."""
+    """Parámetros del proceso; RDS se valida al solicitar una conexión."""
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = Field(default="Vehículo IoT API", min_length=1)
-    app_env: Literal["development"] = "development"
+    app_env: Literal["development", "production"] = "development"
     api_key: SecretStr = Field(default=SecretStr(""), repr=False)
 
     db_host: str = ""

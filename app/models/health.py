@@ -10,7 +10,7 @@ class HealthResponse(BaseModel):
 
     status: Literal["ok"] = Field(description="El proceso HTTP responde.")
     service: str = Field(description="Nombre configurado de la API.")
-    environment: Literal["development"] = Field(description="Entorno local.")
+    environment: Literal["development", "production"] = Field(description="Entorno configurado del proceso.")
 
 
 class DatabaseHealthResponse(BaseModel):

@@ -1,4 +1,4 @@
-"""Punto de entrada y registro de routers de la API local."""
+"""Punto de entrada y registro de routers de la API de vehículos IoT."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -41,7 +41,7 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version="0.7.0",
         description=(
-            "API local para la práctica 2.5. Operaciones de control y eliminación "
+            "API de vehículos IoT para desarrollo y producción. Operaciones de control y eliminación "
             "protegidas mediante X-API-Key. Consultar README para WebSocket y pruebas funcionales."
         ),
         lifespan=lifespan,

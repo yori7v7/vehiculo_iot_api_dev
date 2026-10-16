@@ -24,7 +24,7 @@ router = APIRouter(tags=["Salud"])
     response_model=HealthResponse,
     summary="Comprobar que FastAPI está funcionando",
     description=(
-        "Verifica que la API local responde. No recibe parámetros ni cuerpo, "
+        "Verifica que la API responde. No recibe parámetros ni cuerpo, "
         "no consulta RDS y no ejecuta Stored Procedures. "
         "No comprueba la conexión de un vehículo físico."
     ),
@@ -58,7 +58,7 @@ def get_database_health_service(
     response_model=DatabaseHealthResponse,
     summary="Comprobar conexión Python → RDS y lectura de un SP",
     description=(
-        "Abre una conexión con la configuración local y ejecuta "
+        "Abre una conexión con la configuración del proceso y ejecuta "
         "sp_obtener_vehiculos(), sin parámetros, dentro de una transacción "
         "READ ONLY. Consume todos los resultados y termina con rollback. "
         "No modifica datos ni devuelve registros, credenciales o ubicación de RDS. "

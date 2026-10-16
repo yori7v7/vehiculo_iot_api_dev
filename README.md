@@ -1,11 +1,17 @@
-# Vehículo IoT API — entorno Dev
+# Vehículo IoT API — desarrollo y despliegue en EC2
 
-Práctica 2.5 de Implementación de Soluciones I. API con Python, FastAPI,
-Pydantic y una arquitectura por capas, preparada para utilizar los Stored
-Procedures de Amazon RDS MySQL. La API se ejecuta localmente en
-<http://localhost:8000>; la infraestructura remota prevista se limita a RDS.
+Proyecto de las prácticas 2.5 y 2.6 de Implementación de Soluciones I. API con
+Python, FastAPI, Pydantic y arquitectura por capas, que utiliza los 21 Stored
+Procedures existentes de Amazon RDS MySQL. Admite desarrollo local y producción
+en EC2 Windows Server 2025, con Caddy publicando HTTPS/WSS y FastAPI escuchando
+únicamente en `127.0.0.1:8000`.
 
-## Estado de la etapa 7
+La [guía de despliegue EC2 y pruebas del examen](docs/despliegue_ec2.md) describe
+la preparación del servidor, las dos tareas persistentes de Windows y los tres
+escenarios públicos con Postman. Los scripts están en `deploy/windows/` y no
+modifican AWS. En desarrollo se puede seguir usando <http://localhost:8000>.
+
+## Funcionalidad conservada de la práctica 2.5
 
 Implementado: configuración mediante variables de entorno, modelo Pydantic de
 salud, router independiente, punto de entrada mínimo, Swagger UI, conexión a RDS,
@@ -17,7 +23,7 @@ por vehículo envía el estado inicial desde RDS y difunde movimientos confirmad
 También están implementados el CRUD de DEMO y sus movimientos, la ejecución
 asíncrona, la cancelación lógica y los cinco eventos de ejecución por WebSocket.
 Las operaciones de control y todas las eliminaciones se protegen con una API
-key local mediante una dependencia reutilizable y el header `X-API-Key`.
+key compartida mediante una dependencia reutilizable y el header `X-API-Key`.
 El arranque y GET `/` no abren conexiones a RDS. GET `/health/database` sí abre
 una conexión y ejecuta exclusivamente un SP de lectura.
 
@@ -61,7 +67,7 @@ una conexión y sus transacciones. Se reutiliza la versión 1.2.3 instalada en l
 etapa 1. La seguridad utiliza FastAPI y la biblioteca estándar, sin añadir
 dependencias. La conexión real se verificó con Python 3.14.8.
 
-## Configuración local
+## Configuración por entorno
 
 Crear `.env` a partir del ejemplo sólo si aún no existe:
 
@@ -74,7 +80,7 @@ if (-not (Test-Path -LiteralPath .env)) {
 | Variable | Uso | Valor inicial |
 | --- | --- | --- |
 | `APP_NAME` | Nombre mostrado en Swagger y salud | Vehículo IoT API |
-| `APP_ENV` | Entorno permitido en esta práctica | development |
+| `APP_ENV` | `development` o `production`; usar `production` en EC2 | development |
 | `DB_HOST` | Endpoint real de RDS | Vacío |
 | `DB_PORT` | Puerto MySQL, entre 1 y 65535 | 3306 |
 | `DB_NAME` | Base de datos existente | vehiculo_iot |
@@ -113,9 +119,9 @@ Completar datos reales únicamente en `.env`. Git excluye `.env`, sus variantes,
 `.venv`, cachés, claves privadas y temporales. No incluir secretos en código,
 README, capturas, logs ni commits. `.env.example` debe permanecer sin secretos.
 
-## Seguridad y autorización local
+## Seguridad y autorización
 
-Configurar `API_KEY` con una clave privada local dentro de `.env`. El valor
+Configurar `API_KEY` con una clave privada dentro de `.env` en cada servidor. El valor
 `change-me` de `.env.example` es un marcador público y no autoriza solicitudes.
 La clave real no se copia al código, tests, README ni archivos exportados.
 Reiniciar Uvicorn después de cambiarla para recargar la configuración.
@@ -168,8 +174,8 @@ Esta autorización compartida se aplica a exactamente siete operaciones:
 | DELETE | `/vehiculos/{id_vehiculo}/demos/{id_demo}` | 204 sin cuerpo |
 | DELETE | `/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos/{id_demo_movimiento}` | 204 sin cuerpo |
 
-Los GET, Swagger y el WebSocket de monitoreo siguen siendo públicos dentro de
-esta API local. Los POST de configuración de catálogos y los PUT conservan su
+Los GET, Swagger y el WebSocket de monitoreo siguen siendo públicos.
+Los POST de configuración de catálogos y los PUT conservan su
 comportamiento actual. Consultar la API o abrir un WebSocket no autoriza a
 controlar un vehículo ni cambia su estado persistido.
 
@@ -177,7 +183,7 @@ Con una clave válida configurada, cada operación protegida exige un único
 header `X-API-Key`:
 
 ```text
-X-API-Key: <clave local>
+X-API-Key: <clave privada>
 ```
 
 - Header ausente: **401 Unauthorized**.
@@ -190,14 +196,16 @@ Estos fallos devuelven un mensaje público sanitizado, sin mostrar la clave
 esperada ni el valor recibido. Una solicitud rechazada no ejecuta el flujo de
 control o eliminación.
 
-En [Swagger UI](http://localhost:8000/docs), pulsar **Authorize** y completar
-el esquema **LocalApiKey** con la clave local, sin prefijo `Bearer`. Swagger
+En Swagger UI, local en <http://localhost:8000/docs> o público en
+<https://100-30-4-62.nip.io/docs>, pulsar **Authorize** y completar
+el esquema **LocalApiKey** con la clave privada, sin prefijo `Bearer`. Se conserva
+el nombre del esquema para mantener compatibilidad. Swagger
 envía `X-API-Key` en las operaciones protegidas y muestra sus candados. En
 Thunder Client, agregar el mismo header únicamente a las solicitudes que lo
 requieren. No colocar la clave en la URL, query string ni cuerpo JSON; ocultarla
-en capturas y quitarla antes de exportar una colección. En esta etapa se puede
-revisar la interfaz de autorización, pero **no ejecutar operaciones reales de
-escritura** desde Swagger o Thunder Client.
+en capturas y quitarla antes de exportar una colección. Las operaciones reales
+de escritura forman parte de las pruebas funcionales cuando el operador las
+ejecuta expresamente; instalar las tareas no ejecuta movimientos ni DEMO.
 
 ## Ejecutar FastAPI localmente
 
@@ -208,6 +216,9 @@ Desde la raíz del repositorio:
 ```
 
 El servidor escucha en la interfaz local. Detenerlo con `Ctrl+C`.
+Este comando con `--reload` es exclusivamente para desarrollo. Para producción,
+usar las tareas de la [guía EC2](docs/despliegue_ec2.md), con un único worker,
+sin recarga y con cabeceras de proxy aceptadas sólo desde `127.0.0.1`.
 
 - Salud: <http://localhost:8000/>
 - Diagnóstico RDS: <http://localhost:8000/health/database>
@@ -649,7 +660,7 @@ errores internos. Al detener o recargar la aplicación se cierran los clientes
 activos con 1001.
 
 El manager pertenece a una aplicación/proceso. Usar una sola instancia de
-Uvicorn en este entorno local. Reinicios requieren reconectar; los eventos
+Uvicorn y un único worker tanto en desarrollo como en producción. Reinicios requieren reconectar; los eventos
 transitorios no tienen replay ni entrega persistente. RDS conserva la fuente
 de verdad y cada reconexión vuelve a consultarla.
 
@@ -816,8 +827,9 @@ Al apagar la aplicación se recogen primero las tareas y después se cierran
 los clientes WebSocket. El manager es local a un proceso: esta etapa usa una
 instancia de Uvicorn, sin coordinación distribuida ni reanudación tras reinicio.
 
-Durante esta etapa las escrituras y ejecuciones se verifican sólo mediante
-fakes. **No ejecutar una DEMO real ni POST, PUT o DELETE contra RDS todavía.**
+Durante la implementación de la etapa 6 las escrituras y ejecuciones se
+verificaron mediante fakes. Las pruebas funcionales posteriores de 2.5 se
+resumen al final; la guía EC2 prepara los escenarios públicos de 2.6.
 
 ### DETENER y prioridad de cancelación
 
@@ -917,16 +929,20 @@ de salud y Swagger. No se ejecuta el POST real ni se insertan, actualizan o
 eliminan registros. Tampoco se inicia todavía Thunder Client.
 
 Pruebas automatizadas de infraestructura, modelos, repositorios, servicios y
-HTTP, sin RDS ni credenciales reales:
+HTTP, sin RDS ni credenciales reales. Instalar las dependencias de desarrollo
+para ejecutar la suite completa con pytest:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pip check
 ```
 
 Estas pruebas simulan conexiones y cursores para verificar commit/rollback,
 limpieza, drenado de resultados, orden de parámetros, validaciones, creación,
 PUT completo, eliminación, pertenencia, colecciones vacías y errores. Las
-pruebas HTTP usan ASGI y datos ficticios, sin agregar dependencias de pruebas.
+pruebas HTTP usan ASGI y datos ficticios. Pytest se mantiene en
+`requirements-dev.txt`; no es una dependencia de ejecución de la API.
 Las pruebas de movimiento utilizan el gestor `MySQLDatabase`, el ejecutor y
 repositorios reales con una conexión/cursores simulados y snapshots para
 verificar commit único, rollback de ambas escrituras, fallo durante drenado,
@@ -1045,7 +1061,7 @@ archivos ni en el historial local de Git. `.env`, `.venv`, cachés y temporales
 siguen excluidos; código y README permanecen incluidos. El commit se conserva
 localmente, sin push ni despliegue.
 
-## Pruebas funcionales
+## Pruebas funcionales de la práctica 2.5
 
 Estado: **las tres pruebas funcionales fueron completadas**. La guía de
 [preparación de las pruebas](docs/pruebas_funcionales.md) se conserva como
@@ -1065,12 +1081,17 @@ El POST de inicio forma parte de la tercera prueba. No representa una cuarta
 prueba. La API key se introduce sólo en la interfaz local y no se muestra en
 evidencias ni exportaciones. La secuencia e IDs se obtienen de los GET reales.
 
+Para la práctica 2.6 se documentan HTTPS, dos clientes WSS simultáneos,
+persistencia y DEMO mediante Postman en la [guía del examen](docs/despliegue_ec2.md).
+Esa guía contiene criterios de comprobación y no acredita nuevas ejecuciones
+contra el servidor público.
+
 ## Git
 
 Revisar `git status` y el contenido preparado antes de cada commit. El repositorio
 publica únicamente código fuente, pruebas y documentación; `.env`, `.venv` y los
-secretos permanecen excluidos. Publicar el código no despliega la API, que se
-ejecuta localmente.
+secretos permanecen excluidos. Publicar el código no despliega la API: la
+instalación en EC2 requiere seguir la guía del servidor y crear sus tareas.
 
 Referencias técnicas: [FastAPI y Uvicorn](https://fastapi.tiangolo.com/deployment/manually/),
 [configuración de Pydantic](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) y
