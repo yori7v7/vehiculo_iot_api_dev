@@ -509,6 +509,37 @@ private:
   WebSocketsClient webSocket;
   GruaRC& grua;
 
+  // RN07: cache circular de identificadores de eventos WSS ya procesados.
+  // UUID hex de 32 caracteres -> 16 * 33 = 528 bytes de RAM.
+  static constexpr uint8_t CACHE_EVENTOS = 16;
+  char idsProcesados[CACHE_EVENTOS][33] = {};
+  uint8_t siguienteId = 0;
+
+  bool identificadorValido(const char* id) {
+    if (id == nullptr || strlen(id) != 32) return false;
+    for (uint8_t n = 0; n < 32; ++n) {
+      const char c = id[n];
+      const bool hex = (c >= '0' && c <= '9') ||
+                       (c >= 'a' && c <= 'f') ||
+                       (c >= 'A' && c <= 'F');
+      if (!hex) return false;
+    }
+    return true;
+  }
+
+  bool eventoYaProcesado(const char* id) {
+    for (uint8_t n = 0; n < CACHE_EVENTOS; ++n) {
+      if (strcmp(idsProcesados[n], id) == 0) return true;
+    }
+    return false;
+  }
+
+  void registrarEvento(const char* id) {
+    memcpy(idsProcesados[siguienteId], id, 32);
+    idsProcesados[siguienteId][32] = '\0';
+    siguienteId = (siguienteId + 1) % CACHE_EVENTOS;
+  }
+
   bool iniciado = false;
   bool websocketConectado = false;
   bool paradaDesconexionAplicada = false;
@@ -622,6 +653,28 @@ private:
       Serial.println("[AWS] estado_actual recibido.");
       Serial.println("[AWS] Se ignora como orden fisica por seguridad.");
       return;
+    }
+
+    // RN07: identificar cada mensaje antes de activar alguna salida fisica.
+    // Dos POST con el mismo codigo tendran IDs distintos; un reenvio WSS
+    // del mismo mensaje conservara el mismo ID y se ignorara.
+    const char* idEvento = documento["id_evento"] | "";
+    if (idEvento[0] != '\0') {
+      if (!identificadorValido(idEvento)) {
+        Serial.println("[RN07] ID de evento invalido: parada segura.");
+        finalizarDemoLocal();
+        return;
+      }
+      if (eventoYaProcesado(idEvento)) {
+        Serial.print("[RN07] Evento duplicado ignorado: ");
+        Serial.println(idEvento);
+        return;
+      }
+      registrarEvento(idEvento);
+    } else {
+      // Compatibilidad temporal durante el despliegue del backend nuevo.
+      // Mientras haya mensajes sin ID, no podemos garantizar deduplicacion.
+      Serial.println("[RN07] Evento sin ID: modo de compatibilidad.");
     }
 
     if (strcmp(tipoEvento, "movimiento") == 0) {
