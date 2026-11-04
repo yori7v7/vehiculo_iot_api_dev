@@ -147,10 +147,47 @@ private:
   static constexpr uint8_t Q6_DEMO_ORIGINAL = B01000000;
   static constexpr uint8_t Q7_CLAXON        = B10000000;
 
-  void enviar(uint8_t valor) {
+  // RN09: estado fisico del registro para liberar antes de cambiar accion.
+  uint8_t salidaActual = 0;
+
+  // RN10: tiempo maximo de movimiento individual mantenido.
+  // Los pasos de DEMO se temporizan aparte con duracion_ms.
+  bool movimientoSostenido = false;
+  unsigned long ultimaOrdenMovimiento = 0;
+  static constexpr unsigned long MAX_MOVIMIENTO_INDIVIDUAL_MS = 12000UL;
+
+  void escribirRegistro(uint8_t valor) {
     digitalWrite(latchPin, LOW);
     shiftOut(dataPin, clockPin, MSBFIRST, valor);
     digitalWrite(latchPin, HIGH);
+  }
+
+  void enviar(uint8_t valor) {
+    // Antes de un cambio entre salidas activas, liberar todos los PC817.
+    // Esto evita invertir sentido sin un intervalo neutro.
+    if (salidaActual != 0 && valor != 0 && salidaActual != valor) {
+      escribirRegistro(0);
+      salidaActual = 0;
+      movimientoSostenido = false;
+      delay(30);  // 30 ms de liberacion electrica segura.
+    }
+
+    escribirRegistro(valor);
+    salidaActual = valor;
+
+    // Refrescar el plazo si llega una nueva orden individual valida,
+    // incluso si se repite exactamente el mismo movimiento.
+    if (valor == Q0_AVANZAR ||
+        valor == Q1_RETROCEDER ||
+        valor == Q2_IZQUIERDA ||
+        valor == Q3_DERECHA ||
+        valor == (Q1_RETROCEDER | Q2_IZQUIERDA) ||
+        valor == (Q0_AVANZAR | Q3_DERECHA)) {
+      movimientoSostenido = true;
+      ultimaOrdenMovimiento = millis();
+    } else {
+      movimientoSostenido = false;
+    }
   }
 
   void detener() { enviar(B00000000); }
@@ -279,6 +316,21 @@ public:
         Serial.print("[GRUA/DEMO] Codigo desconocido: ");
         Serial.println(codigo);
         break;
+    }
+  }
+
+  // La duracion de una DEMO la gobierna ClienteAWS mediante millis().
+  void delegarTiempoADemo() {
+    movimientoSostenido = false;
+  }
+
+  // Evita una salida indefinidamente activa si se pierde un STOP
+  // pero Wi-Fi/WSS permanecen conectados.
+  void actualizarSeguridad() {
+    if (movimientoSostenido &&
+        millis() - ultimaOrdenMovimiento >= MAX_MOVIMIENTO_INDIVIDUAL_MS) {
+      Serial.println("[SEGURIDAD] Tiempo maximo del movimiento: DETENER.");
+      detener();
     }
   }
 
@@ -457,6 +509,37 @@ private:
   WebSocketsClient webSocket;
   GruaRC& grua;
 
+  // RN07: cache circular de identificadores de eventos WSS ya procesados.
+  // UUID hex de 32 caracteres -> 16 * 33 = 528 bytes de RAM.
+  static constexpr uint8_t CACHE_EVENTOS = 16;
+  char idsProcesados[CACHE_EVENTOS][33] = {};
+  uint8_t siguienteId = 0;
+
+  bool identificadorValido(const char* id) {
+    if (id == nullptr || strlen(id) != 32) return false;
+    for (uint8_t n = 0; n < 32; ++n) {
+      const char c = id[n];
+      const bool hex = (c >= '0' && c <= '9') ||
+                       (c >= 'a' && c <= 'f') ||
+                       (c >= 'A' && c <= 'F');
+      if (!hex) return false;
+    }
+    return true;
+  }
+
+  bool eventoYaProcesado(const char* id) {
+    for (uint8_t n = 0; n < CACHE_EVENTOS; ++n) {
+      if (strcmp(idsProcesados[n], id) == 0) return true;
+    }
+    return false;
+  }
+
+  void registrarEvento(const char* id) {
+    memcpy(idsProcesados[siguienteId], id, 32);
+    idsProcesados[siguienteId][32] = '\0';
+    siguienteId = (siguienteId + 1) % CACHE_EVENTOS;
+  }
+
   bool iniciado = false;
   bool websocketConectado = false;
   bool paradaDesconexionAplicada = false;
@@ -547,12 +630,15 @@ private:
     if (error) {
       Serial.print("[AWS] Error interpretando JSON: ");
       Serial.println(error.c_str());
+      // RN11: un evento corrupto no debe dejar un movimiento latente.
+      finalizarDemoLocal();
       return;
     }
 
     const char* tipoEvento = documento["tipo_evento"];
     if (tipoEvento == nullptr) {
       Serial.println("[AWS] Evento sin tipo_evento.");
+      finalizarDemoLocal();
       return;
     }
 
@@ -569,9 +655,32 @@ private:
       return;
     }
 
+    // RN07: identificar cada mensaje antes de activar alguna salida fisica.
+    // Dos POST con el mismo codigo tendran IDs distintos; un reenvio WSS
+    // del mismo mensaje conservara el mismo ID y se ignorara.
+    const char* idEvento = documento["id_evento"] | "";
+    if (idEvento[0] != '\0') {
+      if (!identificadorValido(idEvento)) {
+        Serial.println("[RN07] ID de evento invalido: parada segura.");
+        finalizarDemoLocal();
+        return;
+      }
+      if (eventoYaProcesado(idEvento)) {
+        Serial.print("[RN07] Evento duplicado ignorado: ");
+        Serial.println(idEvento);
+        return;
+      }
+      registrarEvento(idEvento);
+    } else {
+      // Compatibilidad temporal durante el despliegue del backend nuevo.
+      // Mientras haya mensajes sin ID, no podemos garantizar deduplicacion.
+      Serial.println("[RN07] Evento sin ID: modo de compatibilidad.");
+    }
+
     if (strcmp(tipoEvento, "movimiento") == 0) {
       if (!documento["codigo"].is<int>()) {
         Serial.println("[AWS] Movimiento sin codigo valido.");
+        finalizarDemoLocal();
         return;
       }
 
@@ -647,6 +756,7 @@ private:
       Serial.println("========================================");
 
       grua.activarCodigoDemo(codigoPasoDemo);
+      grua.delegarTiempoADemo();
       inicioPasoDemo = millis();
 
       if (duracionPasoDemo == 0) {
@@ -730,7 +840,12 @@ private:
         break;
 
       case WStype_ERROR:
-        Serial.println("[AWS] Error WebSocket/TLS.");
+        Serial.println("[AWS] Error WebSocket/TLS: parada segura.");
+        websocketConectado = false;
+        demoActiva = false;
+        pasoDemoActivo = false;
+        grua.paradaSeguridad();
+        paradaDesconexionAplicada = true;
         break;
 
       default:
@@ -763,6 +878,8 @@ private:
     );
 
     webSocket.setReconnectInterval(5000);
+    // Detectar conexiones WSS silenciosamente caidas usando PING/PONG.
+    webSocket.enableHeartbeat(10000, 3000, 2);
     iniciado = true;
   }
 
@@ -855,6 +972,7 @@ void setup() {
 void loop() {
   gestorWiFi.actualizar();
   clienteAWS.actualizar(gestorWiFi.conectado());
+  grua.actualizarSeguridad();
   procesarSerial();
   yield();
 }

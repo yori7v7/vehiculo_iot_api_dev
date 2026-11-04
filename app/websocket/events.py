@@ -1,6 +1,7 @@
 """Eventos WebSocket construidos con los valores persistidos de la operación."""
 
 from datetime import datetime
+from uuid import uuid4
 from typing import Literal, Self
 
 from pydantic import BaseModel, Field
@@ -37,6 +38,8 @@ class InitialStateEvent(BaseModel):
 class MovementEvent(BaseModel):
     """Movimiento confirmado; timestamp procede de la relectura del estado SQL."""
 
+    # RN07: identificador de esta publicacion, distinto por cada POST legitimo.
+    id_evento: str = Field(default_factory=lambda: uuid4().hex)
     tipo_evento: Literal["movimiento"] = "movimiento"
     id_vehiculo: EntityId
     id_comando: EntityId
