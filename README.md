@@ -11,6 +11,29 @@ la preparación del servidor, las dos tareas persistentes de Windows y los tres
 escenarios públicos con Postman. Los scripts están en `deploy/windows/` y no
 modifican AWS. En desarrollo se puede seguir usando <http://localhost:8000>.
 
+## Integración física IoT — Unidad 3 (04/11/2026)
+
+La versión actual también controla un vehículo RC real mediante este flujo:
+
+`Swagger / POST HTTPS → FastAPI en EC2 → RDS MySQL → eventos WSS → ESP8266 → 74HC595 → 8 optoacopladores PC817 → control original del vehículo`.
+
+- **Swagger público:** <https://100-30-4-62.nip.io/docs>. Funciona mientras EC2, RDS y el acceso a Internet estén disponibles.
+- **Firmware:** [`firmware/Excavadora_IoT_AWS/Excavadora_IoT_AWS.ino`](firmware/Excavadora_IoT_AWS/Excavadora_IoT_AWS.ino), para NodeMCU ESP8266. DATA = D5, CLOCK = D6 y LATCH = D7; las salidas Q0–Q7 se conectan a ocho PC817 para las funciones del control original. El módulo de conectividad utiliza WiFiManager y WSS con validación de certificado.
+- **Control validado físicamente:** movimientos individuales, DETENER, luces, velocidad, activación de DEMO original, comando de claxon a nivel eléctrico y DEMO principal controlada por AWS. La DEMO de AWS, su cancelación y los comandos individuales se comprobaron después de actualizar FastAPI y el firmware.
+- **RN07:** los eventos de movimiento y DEMO incorporan un `id_evento` UUID hexadecimal de 32 caracteres. El firmware recuerda los 16 identificadores recientes e ignora los repetidos. Se comprobó la generación de IDs distintos en dos POST legítimos iguales y su recepción por WSS. **No se comprobó físicamente el reenvío de un JSON idéntico con el mismo ID**.
+- **RN09/RN10/RN11:** intervalo de liberación de 30 ms entre diferentes salidas activas, parada automática de un movimiento individual tras 12 segundos sin nueva orden y protección frente a pérdida de Wi-Fi/errores WSS. La desconexión de Wi-Fi y la parada automática se probaron físicamente; la pérdida exclusiva de WSS sin perder Wi-Fi no se ensayó aisladamente.
+- **Limitaciones conocidas:** el sistema de audio del juguete no reproduce sonidos aunque se active el comando eléctrico; DETENER libera las salidas del controlador, pero no interrumpe la DEMO interna del mando original. El montaje utiliza un 74HC595 y ocho PC817.
+
+El firmware publicado mantiene `AP_PASSWORD = "CONFIGURAR_LOCALMENTE"` como marcador deliberado: **no almacenar ni subir a GitHub la contraseña Wi-Fi real**. La API key y la contraseña de RDS también se mantienen solo en el entorno de despliegue.
+
+Las pruebas automatizadas de IDs se incluyen en `tests/test_ws_event_ids.py`. Para ejecutarlas en un entorno de desarrollo con `requirements-dev.txt` instalado:
+
+```powershell
+python -m pytest tests/test_ws_event_ids.py -q
+```
+
+No hay un flujo de GitHub Actions configurado; las pruebas funcionales AWS–ESP8266 mencionadas fueron manuales. Actualizar `main` en GitHub **no reinicia ni despliega automáticamente** el servicio EC2.
+
 ## Funcionalidad conservada de la práctica 2.5
 
 Implementado: configuración mediante variables de entorno, modelo Pydantic de
@@ -28,8 +51,9 @@ El arranque y GET `/` no abren conexiones a RDS. GET `/health/database` sí abre
 una conexión y ejecuta exclusivamente un SP de lectura.
 
 Se utilizan funcionalmente los **21 SP existentes**, conservando su definición
-SQL; ver [auditoría de integración](docs/auditoria_sp.md). No se controla hardware
-físico. Las comprobaciones documentadas de las etapas 1 a 7 fueron de lectura.
+SQL; ver [auditoría de integración](docs/auditoria_sp.md). En la práctica
+2.5 todavía no se controlaba hardware físico; la integración real se incorporó
+después en la Unidad 3. Las comprobaciones de las etapas 1 a 7 fueron de lectura.
 Posteriormente se completaron las tres pruebas funcionales reales de movimiento,
 historial y WebSocket con DEMO; véase la sección de pruebas funcionales.
 
