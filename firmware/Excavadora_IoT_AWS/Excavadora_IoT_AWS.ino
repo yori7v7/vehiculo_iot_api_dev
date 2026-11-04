@@ -147,10 +147,47 @@ private:
   static constexpr uint8_t Q6_DEMO_ORIGINAL = B01000000;
   static constexpr uint8_t Q7_CLAXON        = B10000000;
 
-  void enviar(uint8_t valor) {
+  // RN09: estado fisico del registro para liberar antes de cambiar accion.
+  uint8_t salidaActual = 0;
+
+  // RN10: tiempo maximo de movimiento individual mantenido.
+  // Los pasos de DEMO se temporizan aparte con duracion_ms.
+  bool movimientoSostenido = false;
+  unsigned long ultimaOrdenMovimiento = 0;
+  static constexpr unsigned long MAX_MOVIMIENTO_INDIVIDUAL_MS = 12000UL;
+
+  void escribirRegistro(uint8_t valor) {
     digitalWrite(latchPin, LOW);
     shiftOut(dataPin, clockPin, MSBFIRST, valor);
     digitalWrite(latchPin, HIGH);
+  }
+
+  void enviar(uint8_t valor) {
+    // Antes de un cambio entre salidas activas, liberar todos los PC817.
+    // Esto evita invertir sentido sin un intervalo neutro.
+    if (salidaActual != 0 && valor != 0 && salidaActual != valor) {
+      escribirRegistro(0);
+      salidaActual = 0;
+      movimientoSostenido = false;
+      delay(30);  // 30 ms de liberacion electrica segura.
+    }
+
+    escribirRegistro(valor);
+    salidaActual = valor;
+
+    // Refrescar el plazo si llega una nueva orden individual valida,
+    // incluso si se repite exactamente el mismo movimiento.
+    if (valor == Q0_AVANZAR ||
+        valor == Q1_RETROCEDER ||
+        valor == Q2_IZQUIERDA ||
+        valor == Q3_DERECHA ||
+        valor == (Q1_RETROCEDER | Q2_IZQUIERDA) ||
+        valor == (Q0_AVANZAR | Q3_DERECHA)) {
+      movimientoSostenido = true;
+      ultimaOrdenMovimiento = millis();
+    } else {
+      movimientoSostenido = false;
+    }
   }
 
   void detener() { enviar(B00000000); }
@@ -279,6 +316,21 @@ public:
         Serial.print("[GRUA/DEMO] Codigo desconocido: ");
         Serial.println(codigo);
         break;
+    }
+  }
+
+  // La duracion de una DEMO la gobierna ClienteAWS mediante millis().
+  void delegarTiempoADemo() {
+    movimientoSostenido = false;
+  }
+
+  // Evita una salida indefinidamente activa si se pierde un STOP
+  // pero Wi-Fi/WSS permanecen conectados.
+  void actualizarSeguridad() {
+    if (movimientoSostenido &&
+        millis() - ultimaOrdenMovimiento >= MAX_MOVIMIENTO_INDIVIDUAL_MS) {
+      Serial.println("[SEGURIDAD] Tiempo maximo del movimiento: DETENER.");
+      detener();
     }
   }
 
@@ -547,12 +599,15 @@ private:
     if (error) {
       Serial.print("[AWS] Error interpretando JSON: ");
       Serial.println(error.c_str());
+      // RN11: un evento corrupto no debe dejar un movimiento latente.
+      finalizarDemoLocal();
       return;
     }
 
     const char* tipoEvento = documento["tipo_evento"];
     if (tipoEvento == nullptr) {
       Serial.println("[AWS] Evento sin tipo_evento.");
+      finalizarDemoLocal();
       return;
     }
 
@@ -572,6 +627,7 @@ private:
     if (strcmp(tipoEvento, "movimiento") == 0) {
       if (!documento["codigo"].is<int>()) {
         Serial.println("[AWS] Movimiento sin codigo valido.");
+        finalizarDemoLocal();
         return;
       }
 
@@ -647,6 +703,7 @@ private:
       Serial.println("========================================");
 
       grua.activarCodigoDemo(codigoPasoDemo);
+      grua.delegarTiempoADemo();
       inicioPasoDemo = millis();
 
       if (duracionPasoDemo == 0) {
@@ -730,7 +787,12 @@ private:
         break;
 
       case WStype_ERROR:
-        Serial.println("[AWS] Error WebSocket/TLS.");
+        Serial.println("[AWS] Error WebSocket/TLS: parada segura.");
+        websocketConectado = false;
+        demoActiva = false;
+        pasoDemoActivo = false;
+        grua.paradaSeguridad();
+        paradaDesconexionAplicada = true;
         break;
 
       default:
@@ -763,6 +825,8 @@ private:
     );
 
     webSocket.setReconnectInterval(5000);
+    // Detectar conexiones WSS silenciosamente caidas usando PING/PONG.
+    webSocket.enableHeartbeat(10000, 3000, 2);
     iniciado = true;
   }
 
@@ -855,6 +919,7 @@ void setup() {
 void loop() {
   gestorWiFi.actualizar();
   clienteAWS.actualizar(gestorWiFi.conectado());
+  grua.actualizarSeguridad();
   procesarSerial();
   yield();
 }
