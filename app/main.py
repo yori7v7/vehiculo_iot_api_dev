@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import get_settings
 from app.errors.handlers import register_exception_handlers
@@ -57,6 +58,14 @@ def create_app() -> FastAPI:
             {"name": "DEMO", "description": "Configuración, ejecución asíncrona y cancelación lógica por vehículo."},
         ],
     )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://yori7v7.github.io"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "X-API-Key"],
+    )
+
     application.state.websocket_manager = WebSocketManager()
     application.state.demo_execution_manager = DemoExecutionManager(application.state.websocket_manager)
     application.include_router(health_router)
