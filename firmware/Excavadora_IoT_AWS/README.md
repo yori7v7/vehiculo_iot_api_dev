@@ -83,7 +83,7 @@ El firmware agrega `AVANZAR_IZQUIERDA` (codigo 5) y `RETROCEDER_DERECHA` (codigo
 
 El 09/11/2026 se reporto compilacion exitosa con Arduino CLI 1.5.1, core ESP8266 3.1.2, y carga por COM4 (Only Sketch, 57 600 baudios tras un primer timeout, flash verificada). El Monitor Serie confirmo WSS conectado con certificado TLS validado; recibio y proceso ocho direcciones, entre ellas `codigo: 5` (`id_comando: 16`) y `codigo: 10` (`id_comando: 17`), ademas de DETENER. El frontend registro 27 pruebas Node y 15 Chrome aprobadas en simulacion/trafico interceptado.
 
-**Alcance:** se verificaron mensajes WSS y despacho del firmware; todavia no se comprobo que el control remoto y el montacargas ejecuten fisicamente las dos combinaciones nuevas. La lista anterior de «Comandos fisicamente confirmados» corresponde a las pruebas originales, no a estas dos diagonales.
+**Alcance del registro inicial:** el Monitor Serie verifico mensajes WSS y despacho del firmware, pero por si solo no acreditaba el movimiento del montacargas. **Validacion posterior (09/11/2026):** el propietario confirmo que realizo las pruebas fisicas de las ocho direcciones, incluidos los codigos 5 y 10, y que funcionaron correctamente usando laptop y telefono. Esta confirmacion complementa las pruebas originales; no se aportaron nuevas capturas, videos o mediciones para este cierre.
 
 ## DEMO dinamica AWS
 
