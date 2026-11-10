@@ -38,8 +38,10 @@ Swagger / FastAPI en AWS -> Amazon RDS -> WSS -> ESP8266 -> 74HC595 -> PC817 -> 
 
 Combinaciones:
 
-- RETROCEDER_IZQUIERDA = 6
-- AVANZAR_DERECHA = 9
+- AVANZAR_IZQUIERDA = 5 (Q0 + Q2) — ampliación del 09/11/2026
+- RETROCEDER_IZQUIERDA = 6 (Q1 + Q2)
+- AVANZAR_DERECHA = 9 (Q0 + Q3)
+- RETROCEDER_DERECHA = 10 (Q1 + Q3) — ampliación del 09/11/2026
 - DETENER = 0
 
 ## Arquitectura del firmware
@@ -74,6 +76,14 @@ El evento `estado_actual` es informativo y nunca se ejecuta fisicamente al recon
 - CLAXON
 
 Los comandos especiales conservan su comportamiento de pulsacion.
+
+## Ampliacion de ocho direcciones (09/11/2026)
+
+El firmware agrega `AVANZAR_IZQUIERDA` (codigo 5) y `RETROCEDER_DERECHA` (codigo 10) al procesamiento de `movimiento` recibido de AWS, a los pasos `demo_movimiento` y al watchdog de 12 s. Se conservan las ocho salidas del 74HC595, los PC817, las reglas y comandos anteriores, el intervalo neutro de 30 ms y los fail-safe.
+
+El 09/11/2026 se reporto compilacion exitosa con Arduino CLI 1.5.1, core ESP8266 3.1.2, y carga por COM4 (Only Sketch, 57 600 baudios tras un primer timeout, flash verificada). El Monitor Serie confirmo WSS conectado con certificado TLS validado; recibio y proceso ocho direcciones, entre ellas `codigo: 5` (`id_comando: 16`) y `codigo: 10` (`id_comando: 17`), ademas de DETENER. El frontend registro 27 pruebas Node y 15 Chrome aprobadas en simulacion/trafico interceptado.
+
+**Alcance:** se verificaron mensajes WSS y despacho del firmware; todavia no se comprobo que el control remoto y el montacargas ejecuten fisicamente las dos combinaciones nuevas. La lista anterior de «Comandos fisicamente confirmados» corresponde a las pruebas originales, no a estas dos diagonales.
 
 ## DEMO dinamica AWS
 

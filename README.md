@@ -24,6 +24,22 @@ La versión actual también controla un vehículo RC real mediante este flujo:
 - **RN09/RN10/RN11:** intervalo de liberación de 30 ms entre diferentes salidas activas, parada automática de un movimiento individual tras 12 segundos sin nueva orden y protección frente a pérdida de Wi-Fi/errores WSS. La desconexión de Wi-Fi y la parada automática se probaron físicamente; la pérdida exclusiva de WSS sin perder Wi-Fi no se ensayó aisladamente.
 - **Limitaciones conocidas:** el sistema de audio del juguete no reproduce sonidos aunque se active el comando eléctrico; DETENER libera las salidas del controlador, pero no interrumpe la DEMO interna del mando original. El montaje utiliza un 74HC595 y ocho PC817.
 
+
+### Ampliación posterior: joystick de ocho direcciones (09/11/2026)
+
+Después de la integración física original de la Unidad 3, se incorporaron dos combinaciones adicionales sin agregar pines ni optoacopladores:
+
+| Movimiento agregado | Código lógico | Salidas 74HC595 | ID activo del vehículo 1 en RDS |
+| --- | ---: | --- | ---: |
+| `AVANZAR_IZQUIERDA` | `5` | Q0 + Q2 | 16 |
+| `RETROCEDER_DERECHA` | `10` | Q1 + Q3 | 17 |
+
+Se mantienen los cuatro movimientos cardinales, las otras dos diagonales, DETENER y las cuatro funciones auxiliares; el catálogo del vehículo 1 tiene 13 comandos activos. Los registros nuevos se crearon con el endpoint existente `POST /vehiculos/1/comandos` y el procedimiento `sp_crear_comando`. No se cambiaron las tablas, los 21 SP, los routers FastAPI ni Caddy.
+
+El firmware de ocho direcciones fue compilado para NodeMCU ESP8266 (core 3.1.2), instalado por COM4 y verificado con esptool. El Monitor Serie registró WSS conectado, validación TLS del servidor, recepción de los ocho códigos de movimiento desde AWS y procesamiento de DETENER (código 0); los nuevos códigos 5 y 10 aparecen en eventos `movimiento` y en el despacho `GruaRC`. El diseño original conserva un intervalo neutro de 30 ms, parada de movimientos sostenidos tras 12 s, control de DEMO y protecciones por desconexión.
+
+**Límite de evidencia:** estos registros demuestran recepción y procesamiento lógico en el ESP8266, no movimiento real, giro ni parada física de las dos nuevas diagonales. El control físico de la versión original se documentó por separado. El frontend está publicado en [Control IoT](https://yori7v7.github.io/control-iot-u4/) con ocho sectores de dirección; [validación posterior](https://github.com/yori7v7/control-iot-u4/blob/main/docs/validacion-funcional.md#ampliacion-posterior-joystick-de-ocho-direcciones-09112026).
+
 El firmware publicado mantiene `AP_PASSWORD = "CONFIGURAR_LOCALMENTE"` como marcador deliberado: **no almacenar ni subir a GitHub la contraseña Wi-Fi real**. La API key y la contraseña de RDS también se mantienen solo en el entorno de despliegue.
 
 Las pruebas automatizadas de IDs se incluyen en `tests/test_ws_event_ids.py`. Para ejecutarlas en un entorno de desarrollo con `requirements-dev.txt` instalado:
