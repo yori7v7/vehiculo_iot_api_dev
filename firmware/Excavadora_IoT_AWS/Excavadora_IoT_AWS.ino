@@ -181,8 +181,10 @@ private:
         valor == Q1_RETROCEDER ||
         valor == Q2_IZQUIERDA ||
         valor == Q3_DERECHA ||
+        valor == (Q0_AVANZAR | Q2_IZQUIERDA) ||
         valor == (Q1_RETROCEDER | Q2_IZQUIERDA) ||
-        valor == (Q0_AVANZAR | Q3_DERECHA)) {
+        valor == (Q0_AVANZAR | Q3_DERECHA) ||
+        valor == (Q1_RETROCEDER | Q3_DERECHA)) {
       movimientoSostenido = true;
       ultimaOrdenMovimiento = millis();
     } else {
@@ -196,12 +198,20 @@ private:
   void izquierda() { enviar(Q2_IZQUIERDA); }
   void derecha() { enviar(Q3_DERECHA); }
 
+  void avanzarIzquierda() {
+    enviar(Q0_AVANZAR | Q2_IZQUIERDA);
+  }
+
   void retrocederIzquierda() {
     enviar(Q1_RETROCEDER | Q2_IZQUIERDA);
   }
 
   void avanzarDerecha() {
     enviar(Q0_AVANZAR | Q3_DERECHA);
+  }
+
+  void retrocederDerecha() {
+    enviar(Q1_RETROCEDER | Q3_DERECHA);
   }
 
   void luces() {
@@ -283,9 +293,11 @@ public:
       case 1: avanzar(); Serial.println("[GRUA/AWS] AVANZANDO - codigo 1"); break;
       case 2: retroceder(); Serial.println("[GRUA/AWS] RETROCEDIENDO - codigo 2"); break;
       case 4: izquierda(); Serial.println("[GRUA/AWS] IZQUIERDA - codigo 4"); break;
+      case 5: avanzarIzquierda(); Serial.println("[GRUA/AWS] AVANZAR + IZQUIERDA - codigo 5"); break;
       case 6: retrocederIzquierda(); Serial.println("[GRUA/AWS] RETROCEDER + IZQUIERDA - codigo 6"); break;
       case 8: derecha(); Serial.println("[GRUA/AWS] DERECHA - codigo 8"); break;
       case 9: avanzarDerecha(); Serial.println("[GRUA/AWS] AVANZAR + DERECHA - codigo 9"); break;
+      case 10: retrocederDerecha(); Serial.println("[GRUA/AWS] RETROCEDER + DERECHA - codigo 10"); break;
       case 16: luces(); Serial.println("[GRUA/AWS] LUCES - codigo 16"); break;
       case 32: velocidad(); Serial.println("[GRUA/AWS] VELOCIDAD - codigo 32"); break;
       case 64: demoOriginal(); Serial.println("[GRUA/AWS] DEMO ORIGINAL - codigo 64"); break;
@@ -304,9 +316,11 @@ public:
       case 1: enviar(Q0_AVANZAR); break;
       case 2: enviar(Q1_RETROCEDER); break;
       case 4: enviar(Q2_IZQUIERDA); break;
+      case 5: avanzarIzquierda(); break;
       case 6: enviar(Q1_RETROCEDER | Q2_IZQUIERDA); break;
       case 8: enviar(Q3_DERECHA); break;
       case 9: enviar(Q0_AVANZAR | Q3_DERECHA); break;
+      case 10: retrocederDerecha(); break;
       case 16: enviar(Q4_LUCES); break;
       case 32: enviar(Q5_VELOCIDAD); break;
       case 64: enviar(Q6_DEMO_ORIGINAL); break;
