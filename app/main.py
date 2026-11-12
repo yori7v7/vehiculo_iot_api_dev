@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.config.settings import get_settings
 from app.device_channel.ws_lab import DeviceLabRegistry, router as device_lab_router
+from app.device_channel.command_lab_ws import router as command_lab_router
 from app.errors.handlers import register_exception_handlers
 from app.execution.manager import DemoExecutionManager
 from app.public_control.http import ScopedControlMiddleware, router as public_control_router
@@ -87,6 +88,7 @@ def create_app() -> FastAPI:
     application.include_router(websocket_router)
     # WSS de laboratorio aislado, sin capacidad de actuación física.
     application.include_router(device_lab_router)
+    application.include_router(command_lab_router)
     register_exception_handlers(application)
     return application
 
