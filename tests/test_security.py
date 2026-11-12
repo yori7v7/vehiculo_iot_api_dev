@@ -293,6 +293,27 @@ class SecurityHTTPTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(args[:-1], route.identifiers)
                 self.assertEqual(args[-1].model_dump(exclude_unset=True), route.payload)
 
+    async def test_local_simulation_blocks_legacy_actuation_after_administrative_auth(self):
+        self.application.state.public_control_simulation = True
+        for method, path, payload, _ in CONTROL_AND_DELETE_ROUTES[:3]:
+            with self.subTest(path=path):
+                status, _ = await self.request(method, path, payload)
+                self.assertEqual(status, 401)
+                status, content = await self.request(
+                    method, path, payload, [(b"x-api-key", TEST_KEY.encode())],
+                )
+                self.assertEqual(status, 503)
+                self.assertIn("simulación", json.loads(content)["detail"])
+        self.assert_no_business_calls()
+
+    async def test_guest_bearer_cannot_authorize_any_existing_write(self):
+        guest_header = [(b"authorization", b"Bearer " + b"A" * 43)]
+        for method, path, payload, _ in MUTATION_REQUESTS:
+            with self.subTest(method=method, path=path):
+                status, _ = await self.request(method, path, payload, guest_header)
+                self.assertEqual(status, 401)
+        self.assert_no_business_calls()
+
     async def test_duplicate_headers_are_rejected_even_when_both_values_are_correct(self):
         for values in ((TEST_KEY.encode(), TEST_KEY.encode()), (TEST_KEY.encode(), b"incorrecta")):
             for method, path, payload, _ in MUTATION_REQUESTS:

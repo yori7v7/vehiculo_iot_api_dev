@@ -4,11 +4,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import get_settings
 from app.errors.handlers import register_exception_handlers
 from app.execution.manager import DemoExecutionManager
+from app.public_control.http import ScopedControlMiddleware, router as public_control_router
+from app.public_control.runtime import public_control_runtime
 from app.routers.commands import router as commands_router
 from app.routers.demos import router as demos_router
 from app.routers.demo_execution import router as demo_execution_router
@@ -26,7 +27,8 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     """Cerrar las suscripciones locales al detener o recargar el proceso."""
 
     try:
-        yield
+        async with public_control_runtime(application):
+            yield
     finally:
         try:
             await application.state.demo_execution_manager.close_all()
@@ -56,16 +58,18 @@ def create_app() -> FastAPI:
             {"name": "Historial", "description": "Hasta diez registros recientes, sin filtrar por origen."},
             {"name": "Movimientos", "description": "Movimiento individual con estado e historial en una transacción."},
             {"name": "DEMO", "description": "Configuración, ejecución asíncrona y cancelación lógica por vehículo."},
+            {"name": "Administración de control simulado", "description": "Ventanas y auditoría de simulación local."},
+            {"name": "Control público simulado", "description": "Turnos exclusivos y órdenes de simulación local."},
         ],
     )
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=["https://yori7v7.github.io"],
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "X-API-Key"],
-    )
+    application.add_middleware(ScopedControlMiddleware)
 
+    application.state.public_control_settings = settings
+    application.state.public_control_simulation = (
+        settings.control_publico_enabled or settings.control_publico_simulation
+    )
+    application.state.public_control = None
+    application.state.public_control_unavailable = False
     application.state.websocket_manager = WebSocketManager()
     application.state.demo_execution_manager = DemoExecutionManager(application.state.websocket_manager)
     application.include_router(health_router)
@@ -76,6 +80,7 @@ def create_app() -> FastAPI:
     application.include_router(movement_router)
     application.include_router(demos_router)
     application.include_router(demo_execution_router)
+    application.include_router(public_control_router)
     application.include_router(websocket_router)
     register_exception_handlers(application)
     return application

@@ -43,6 +43,9 @@ class ProductionApplicationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         with patch.dict(os.environ, {}, clear=True):
             self.settings = Settings(_env_file=None, app_env="production", app_name="API de pruebas")
+        # Registrar Depends con la función original aun al ejecutar solo este archivo.
+        importlib.import_module("app.routers.health")
+        importlib.import_module("app.security.api_key")
         # Ejecutar el punto de entrada con get_settings sustituido ANTES de
         # importarlo evita abrir .env, incluso durante app = create_app().
         self.settings_patch = patch("app.config.settings.get_settings", return_value=self.settings)
