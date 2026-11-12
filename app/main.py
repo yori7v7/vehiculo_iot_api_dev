@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config.settings import get_settings
+from app.device_channel.ws_lab import DeviceLabRegistry, router as device_lab_router
 from app.errors.handlers import register_exception_handlers
 from app.execution.manager import DemoExecutionManager
 from app.public_control.http import ScopedControlMiddleware, router as public_control_router
@@ -70,6 +71,8 @@ def create_app() -> FastAPI:
     )
     application.state.public_control = None
     application.state.public_control_unavailable = False
+    application.state.device_lab_settings = settings
+    application.state.device_lab_registry = DeviceLabRegistry()
     application.state.websocket_manager = WebSocketManager()
     application.state.demo_execution_manager = DemoExecutionManager(application.state.websocket_manager)
     application.include_router(health_router)
@@ -82,6 +85,8 @@ def create_app() -> FastAPI:
     application.include_router(demo_execution_router)
     application.include_router(public_control_router)
     application.include_router(websocket_router)
+    # WSS de laboratorio aislado, sin capacidad de actuación física.
+    application.include_router(device_lab_router)
     register_exception_handlers(application)
     return application
 
