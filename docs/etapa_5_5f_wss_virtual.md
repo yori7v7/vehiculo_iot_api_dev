@@ -13,37 +13,40 @@ acuses con el de **59 bytes** validados en Arduino por USB durante 5.5-E.
 En esta fase, el cliente WSS sigue siendo **Python**, no el firmware.
 **No existe capacidad de actuación física; este endpoint es de laboratorio.**
 
-## Prueba local en Windows PowerShell
+## Prueba local en Windows PowerShell (recomendada)
 
-1. Obtener la rama `feature/5-5a-dispositivo-protocolo-aislado` del backend
-   (NO `main`); ejecutar los siguientes comandos desde su directorio raíz.
-2. Crear dos terminales PowerShell distintas.
-3. En la primera, preparar las variables de entorno *en esa sesión*:
+1. Descargar la rama `feature/5-5a-dispositivo-protocolo-aislado` del
+   backend, no `main`, o actualizar su clon local a esta rama.
+2. Desde la **raíz del repositorio**, instalar dependencias:
 
 ```powershell
 py -m pip install -r requirements-dev.txt
-$env:APP_ENV = 'development'
-$env:DEVICE_LAB_ENABLED = 'true'
-$env:DEVICE_LAB_KEY = py -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('='))"
-py -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 1 --no-proxy-headers
 ```
 
-4. En la segunda terminal copiar el secreto privado de la **primera sesión**
-   sin mostrarlo en capturas ni guardarlo en el repositorio. Se puede iniciar
-   el servidor y el cliente desde **una sola ventana de PowerShell** poniendo
-   el servidor en otro proceso que herede `DEVICE_LAB_KEY`, para evitar copiar
-   el secreto. Nunca subir claves reales a GitHub.
-5. Ejecutar `py -m scripts.prueba_wss_55f` con el mismo `DEVICE_LAB_KEY`.
-6. Buscar la línea final:
+3. Ejecutar una sola instrucción desde la raíz:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\prueba_55f_windows.ps1
+```
+
+El lanzador genera automáticamente un secreto aleatorio de laboratorio que
+hereda el servidor local y el cliente virtual. Inicia Uvicorn en
+127.0.0.1:8001, ejecuta la prueba WSS, detiene el servidor y borra la
+variable con la clave. Nunca revela la clave ni pide introducir credenciales
+de AWS. Puerto 8001 debe estar libre.
+
+La salida esperada del cliente es:
 
 ```text
+[55-F] Autenticación mutua de dispositivo virtual: OK
+[55-F] Orden virtual 9, HMAC y vigencia: OK
+[55-F] Orden virtual 0, HMAC y vigencia: OK
 [55-F] RESULTADO: WSS BINARIO APROBADO - SIN MOTOR NI AWS
 ```
 
-**Alternativa** para dos terminales: crear la clave una vez en un archivo
-privado de usuario, asignarla manualmente en cada terminal y eliminar dicho
-archivo al acabar. El archivo debe permanecer fuera del proyecto; no incluirlo
-en capturas ni documentación de entrega.
+La ejecución de PowerShell es una prueba **de laboratorio en la computadora**.
+No es un servidor de producción, ni verifica una red remota, ni habilita
+movimiento del vehículo.
 
 ## Invariantes
 
