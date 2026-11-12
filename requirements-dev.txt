@@ -1,3 +1,5 @@
 # Herramientas de prueba; las dependencias de ejecución permanecen separadas.
 -r requirements.txt
 pytest==9.1.1
+# Starlette TestClient (Starlette 1.x).
+httpx2
