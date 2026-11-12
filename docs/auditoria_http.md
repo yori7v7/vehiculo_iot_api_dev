@@ -1,10 +1,11 @@
-# Auditoría HTTP y seguridad local — etapa 7
+# Auditoría HTTP y seguridad local
 
 La aplicación expone **24 operaciones HTTP de negocio**: 9 GET, 7 POST,
 4 PUT y 4 DELETE. Además dispone de una ruta WebSocket y de las rutas
-automáticas de documentación de FastAPI. La matriz siguiente se obtuvo
-componiendo los ocho routers en una aplicación aislada y generando OpenAPI,
-sin importar `app.main`, leer `.env`, abrir sockets ni consultar RDS.
+automáticas de documentación de FastAPI. La matriz refleja el código de la
+etapa 5.1 y se comprueba generando OpenAPI con los ocho routers HTTP en una
+aplicación aislada, sin importar `app.main`, leer `.env`, abrir sockets ni
+consultar RDS.
 
 Se revisaron los routers, servicios, repositorios, ejecutor de SP, errores,
 configuración de ejemplo, `.gitignore`, dependencias y
@@ -23,24 +24,24 @@ controlados documentados. `Clave` indica que se exige `X-API-Key`.
 | GET `/` | Salud | `HealthResponse` | 200, 500 | No |
 | GET `/health/database` | Salud | `DatabaseHealthResponse` | 200, 500, 503 | No |
 | GET `/vehiculos` | Vehículos | `list[VehicleResponse]` | 200, 500, 503 | No |
-| POST `/vehiculos` | Vehículos | `VehicleResponse` | 201, 422, 500, 503 | No |
+| POST `/vehiculos` | Vehículos | `VehicleResponse` | 201, 401, 403, 422, 500, 503 | Sí |
 | GET `V` | Vehículos | `VehicleResponse` | 200, 404, 422, 500, 503 | No |
-| PUT `V` | Vehículos | `VehicleResponse` | 200, 404, 422, 500, 503 | No |
+| PUT `V` | Vehículos | `VehicleResponse` | 200, 401, 403, 404, 422, 500, 503 | Sí |
 | DELETE `V` | Vehículos | Sin cuerpo | 204, 401, 403, 404, 409, 422, 500, 503 | Sí |
-| POST `V/comandos` | Comandos | `CommandResponse` | 201, 404, 409, 422, 500, 503 | No |
+| POST `V/comandos` | Comandos | `CommandResponse` | 201, 401, 403, 404, 409, 422, 500, 503 | Sí |
 | GET `V/comandos` | Comandos | `list[CommandResponse]` | 200, 404, 422, 500, 503 | No |
-| PUT `V/comandos/{id_comando}` | Comandos | `CommandResponse` | 200, 404, 409, 422, 500, 503 | No |
+| PUT `V/comandos/{id_comando}` | Comandos | `CommandResponse` | 200, 401, 403, 404, 409, 422, 500, 503 | Sí |
 | DELETE `V/comandos/{id_comando}` | Comandos | Sin cuerpo | 204, 401, 403, 404, 409, 422, 500, 503 | Sí |
 | GET `V/estado` | Estado | `StateResponse` o `null` | 200, 404, 422, 500, 503 | No |
 | GET `V/historial` | Historial | `list[HistoryResponse]` | 200, 404, 422, 500, 503 | No |
 | POST `V/movimientos` | Movimientos | `MovementResponse` | 200, 401, 403, 404, 409, 422, 500, 503 | Sí |
-| POST `V/demos` | DEMO | `DemoResponse` | 201, 404, 409, 422, 500, 503 | No |
+| POST `V/demos` | DEMO | `DemoResponse` | 201, 401, 403, 404, 409, 422, 500, 503 | Sí |
 | GET `V/demos` | DEMO | `list[DemoResponse]` | 200, 404, 422, 500, 503 | No |
-| PUT `D` | DEMO | `DemoResponse` | 200, 404, 422, 500, 503 | No |
+| PUT `D` | DEMO | `DemoResponse` | 200, 401, 403, 404, 422, 500, 503 | Sí |
 | DELETE `D` | DEMO | Sin cuerpo | 204, 401, 403, 404, 422, 500, 503 | Sí |
-| POST `D/movimientos` | DEMO | `DemoMovementResponse` | 201, 404, 409, 422, 500, 503 | No |
+| POST `D/movimientos` | DEMO | `DemoMovementResponse` | 201, 401, 403, 404, 409, 422, 500, 503 | Sí |
 | GET `D/movimientos` | DEMO | `list[DemoMovementResponse]` | 200, 404, 422, 500, 503 | No |
-| PUT `M` | DEMO | `DemoMovementResponse` | 200, 404, 409, 422, 500, 503 | No |
+| PUT `M` | DEMO | `DemoMovementResponse` | 200, 401, 403, 404, 409, 422, 500, 503 | Sí |
 | DELETE `M` | DEMO | Sin cuerpo | 204, 401, 403, 404, 422, 500, 503 | Sí |
 | POST `D/ejecutar` | DEMO | `DemoExecutionResponse` | 202, 401, 403, 404, 409, 422, 500, 503 | Sí |
 | POST `D/cancelar` | DEMO | `DemoExecutionResponse` | 200, 401, 403, 404, 422, 500, 503 | Sí |
@@ -92,19 +93,36 @@ admitidos. Esos resultados de enrutamiento no representan SP nuevos.
 ## Alcance de la API key
 
 El esquema OpenAPI `LocalApiKey` utiliza una cabecera `X-API-Key` y permite
-configurar la clave en el botón **Authorize** de Swagger. Exactamente siete
-operaciones lo requieren: movimiento individual, ejecutar DEMO, cancelar
-DEMO y los cuatro DELETE de la matriz. Los nueve GET permanecen públicos;
-los POST/PUT de configuración del catálogo conservan el alcance indicado
-en la matriz. Las rutas de documentación y WebSocket no requieren la clave.
+configurar la clave en el botón **Authorize** de Swagger. Los **15 endpoints
+de escritura** exigen `require_api_key`. Incluyen ocho altas o ediciones
+administrativas, los cuatro DELETE, el movimiento individual, el inicio y la
+cancelación de DEMO. Los **nueve GET**, las rutas de documentación y el
+WebSocket de monitoreo siguen siendo públicos.
+
+La revisión de referencia `3792236` encontró siete escrituras protegidas y
+ocho POST/PUT administrativos sin la dependencia. La etapa 5.1 aplica la
+misma dependencia y declara 401, 403 y 503 en esas ocho rutas. Los contratos de
+negocio para solicitudes autorizadas se conservan. La verificación describe el
+código de la rama y deja pendiente su despliegue y comprobación en EC2.
 
 La clave configurada es `Settings.api_key: SecretStr` con `repr=False`.
 La comparación usa `hmac.compare_digest` sobre bytes UTF-8. La dependencia
 rechaza cabeceras duplicadas o vacías; comprueba que la configuración no esté
 vacía ni sea `change-me` o `changeme`. Una petición sin cabecera recibe 401;
 con cabecera única no vacía y configuración no utilizable recibe 503. Una clave
-incorrecta con configuración válida recibe 403. Ningún mensaje incluye el
-valor recibido o el configurado.
+incorrecta con configuración válida recibe 403. Los errores de autorización
+omiten el valor recibido y el configurado. El rechazo impide ejecutar la
+operación de negocio.
+
+Introduce la clave privada en **Authorize → LocalApiKey**, sin prefijo
+`Bearer`, únicamente en una sesión de confianza. Retírala de la sesión al
+terminar y mantenla fuera de URL, cuerpos JSON, capturas, exportaciones y
+logs. CORS regula el acceso desde el navegador. La autorización de las
+escrituras se valida en FastAPI, incluido el tráfico del mismo origen.
+
+La API key es una credencial compartida de operador. La etapa 5.1 se limita
+al endurecimiento de las rutas actuales. El modo temporal para invitados se
+describe como propuesta. [Diseño de control público temporal](control_publico_temporal.md)
 
 `.env.example` contiene `API_KEY=change-me`, valor deliberadamente incapaz de
 autorizar. No se guardan ejemplos de claves reales. `.gitignore` excluye
@@ -159,7 +177,7 @@ de API key. Recibir mensajes del socket no ejecuta comandos ni modifica
 
 ## Correcciones y comprobaciones reproducibles
 
-La revisión detectó y se corrigieron las siguientes diferencias:
+La auditoría original de la etapa 7 dejó registradas estas correcciones.
 
 - Los 422 manuales de estado e historial no tenían esquema; ahora se genera
   `HTTPValidationError` automáticamente.
@@ -167,25 +185,34 @@ La revisión detectó y se corrigieron las siguientes diferencias:
 - Se agregó el fallback genérico 500 con JSON estático.
 - Se quitaron 409 ajenos al flujo de PUT/DELETE de DEMO y DELETE de paso y se
   precisaron las descripciones de conflicto.
-- Se declararon `LocalApiKey`, sus siete operaciones y 401/403/503 con modelos.
+- Se declararon `LocalApiKey` y 401/403/503 con modelos en las siete operaciones que estaban protegidas entonces.
 
 Las dependencias directas continúan fijadas en `requirements.txt`. La API key
 utiliza biblioteca estándar y componentes ya disponibles de FastAPI, por lo
 que no requiere paquetes adicionales. No se cambiaron versiones ni se afirma
 haber realizado una comprobación externa de vulnerabilidades.
 
-La prueba transversal ejecuta 10 casos sin RDS:
+Las suites de auditoría y seguridad se pueden ejecutar juntas sin RDS.
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_http_audit.py -v
+.\.venv\Scripts\python.exe -m pytest tests/test_http_audit.py tests/test_security.py tests/test_websocket_route.py -q
 ```
 
-Comprueba las 24 operaciones, siete requisitos de seguridad, modelos de
-errores incluidos 422, DELETE 204 sin esquema, códigos correspondientes a
-cada flujo, nombres y aridad de los 21 SP y JSON seguro ante errores
-inesperados. Los demás tests del proyecto comprueban los cuerpos y operaciones
-funcionales con fakes. Para ejecutar el conjunto:
+Estas suites comprueban las 24 operaciones, el esquema y los requisitos de
+seguridad de las 15 escrituras, los nueve GET públicos y la suscripción WSS de
+lectura. La auditoría de contratos comprueba modelos de errores incluidos 422,
+DELETE 204 sin esquema, nombres y aridad de los 21 SP y JSON seguro ante
+errores inesperados. Las demás pruebas verifican los flujos de negocio con
+dobles. Para ejecutar el conjunto, usa el comando siguiente.
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m pytest -q
 ```
+
+### Resultado local de la etapa 5.1
+
+La referencia `3792236` registró 332 pruebas aprobadas, tres fallidas y 683 subpruebas aprobadas. Las tres expectativas fallidas de WSS precedían a `id_evento`. Se actualizaron para comprobar el UUID v4 en hexadecimal y conservar las aserciones exactas sobre los demás campos. El emisor y los contratos WSS conservan su implementación.
+
+La rama aprobó **338 pruebas y 787 subpruebas**, con cero fallos. En los ocho POST/PUT administrativos se verificaron 401 sin clave, 403 con clave incorrecta, vacía o duplicada, 503 con configuración no utilizable y 201 o 200 con clave válida. Los rechazos ocurren antes de resolver el servicio. Se verificó la ausencia de la clave ficticia en respuestas y registros capturados durante las pruebas.
+
+La comparación de OpenAPI antes y después confirmó las mismas 24 operaciones, con siete escrituras protegidas en la referencia y 15 en la rama. Los nueve GET, las respuestas de negocio y el esquema de las escrituras autorizadas conservaron sus contratos. Las pruebas usaron ASGI y dobles locales, sin acceso a RDS o al vehículo.
