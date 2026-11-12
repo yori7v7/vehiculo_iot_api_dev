@@ -158,7 +158,9 @@ class MovementWebSocketTests(movement_tests.MovementFixture, unittest.IsolatedAs
         self.assertEqual(len(first.messages), 1)
         self.assertEqual(second.messages, first.messages)
         self.assertEqual(other.messages, [])
-        self.assertEqual(first.messages[0], {
+        published = first.messages[0].copy()
+        self.assertRegex(published.pop("id_evento"), r"\A[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}\Z")
+        self.assertEqual(published, {
             "tipo_evento": "movimiento",
             "id_vehiculo": 3,
             "id_comando": 7,
@@ -281,6 +283,7 @@ class MovementWebSocketTests(movement_tests.MovementFixture, unittest.IsolatedAs
 
         event = MovementEvent.from_movement(response).model_dump(mode="json")
 
+        self.assertRegex(event.pop("id_evento"), r"\A[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}\Z")
         self.assertEqual(event, {
             "tipo_evento": "movimiento", "id_vehiculo": 3, "id_comando": 7,
             "comando": "REVERSA", "codigo": -5,

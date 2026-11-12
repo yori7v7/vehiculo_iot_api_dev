@@ -309,19 +309,26 @@ El hostname `100-30-4-62.nip.io` depende de la dirección pública
 mantener una IP estable administrada en AWS. La emisión y renovación requieren
 DNS correcto, reloj del servidor correcto y salida de red hacia la CA.
 
-Se mantiene el alcance de autorización de 2.5: los GET, Swagger y el WebSocket
-de monitoreo son públicos; los POST de movimiento individual, inicio y
-cancelación de DEMO y los cuatro DELETE requieren `X-API-Key`. Los POST de
-catálogos y PUT conservan su comportamiento previo y siguen públicos; esta
-decisión limita el uso a la práctica y debe revisarse antes de otros usos.
-No se incorporan roles ni autenticación del dispositivo en esta migración.
+La revisión de la etapa 5.1 exige `X-API-Key` en las **15 escrituras**.
+Incluye altas y ediciones de vehículos, comandos, DEMO y pasos, los cuatro
+DELETE y los POST de movimiento individual, inicio y cancelación de DEMO.
+Los **nueve GET**, Swagger y el WebSocket de monitoreo son públicos. Esta
+política describe el código de la etapa 5.1. La versión de EC2 se actualiza
+mediante su propio despliegue autorizado. [Matriz HTTP](auditoria_http.md)
 
-En las siete operaciones protegidas: sin header se recibe **401**; con una
-clave incorrecta, vacía o duplicada, **403**. Una clave de servidor sin
-configurar o con el marcador público bloquea el control con **503** cuando se
-envía un header único no vacío. La clave sólo viaja en `X-API-Key` por HTTPS,
-nunca en la URL, query string o JSON. En Swagger se usa **Authorize →
-LocalApiKey**, sin prefijo `Bearer`. No desactivar la validación TLS en Postman.
+Las escrituras protegidas devuelven **401** si falta `X-API-Key` y **403**
+si la credencial es incorrecta, vacía o duplicada. Si el servidor carece de
+una clave utilizable, un header único y no vacío recibe **503**. En conexiones
+remotas usa `X-API-Key` solo por HTTPS. Mantén su valor fuera de URLs, cuerpos,
+exportaciones y registros. En Swagger selecciona **Authorize → LocalApiKey**
+sin prefijo `Bearer` y retira la clave al terminar. Mantén habilitada la
+validación TLS en Postman.
+
+La configuración CORS de Pages permite GET, POST y OPTIONS desde el origen
+autorizado. Para administrar PUT o DELETE desde el navegador, usa Swagger
+servido por la misma API. Todos los clientes deben superar la autorización
+de FastAPI para escribir. El control temporal para invitados queda pendiente.
+[Propuesta de control público temporal](control_publico_temporal.md)
 
 ## Comprobar disponibilidad y salida de RDP
 

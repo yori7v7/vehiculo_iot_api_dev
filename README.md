@@ -61,8 +61,8 @@ con actualización de estado y registro de historial atómicos. El WebSocket
 por vehículo envía el estado inicial desde RDS y difunde movimientos confirmados.
 También están implementados el CRUD de DEMO y sus movimientos, la ejecución
 asíncrona, la cancelación lógica y los cinco eventos de ejecución por WebSocket.
-Las operaciones de control y todas las eliminaciones se protegen con una API
-key compartida mediante una dependencia reutilizable y el header `X-API-Key`.
+Las operaciones de control y administración que escriben datos se protegen
+con una API key compartida mediante `require_api_key` y el header `X-API-Key`.
 El arranque y GET `/` no abren conexiones a RDS. GET `/health/database` sí abre
 una conexión y ejecuta exclusivamente un SP de lectura.
 
@@ -126,7 +126,7 @@ if (-not (Test-Path -LiteralPath .env)) {
 | `DB_NAME` | Base de datos existente | vehiculo_iot |
 | `DB_USER` | Usuario real de RDS | Vacío |
 | `DB_PASSWORD` | Contraseña real de RDS | Vacío |
-| `API_KEY` | Clave privada para control y eliminación | `change-me`, marcador que debe reemplazarse sólo en `.env` |
+| `API_KEY` | Clave privada para las escrituras de control y administración | `change-me`, marcador que debe reemplazarse sólo en `.env` |
 | `DB_SSL_CA` | CA pública de RDS, ruta absoluta o relativa al proyecto | .certs/rds-global-bundle.pem |
 | `DB_CONNECT_TIMEOUT` | Espera máxima de conexión, segundos (1–60) | 5 |
 | `DB_READ_TIMEOUT` | Espera máxima de lectura, segundos (1–120) | 10 |
@@ -202,10 +202,22 @@ print("API_KEY configurada únicamente en .env; su valor no se muestra.")
 '@ | .\.venv\Scripts\python.exe -
 ```
 
-Esta autorización compartida se aplica a exactamente siete operaciones:
+La etapa 5.1 extiende la autorización compartida a los **15 endpoints de
+escritura**. El cambio cubre las ocho altas o ediciones administrativas de
+vehículos, comandos, DEMO y pasos, además de las siete operaciones previamente
+protegidas. La siguiente tabla describe el código de la rama. Los cambios
+serán efectivos en Swagger y en la API de EC2 cuando se despliegue esa revisión.
 
 | Método | Ruta protegida | Éxito |
 | --- | --- | --- |
+| POST | `/vehiculos` | 201 |
+| PUT | `/vehiculos/{id_vehiculo}` | 200 |
+| POST | `/vehiculos/{id_vehiculo}/comandos` | 201 |
+| PUT | `/vehiculos/{id_vehiculo}/comandos/{id_comando}` | 200 |
+| POST | `/vehiculos/{id_vehiculo}/demos` | 201 |
+| PUT | `/vehiculos/{id_vehiculo}/demos/{id_demo}` | 200 |
+| POST | `/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos` | 201 |
+| PUT | `/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos/{id_demo_movimiento}` | 200 |
 | POST | `/vehiculos/{id_vehiculo}/movimientos` | 200 |
 | POST | `/vehiculos/{id_vehiculo}/demos/{id_demo}/ejecutar` | 202 |
 | POST | `/vehiculos/{id_vehiculo}/demos/{id_demo}/cancelar` | 200 |
@@ -214,10 +226,9 @@ Esta autorización compartida se aplica a exactamente siete operaciones:
 | DELETE | `/vehiculos/{id_vehiculo}/demos/{id_demo}` | 204 sin cuerpo |
 | DELETE | `/vehiculos/{id_vehiculo}/demos/{id_demo}/movimientos/{id_demo_movimiento}` | 204 sin cuerpo |
 
-Los GET, Swagger y el WebSocket de monitoreo siguen siendo públicos.
-Los POST de configuración de catálogos y los PUT conservan su
-comportamiento actual. Consultar la API o abrir un WebSocket no autoriza a
-controlar un vehículo ni cambia su estado persistido.
+Los **nueve GET**, Swagger y el WebSocket de monitoreo siguen siendo públicos.
+El acceso a esos recursos permite leer información del vehículo. Las órdenes
+de control y los cambios del catálogo exigen autorización independiente.
 
 Con una clave válida configurada, cada operación protegida exige un único
 header `X-API-Key`:
@@ -228,24 +239,26 @@ X-API-Key: <clave privada>
 
 - Header ausente: **401 Unauthorized**.
 - Header presente pero incorrecto, vacío o duplicado: **403 Forbidden**.
-- Con un header único no vacío, si `API_KEY` está configurada vacía o con los
-  marcadores `change-me`/`changeme`: **503 Service Unavailable**; el control
-  queda bloqueado hasta corregirla.
+- Una configuración de `API_KEY` vacía o con los marcadores `change-me` o
+  `changeme` bloquea la escritura con **503 Service Unavailable** cuando se
+  presenta un header único y no vacío.
 
 Estos fallos devuelven un mensaje público sanitizado, sin mostrar la clave
-esperada ni el valor recibido. Una solicitud rechazada no ejecuta el flujo de
-control o eliminación.
+esperada ni el valor recibido. El rechazo impide ejecutar la operación de
+negocio, incluidas las altas y ediciones administrativas.
 
 En Swagger UI, local en <http://localhost:8000/docs> o público en
 <https://100-30-4-62.nip.io/docs>, pulsar **Authorize** y completar
 el esquema **LocalApiKey** con la clave privada, sin prefijo `Bearer`. Se conserva
 el nombre del esquema para mantener compatibilidad. Swagger
-envía `X-API-Key` en las operaciones protegidas y muestra sus candados. En
-Thunder Client, agregar el mismo header únicamente a las solicitudes que lo
-requieren. No colocar la clave en la URL, query string ni cuerpo JSON; ocultarla
-en capturas y quitarla antes de exportar una colección. Las operaciones reales
-de escritura forman parte de las pruebas funcionales cuando el operador las
-ejecuta expresamente; instalar las tareas no ejecuta movimientos ni DEMO.
+envía `X-API-Key` en las operaciones protegidas y muestra sus candados. Usa la
+credencial solo en una sesión de confianza y retírala al terminar. En Thunder
+Client, agrega el mismo header únicamente a las solicitudes protegidas. Mantén
+la clave fuera de URLs, cuerpos JSON, capturas, exportaciones y logs. Las
+pruebas de autorización de la etapa 5.1 usan claves ficticias y dobles locales.
+
+La etapa 5.1 solo protege las rutas existentes. El modo temporal para invitados
+queda pendiente de revisión y se documenta por separado. [Propuesta de control público temporal](docs/control_publico_temporal.md)
 
 ## Ejecutar FastAPI localmente
 
@@ -286,9 +299,8 @@ sin recarga y con cabeceras de proxy aceptadas sólo desde `127.0.0.1`.
 
 Las tablas resumen éxito y errores de negocio. Swagger declara los errores
 relevantes de cada operación, incluidos 422, 500 y 503 cuando corresponden.
-Las siete operaciones de la sección de seguridad añaden 401/403 y el fallo
-503 de configuración de autorización; las consultas no requieren API key.
-La [auditoría HTTP](docs/auditoria_http.md) detalla los códigos por operación.
+Las 15 escrituras declaran 401, 403 y 503 para los fallos de autorización.
+Las consultas permanecen públicas. [Códigos por operación](docs/auditoria_http.md)
 
 GET `/` no requiere parámetros ni cuerpo. Con la configuración inicial responde:
 
@@ -724,8 +736,8 @@ Esta comprobación sólo lee. No ejecutar el POST real durante esta etapa.
 
 Todos los endpoints siguientes aparecen bajo el tag **DEMO** de Swagger.
 `id_vehiculo`, `id_demo` e `id_demo_movimiento` son IDs positivos INT.
-Iniciar, cancelar y ambos DELETE requieren `X-API-Key`; los GET, POST de
-configuración y PUT conservan el acceso descrito en la sección de seguridad.
+Crear, editar, eliminar, iniciar y cancelar requieren `X-API-Key`. Los GET
+permanecen públicos.
 
 | Método | Ruta exacta | Éxito | SP principal |
 | --- | --- | --- | --- |
@@ -914,7 +926,7 @@ corresponden a una operación:
 - 201: creación de un recurso de catálogo.
 - 202: DEMO validada y aceptada para ejecución asíncrona; no acredita finalización.
 - 204: eliminación exitosa, sin cuerpo.
-- 401: falta `X-API-Key` en una operación protegida, con autorización configurada.
+- 401: falta `X-API-Key` en una operación protegida.
 - 403: header proporcionado pero incorrecto, vacío o duplicado.
 - 422: entrada inválida, campos adicionales o IDs fuera de rango.
 - 404: vehículo inexistente o comando que no pertenece al vehículo indicado.
@@ -1067,6 +1079,9 @@ y pruebas aisladas; la ejecución real y las pruebas funcionales oficiales
 quedaron pendientes para una etapa posterior.
 
 ## Verificación de la etapa 7
+
+Los resultados de esta sección corresponden a la auditoría anterior al
+endurecimiento de la etapa 5.1.
 
 Resultado: **326 pruebas aprobadas: 306 anteriores y 20 nuevas**. Las nuevas
 incluyen diez pruebas de seguridad y diez de auditoría HTTP/OpenAPI. Se

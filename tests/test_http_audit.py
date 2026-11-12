@@ -24,6 +24,14 @@ VEHICLE = "/vehiculos/{id_vehiculo}"
 DEMO = VEHICLE + "/demos/{id_demo}"
 MOVEMENT = DEMO + "/movimientos/{id_demo_movimiento}"
 PROTECTED_OPERATIONS = {
+    ("post", "/vehiculos"),
+    ("put", VEHICLE),
+    ("post", VEHICLE + "/comandos"),
+    ("put", VEHICLE + "/comandos/{id_comando}"),
+    ("post", VEHICLE + "/demos"),
+    ("put", DEMO),
+    ("post", DEMO + "/movimientos"),
+    ("put", MOVEMENT),
     ("post", VEHICLE + "/movimientos"),
     ("post", DEMO + "/ejecutar"),
     ("post", DEMO + "/cancelar"),
@@ -95,12 +103,13 @@ class HttpSchemaAuditTests(unittest.TestCase):
                 self.assertTrue(operation["summary"].strip())
                 self.assertTrue(operation["description"].strip())
 
-    def test_exactly_seven_operations_require_the_header_security_scheme(self):
+    def test_exactly_fifteen_mutations_require_the_header_security_scheme(self):
         secured = {
             (method, path) for method, path, operation in self.operations()
             if operation.get("security")
         }
         self.assertEqual(secured, PROTECTED_OPERATIONS)
+        self.assertEqual(len(secured), 15)
         scheme = self.schema["components"]["securitySchemes"]["LocalApiKey"]
         self.assertEqual((scheme["type"], scheme["in"], scheme["name"]), ("apiKey", "header", "X-API-Key"))
         for method, path, operation in self.operations():

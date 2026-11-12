@@ -42,8 +42,8 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version="0.7.0",
         description=(
-            "API de vehículos IoT para desarrollo y producción. Operaciones de control y eliminación "
-            "protegidas mediante X-API-Key. Consultar README para WebSocket y pruebas funcionales."
+            "API de vehículos IoT para desarrollo y producción. Escrituras administrativas y de "
+            "control protegidas mediante X-API-Key. Consultar README para WebSocket y pruebas funcionales."
         ),
         lifespan=lifespan,
         docs_url="/docs",
