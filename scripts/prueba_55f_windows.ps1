@@ -29,7 +29,11 @@ try {
 
     Write-Host '[55-F] Iniciando FastAPI local (sin AWS)...'
     # Start-Process hereda DEVICE_LAB_KEY. Nunca escribir la clave a disco.
-    $server = Start-Process -FilePath 'py' -ArgumentList @(
+    $pythonExe = (py -c "import sys; print(sys.executable)").Trim()
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $pythonExe)) {
+        throw 'No se encontro python.exe.'
+    }
+    $server = Start-Process -FilePath $pythonExe -ArgumentList @(
         '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1',
         '--port', '8001', '--workers', '1', '--no-proxy-headers'
     ) -WorkingDirectory $repo -PassThru
