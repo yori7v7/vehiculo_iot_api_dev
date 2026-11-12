@@ -9,6 +9,7 @@ from app.database.connection import MySQLDatabase
 from app.dependencies import get_database
 from app.models.common import ErrorResponse, INT_MAX
 from app.models.movement import MovementRequest, MovementResponse
+from app.public_control.legacy_guard import require_legacy_dispatch
 from app.services.movement import MovementService
 from app.security.api_key import SECURITY_RESPONSES, require_api_key
 from app.websocket.publisher import MovementEventPublisher, get_movement_publisher
@@ -28,7 +29,7 @@ def get_movement_service(
 @router.post(
     "",
     response_model=MovementResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_api_key), Depends(require_legacy_dispatch)],
     summary="Registrar un movimiento individual del vehículo",
     description=(
         "Recibe únicamente id_comando de un comando existente del vehículo. Comprueba "

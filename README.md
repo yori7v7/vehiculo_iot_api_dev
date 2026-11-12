@@ -257,8 +257,22 @@ Client, agrega el mismo header únicamente a las solicitudes protegidas. Mantén
 la clave fuera de URLs, cuerpos JSON, capturas, exportaciones y logs. Las
 pruebas de autorización de la etapa 5.1 usan claves ficticias y dobles locales.
 
-La etapa 5.1 solo protege las rutas existentes. El modo temporal para invitados
-queda pendiente de revisión y se documenta por separado. [Propuesta de control público temporal](docs/control_publico_temporal.md)
+La etapa 5.1 protegió las rutas existentes. La etapa 5.2 implementa el motor
+temporal con despacho simulado. [Control público temporal](docs/control_publico_temporal.md)
+
+## Ventanas y turnos simulados
+
+La etapa 5.2 añade control temporal simulado, cerrado por defecto. Los dos flags
+`CONTROL_PUBLICO_ENABLED` y `CONTROL_PUBLICO_SIMULATION` deben activarse de forma
+explícita en `APP_ENV=development`, con una ruta absoluta de SQLite en un
+directorio privado fuera de este repositorio. Producción rechaza esa
+configuración. Ejecuta el piloto local en loopback con un solo worker.
+
+El invitado obtiene un turno exclusivo y usa un token efímero distinto de la
+API key. La ventana dura 1200 s. Los límites de frecuencia y duración se
+aplican al despacho simulado y DETENER tiene su propia barrera. Los eventos WSS
+existentes siguen disponibles para MONITOREO. La ocupación del piloto se
+consulta mediante GET. [Configuración, contratos y recuperación](docs/control_publico_temporal.md)
 
 ## Ejecutar FastAPI localmente
 

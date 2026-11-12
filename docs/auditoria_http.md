@@ -7,6 +7,8 @@ etapa 5.1 y se comprueba generando OpenAPI con los ocho routers HTTP en una
 aplicación aislada, sin importar `app.main`, leer `.env`, abrir sockets ni
 consultar RDS.
 
+La etapa 5.2 añade once operaciones a OpenAPI para el control público simulado. La matriz siguiente conserva el alcance de las 24 rutas previas. En una instancia con simulación activada, los tres POST de actuación previos requieren la misma clave y devuelven 503 antes del servicio de despacho. [Contratos de la etapa 5.2](control_publico_temporal.md)
+
 Se revisaron los routers, servicios, repositorios, ejecutor de SP, errores,
 configuración de ejemplo, `.gitignore`, dependencias y
 [la auditoría de los 21 SP](auditoria_sp.md). Las escrituras de las pruebas
