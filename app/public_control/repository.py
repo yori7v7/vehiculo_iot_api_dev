@@ -19,10 +19,12 @@ class PublicControlRepository:
         self._path = Path(path)
         self._timeout = timeout
         self._identity: os.stat_result | None = None
+        self._identity_ctime_ns: int | None = None
 
     def initialize(self) -> None:
         """Crear o migrar el esquema en una sola transacción exclusiva."""
         self._identity = None
+        self._identity_ctime_ns = None
         try:
             path = private_parent(self._path)
             self._check_sidecars(path)
@@ -47,12 +49,16 @@ class PublicControlRepository:
                 elif version != SCHEMA_VERSION or application_id != APPLICATION_ID:
                     raise StoreUnavailable("La versión del almacén local no es compatible.")
                 connection.execute("COMMIT")
-            if not os.path.samestat(identity, check_private(path)):
+            current = check_private(path)
+            if not os.path.samestat(identity, current):
                 raise StoreUnavailable("El archivo de coordinación cambió.")
         except (OSError, sqlite3.Error):
             raise StoreUnavailable("No se pudo preparar el almacén local.") from None
         self._path = path
-        self._identity = identity
+        self._identity = current
+        # st_ino/st_dev no bastan: tras unlink+replace Linux puede reciclar
+        # inmediatamente el mismo inode. ctime_ns es la marca de identidad.
+        self._identity_ctime_ns = current.st_ctime_ns
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -61,7 +67,9 @@ class PublicControlRepository:
             raise StoreUnavailable("El almacén local no está inicializado.")
         try:
             path = private_parent(self._path)
-            if not os.path.samestat(self._identity, check_private(path)):
+            current = check_private(path)
+            if (not os.path.samestat(self._identity, current)
+                    or current.st_ctime_ns != self._identity_ctime_ns):
                 raise StoreUnavailable("El archivo de coordinación cambió.")
             self._check_sidecars(path)
             with closing(self._connect(path)) as connection:
@@ -80,6 +88,14 @@ class PublicControlRepository:
                     raise
                 else:
                     connection.execute("COMMIT")
+                    # Una escritura SQLite legítima cambia ctime_ns en POSIX.
+                    # Actualizarla solo después del commit y verificar la
+                    # identidad anterior para no aceptar un reemplazo externo.
+                    fresh = check_private(path)
+                    if not os.path.samestat(self._identity, fresh):
+                        raise StoreUnavailable("El archivo de coordinación cambió.")
+                    self._identity = fresh
+                    self._identity_ctime_ns = fresh.st_ctime_ns
         except sqlite3.IntegrityError:
             # El coordinador puede distinguir una colisión prevista del almacén caído.
             raise
