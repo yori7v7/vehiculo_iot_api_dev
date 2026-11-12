@@ -20,7 +20,7 @@ try {
         $p = New-Object System.Net.Sockets.TcpClient
         $p.Connect('127.0.0.1', 8001)
         $portFree = $false
-    } catch [System.Net.Sockets.SocketException] {
+    } catch {
         $portFree = $true
     } finally {
         if ($null -ne $p) { $p.Dispose() }
@@ -48,7 +48,7 @@ try {
             $p.Connect('127.0.0.1', 8001)
             $ready = $true
             break
-        } catch [System.Net.Sockets.SocketException] {
+        } catch {
         } finally {
             if ($null -ne $p) { $p.Dispose() }
         }
