@@ -97,8 +97,9 @@ class WebSocketEventTests(unittest.TestCase):
             resultado="ok", id_vehiculo=3, id_comando=7, comando="REVERSA",
             codigo=-5, conectado=False, fecha_actualizacion=DB_TIMESTAMP, origen="API",
         )
-        event = MovementEvent.from_movement(response)
-        self.assertEqual(event.model_dump(mode="json"), {
+        event = MovementEvent.from_movement(response).model_dump(mode="json")
+        self.assertRegex(event.pop("id_evento"), r"\A[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}\Z")
+        self.assertEqual(event, {
             "tipo_evento": "movimiento", "id_vehiculo": 3, "id_comando": 7,
             "comando": "REVERSA", "codigo": -5, "timestamp": "2026-10-14T12:34:56",
             "conectado": False, "origen": "API",

@@ -53,6 +53,7 @@ def list_vehicles(service: VehicleServiceDependency) -> list[VehicleResponse]:
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=VehicleResponse,
+    dependencies=[Depends(require_api_key)],
     summary="Crear vehículo",
     description=(
         "Ejecuta sp_crear_vehiculo(nombre, modelo, descripcion, microcontrolador) "
@@ -63,7 +64,7 @@ def list_vehicles(service: VehicleServiceDependency) -> list[VehicleResponse]:
         "MySQL asigna la fecha, el ID y activo=true. No se aceptan campos adicionales. "
         "La respuesta se valida antes de confirmar la transacción."
     ),
-    responses=DATABASE_ERRORS,
+    responses={**DATABASE_ERRORS, **SECURITY_RESPONSES},
 )
 def create_vehicle(data: VehicleCreate, service: VehicleServiceDependency) -> VehicleResponse:
     return service.create(data)
@@ -89,6 +90,7 @@ def get_vehicle(
 @router.put(
     "/{id_vehiculo}",
     response_model=VehicleResponse,
+    dependencies=[Depends(require_api_key)],
     summary="Reemplazar datos de un vehículo",
     description=(
         "Comprueba existencia con sp_obtener_vehiculo(id_vehiculo), ejecuta "
@@ -99,7 +101,7 @@ def get_vehicle(
         "ID positivo hasta 2147483647. No se aceptan campos adicionales. "
         "Permite actualizar y reactivar vehículos inactivos; 404 si no existen."
     ),
-    responses={**DATABASE_ERRORS, **NOT_FOUND},
+    responses={**DATABASE_ERRORS, **NOT_FOUND, **SECURITY_RESPONSES},
 )
 def update_vehicle(
     id_vehiculo: EntityId, data: VehicleUpdate, service: VehicleServiceDependency

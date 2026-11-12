@@ -59,6 +59,7 @@ DemoMovementServiceDependency = Annotated[DemoMovementService, Depends(get_demo_
 
 @router.post(
     "", response_model=DemoResponse, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_api_key)],
     summary="Crear una DEMO del vehículo",
     description=(
         "Comprueba el padre con sp_obtener_vehiculo(p_id_vehiculo), crea mediante "
@@ -67,7 +68,11 @@ DemoMovementServiceDependency = Annotated[DemoMovementService, Depends(get_demo_
         "El cuerpo exige nombre de hasta 80 caracteres; descripción admite null. "
         "MySQL asigna activo=true por defecto. Crear la DEMO no la ejecuta."
     ),
-    responses={**WRITE_ERRORS, 201: {"description": "DEMO creada con su representación completa."}},
+    responses={
+        **WRITE_ERRORS,
+        201: {"description": "DEMO creada con su representación completa."},
+        **SECURITY_RESPONSES,
+    },
 )
 def create_demo(
     id_vehiculo: VehiclePath, data: DemoCreate, service: DemoServiceDependency
@@ -91,6 +96,7 @@ def list_demos(id_vehiculo: VehiclePath, service: DemoServiceDependency) -> list
 
 @router.put(
     "/{id_demo}", response_model=DemoResponse, summary="Actualizar una DEMO del vehículo",
+    dependencies=[Depends(require_api_key)],
     description=(
         "Comprueba el padre con sp_obtener_vehiculo(p_id_vehiculo) y pertenencia mediante "
         "sp_obtener_demos(p_id_vehiculo). Ejecuta sp_actualizar_demo(p_id_demo, p_nombre, "
@@ -98,7 +104,11 @@ def list_demos(id_vehiculo: VehiclePath, service: DemoServiceDependency) -> list
         "PUT exige nombre y activo booleano; omitir descripción la asigna a null. "
         "No cambia propietario ni ejecuta la secuencia."
     ),
-    responses={**READ_ERRORS, 200: {"description": "Representación completa de la DEMO actualizada."}},
+    responses={
+        **READ_ERRORS,
+        200: {"description": "Representación completa de la DEMO actualizada."},
+        **SECURITY_RESPONSES,
+    },
 )
 def update_demo(
     id_vehiculo: VehiclePath, id_demo: DemoPath, data: DemoUpdate, service: DemoServiceDependency
@@ -128,6 +138,7 @@ def delete_demo(
 @router.post(
     "/{id_demo}/movimientos", response_model=DemoMovementResponse,
     status_code=status.HTTP_201_CREATED, summary="Agregar un movimiento a la DEMO",
+    dependencies=[Depends(require_api_key)],
     description=(
         "Comprueba padre y DEMO con sp_obtener_vehiculo(p_id_vehiculo) y "
         "sp_obtener_demos(p_id_vehiculo); valida comando activo del mismo vehículo con "
@@ -139,7 +150,11 @@ def delete_demo(
         "por las firmas INT del SP. Pausa predeterminada: 0. Orden repetido produce 409. "
         "Todo ocurre en una transacción y no ejecuta el movimiento."
     ),
-    responses={**MOVEMENT_ERRORS, 201: {"description": "Movimiento creado y leído desde la misma DEMO."}},
+    responses={
+        **MOVEMENT_ERRORS,
+        201: {"description": "Movimiento creado y leído desde la misma DEMO."},
+        **SECURITY_RESPONSES,
+    },
 )
 def create_demo_movement(
     id_vehiculo: VehiclePath, id_demo: DemoPath, data: DemoMovementCreate,
@@ -168,6 +183,7 @@ def list_demo_movements(
 
 @router.put(
     "/{id_demo}/movimientos/{id_demo_movimiento}", response_model=DemoMovementResponse,
+    dependencies=[Depends(require_api_key)],
     summary="Actualizar un movimiento de la DEMO",
     description=(
         "Comprueba padre y DEMO con sp_obtener_vehiculo(p_id_vehiculo) y "
@@ -179,7 +195,11 @@ def list_demo_movements(
         "pausa_ms. Tiempos entre 0 y 2147483647; orden positivo. "
         "Un orden ya ocupado produce 409. El movimiento conserva su DEMO."
     ),
-    responses={**MOVEMENT_ERRORS, 200: {"description": "Movimiento actualizado con su representación completa."}},
+    responses={
+        **MOVEMENT_ERRORS,
+        200: {"description": "Movimiento actualizado con su representación completa."},
+        **SECURITY_RESPONSES,
+    },
 )
 def update_demo_movement(
     id_vehiculo: VehiclePath, id_demo: DemoPath, id_demo_movimiento: MovementPath,

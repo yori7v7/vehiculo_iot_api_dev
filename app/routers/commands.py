@@ -56,6 +56,7 @@ CommandServiceDependency = Annotated[CommandService, Depends(get_command_service
     "",
     response_model=CommandResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_api_key)],
     summary="Crear un comando del vehículo",
     description=(
         "Comprueba el vehículo mediante sp_obtener_vehiculo(p_id_vehiculo), "
@@ -68,6 +69,7 @@ CommandServiceDependency = Annotated[CommandService, Depends(get_command_service
         **WRITE_ERRORS,
         201: {"description": "Comando creado con su representación completa."},
         404: {"model": ErrorResponse, "description": "El vehículo no existe."},
+        **SECURITY_RESPONSES,
     },
 )
 def create_command(
@@ -102,6 +104,7 @@ def list_commands(
 @router.put(
     "/{id_comando}",
     response_model=CommandResponse,
+    dependencies=[Depends(require_api_key)],
     summary="Actualizar un comando del vehículo",
     description=(
         "Comprueba el vehículo con sp_obtener_vehiculo(p_id_vehiculo) y la pertenencia "
@@ -114,6 +117,7 @@ def list_commands(
     responses={
         **WRITE_ERRORS,
         200: {"description": "Representación completa del comando actualizado."},
+        **SECURITY_RESPONSES,
     },
 )
 def update_command(

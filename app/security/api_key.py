@@ -1,4 +1,4 @@
-"""Una clave privada autoriza control y eliminación; ninguna credencial se imprime."""
+"""Una clave privada autoriza las escrituras administrativas y de control."""
 
 from hmac import compare_digest
 from typing import Annotated
@@ -13,7 +13,7 @@ from app.models.common import ErrorResponse
 
 api_key_header = APIKeyHeader(
     name="X-API-Key", scheme_name="LocalApiKey",
-    description="Clave privada configurada mediante API_KEY. Autoriza control y eliminación.",
+    description="Clave privada configurada mediante API_KEY para escrituras administrativas y de control.",
     auto_error=False,
 )
 
