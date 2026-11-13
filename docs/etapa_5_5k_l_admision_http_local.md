@@ -17,7 +17,11 @@ Conectar el contrato HTTPS de visitante `/publico/vehiculos/1/solicitudes` (K-I)
 
 **GitHub Actions**: commit que añade los 4 tests integrados `9c60c9a6a74ee20e0c0873a6463157c1a4b6e328`, ejecución [43371888666](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43371888666): **606 tests y 840 subtests aprobados**. Las siguientes confirmaciones de CI de los scripts y la documentación deben registrarse por separado.
 
-**PENDIENTE**: ejecutar el guion K-L en la laptop con ESP WSS real, TLS validado, en modo virtual, y aportar la salida. Ningún resultado anterior valida por sí mismo el nuevo montaje real K-L.
+**EVIDENCIA MANUAL CONFIRMADA POR EL ALUMNO (13/11/2026):** se ejecutó `scripts/prueba_55kl_admision_local.py` desde la misma laptop, apuntando al K-G LAN `192.168.1.82:8443`. TLS 1.3 y certificado + identidad IP verificados. **16/16 comprobaciones correctas**, no 15 (la estimación previa del chat era 15, pero la secuencia real cuenta 16). Se observaron respuestas correctas de: admin/ESP conectado y cola limpia, bloqueo origen ajeno, rechazo de X-API-Key en ruta invitado, 401 sin sesión, ticket invitado 201, espera 200, ticket idéntico en cola admin 200, clave administrativa incorrecta 403, supervisión 200, aprobación temporal de 120 s 200, permiso virtual 200, turno admin activo 200, revocación+STOP virtual 200, invitado revocado 200 y cola final vacía 200. **No hubo movimientos ni batería conectada** según el reporte de ejecución. No se debe interpretar este resultado como prueba mecánica ni como autorización desde Internet.
+
+**EVIDENCIA AUTOMATIZADA ACTUALIZADA:** ejecución [43372256365](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43372256365), commit `988861fa1a9379b8813da0742adabc26b349c919`: **607 tests passed, 840 subtests passed** (entorno CI, sin AWS/RDS ni actuadores).
+
+**Pendiente antes de K-M:** prueba visual de dos sesiones de navegador en el mismo sitio, controles deshabilitados bajo `approved_virtual`, diseño responsivo, sin publicar ni habilitar la API pública.
 
 ## Límites críticos
 
