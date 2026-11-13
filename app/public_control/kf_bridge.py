@@ -60,15 +60,20 @@ def _loopback(raw: str) -> bool:
 
 
 def _local(request: Request) -> None:
+    """Solo loopback o IP del MISMO PC configurado por K-G; nunca otra laptop LAN."""
     address = request.client.host if request.client else ""
     hosts = request.headers.getlist("host")
     try:
         host = urlsplit("http://" + hosts[0]).hostname if len(hosts) == 1 else ""
     except ValueError:
         host = ""
+    own_ip = getattr(request.app.state, "kg_lab_local_ip", None)
+    same_pc = (isinstance(own_ip, str) and bool(own_ip) and
+               not _loopback(own_ip) and address == own_ip and host == own_ip)
+    loopback = _loopback(address) and bool(host) and _loopback(host)
     origin = request.headers.get("origin")
     own_origin = str(request.base_url).rstrip("/")
-    if (not _loopback(address) or not host or not _loopback(host)
+    if (not (loopback or same_pc)
             or any(request.headers.get(h) for h in
                    ("forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip", "via"))
             or (origin is not None and origin != own_origin)
@@ -156,6 +161,12 @@ async def approve(request: Request, body: ApproveBody,
     if (body.modo == "timed" and body.segundos is None) or (
             body.modo == "supervised" and body.segundos is not None):
         raise HTTPException(422, "Duración incompatible con modo elegido")
+    # Prevalidar ANTES de pedir STOP firmado. El controlador revalida bajo lock.
+    if (not bridge.controller.gate.snapshot().get("supervisor_active") or
+            str(body.request_id) not in {
+                entry["request_id"] for entry in bridge.gate_pending()
+            }):
+        raise HTTPException(409, "Sin supervisión vigente o solicitud pendiente")
     return await bridge.controller.approve_ticket(
         str(body.request_id), mode=body.modo, seconds=body.segundos)
 
