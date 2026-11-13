@@ -61,3 +61,22 @@ El alumno ejecutó `scripts/prueba_55ko_reconexion_local.py` en Windows con serv
 **Evidencia CI:** [ejecución 43378217865](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43378217865), commit `4d335f5f2ab57568c1a49e3b923eb4026148b325`: **617 pruebas y 840 subpruebas aprobadas**. Estas pruebas emplean un KC virtual: **no garantizan que el código local privado `servidor_55kc.py` acepte el nuevo sondeo con ESP físico**. Si este controlador no devuelve HMAC para cada STOP, el sistema fallará cerrado y debe revisarse, nunca saltarse la comprobación.
 
 **Resultado físico actual de K-O:** NO APROBADO; retest pendiente en laptop tras `git pull --ff-only`, con firmware diagnóstico realmente grabado, GPIO/PC817 inhibidos, batería fuera y AWS/RDS apagados. Solo lectura HTTP desde el script. Si la fase 1 no llega a HTTP 200 después del nuevo arranque, detener el ensayo y reportar los logs sin claves; si la fase 2 sigue HTTP 200 tras desconectar USB, comprobar si el ESP sigue encendido por otro cable o fuente y suspender el trabajo de control remoto.
+
+## Segundo ensayo observado en Windows: fase inicial bloqueada (13/11/2026)
+
+Tras instalar commit `a66cb3f`, K-G mostró:
+```text
+[55-K-C] ESP autenticado; STOP inicial virtual con HMAC OK
+[K-O] WSS sin STOP HMAC vigente: bloqueado (TimeoutError)
+[55-K-C] ESP autenticado; STOP inicial virtual con HMAC OK
+```
+El script de solo GET no pasó **fase 1** (HTTP 503). Dado que el monitor K-O bloquea de manera irreversible la sesión después de la primera ausencia de acuse HMAC, la reautenticación posterior no debe reabrir la puerta automáticamente. **Esto es fallo cerrado, no evidencia de riesgo de movimiento; K-O continúa SIN APROBAR en hardware.**
+
+El alumno proporcionó log del Monitor Serie: autenticación HMAC y varios STOP 0 HMAC aceptados, pero otros intentos fueron rechazados con `relojOK=0`, `delta_ms=1304–1313` y `ttl_ms=1000`. En esos mensajes el tiempo del ESP supera al del PC aproximadamente 1.3 segundos. La causa precisa del TimeoutError no está demostrada: puede ser el rechazo de vigencia, una reconexión/reinicio o una latencia del canal. No alargar TTL ni deshabilitar la comprobación de reloj como supuesto remedio.
+
+**Instrumentación adicional (rama de laboratorio):**
+- K-G informa cada primer sondeo STOP firmado y cada décimo, además de tiempo de ejecución, cantidad de sondeos confirmados y edad del último ACK cuando falla, sin incluir credenciales o material criptográfico.
+- El script `prueba_55ko_reconexion_local.py` exige ahora **12 s de lectura estable en fase 1** antes de solicitar desenchufar USB; si hay 503 se cancela de manera conservadora.
+- CI [43379870137](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43379870137), commit `3a028bf4c5e3575d5cf191d05cc03daa8494da9b`: **618 tests y 840 subtests aprobados**. No sustituye evidencia física.
+
+**Para el siguiente ensayo:** comprobar sincronización Windows (`w32tm /query /status`), estabilidad de alimentación USB y modo diagnóstico cargado. Detener K-G, actualizar rama experimental, arrancar un nuevo proceso con el ESP estable, leer métricas `[K-O]`; no desconectar el USB hasta que el preflight pase y el script solicite hacerlo. Si falla el preflight, conservar ambas salidas y revisar el controlador WSS privado; jamás puentear el bloqueo.
