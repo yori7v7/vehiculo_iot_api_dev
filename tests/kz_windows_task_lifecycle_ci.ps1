@@ -116,7 +116,10 @@ try {
     $registered = Get-KZTask
     Check-KZ ($null -ne $registered) 'Task Scheduler registra tarea independiente'
     Check-KZ ($registered.State -eq 'Disabled') 'tarea de CI queda deshabilitada'
-    Check-KZ (@($registered.Triggers).Count -eq 0) 'tarea de CI no tiene triggers'
+    # Windows ScheduledTasks expone .Triggers = $null para tareas sin
+    # activadores; @($null).Count vale 1 en PowerShell 5.1.
+    $realTriggers = @($registered.Triggers | Where-Object { $null -ne $_ })
+    Check-KZ ($realTriggers.Count -eq 0) 'tarea de CI no tiene triggers'
     Check-KZ ($registered.Actions.Count -eq 1) 'acción única validada'
     Check-KZ ($registered.Actions[0].Execute -eq $powershell) 'acción no llama al backend legacy'
     $user = $registered.Principal.UserId
