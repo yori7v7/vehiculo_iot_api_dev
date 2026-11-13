@@ -10,7 +10,7 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:OS -ne 'Windows_NT' -or
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
 $python = (Get-Command python.exe -ErrorAction Stop).Source
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$runner = Join-Path $root 'deploy\staging\kw\kaa_ci_task_runner.ps1'
+# La tarea ejecuta el interprete Python directamente, sin PowerShell hijo.
 $task = 'KAA-CI-' + [guid]::NewGuid().ToString('N').Substring(0,12)
 $fixture = Join-Path $env:RUNNER_TEMP ('kaa-ci-' + [guid]::NewGuid().ToString('N'))
 $dummy = $null
@@ -114,10 +114,11 @@ try {
     Check-KAA $ready 'legacy dummy en 8000 disponible'
 
     # Solo un task y un proceso sidecar real; sin triggers automáticos.
-    $argument = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
-        $runner + '" -Workspace "' + $root + '" -Fixture "' + $fixture +
-        '" -PythonPath "' + $python + '"'
-    $action=New-ScheduledTaskAction -Execute $powershell -WorkingDirectory $root -Argument $argument
+    # Al detener la tarea, Windows mata el PROCESO Python que la posee;
+    # no queda un hijo separado del PowerShell del scheduler.
+    $argument = '-m scripts.kaa_ci_localservice_direct --workspace "' +
+        $root + '" --fixture "' + $fixture + '"'
+    $action=New-ScheduledTaskAction -Execute $python -WorkingDirectory $root -Argument $argument
     $principal=New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\LOCAL SERVICE' -LogonType ServiceAccount -RunLevel Limited
     $options=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 3) -MultipleInstances IgnoreNew
     Register-ScheduledTask -TaskPath '\' -TaskName $task -Action $action -Principal $principal -Settings $options -Description 'K-AA CI: sidecar virtual LocalService, no trigger' | Out-Null
@@ -144,12 +145,12 @@ try {
         $file=Join-Path $fixture 'kaa-state.txt'
         if(Test-Path -LiteralPath $file) {
             foreach($phase in @(Get-Content -LiteralPath $file)) {
-                if($phase -match '^(wrapper-started|python-start|python-exit-[0-9]+|wrapper-failed|exception-[A-Za-z0-9]+)$') {
+                if($phase -match '^(direct-python-started|direct-python-exit-[0-9]+|direct-python-failed)$') {
                     Write-Output ('[K-AA DIAG] phase=' + $phase)
                 }
             }
         }
-        else { Write-Output '[K-AA DIAG] wrapper-not-reached' }
+        else { Write-Output '[K-AA DIAG] python-not-reached' }
         $errFile=Join-Path $fixture 'kaa.stderr.log'
         if(Test-Path -LiteralPath $errFile) {
             $errorText=[string](Get-Content -LiteralPath $errFile -Raw)
