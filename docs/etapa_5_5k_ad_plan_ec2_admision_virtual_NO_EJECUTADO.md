@@ -1,6 +1,6 @@
 # 5.5-K-AD — Plan de inspección EC2 y primera admisión virtual (NO EJECUTADO)
 
-**Estado al 13/11/2026:** PREPARACIÓN DOCUMENTAL. Solo se añade este plan a la rama experimental del PR #5. **No se ha encendido EC2, no se ha intervenido Caddy, no se ha creado servicio, no se ha probado con ESP ni se ha publicado admisión alguna.** `main`, el frontend y GitHub Pages siguen fuera del alcance de esta etapa.
+**Estado al 13/11/2026:** PREPARACIÓN DOCUMENTAL Y DOS CONTROLES DE SEGURIDAD VERIFICADOS EN WINDOWS CI. Solo se añade este plan a la rama experimental del PR #5. **No se ha encendido EC2, no se ha intervenido Caddy, no se ha creado servicio, no se ha probado con ESP ni se ha publicado admisión alguna.** `main`, el frontend y GitHub Pages siguen fuera del alcance de esta etapa.
 
 ## Objetivo acotado
 
@@ -24,6 +24,16 @@ Se corrigió un falso positivo previo: el preflight podía informar GO sobre los
 - El control es de solo lectura y devuelve códigos de decisión; **NO comprueba salud HTTP del backend, identidad del proceso, ACL del listener ni seguridad del firewall externo**.
 
 Archivos: `deploy/staging/kw/kad_listener_policy.ps1` (función pura), `tests/kad_listener_policy_ci.ps1` (11 casos), `deploy/staging/kw/kac_ec2_preflight_READONLY.ps1` (integración Server) y `.github/workflows/kac-windows-readonly-ci.yml`. Este avance no autoriza encendido ni despliegue.
+
+## Avance offline confirmado: identidad de tareas y propietarios de puertos
+
+**CI Windows aprobada:** [ejecución 43436362437](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43436362437), paso `K-AD verificación de propiedad de procesos (sin procesos del host)`. Resultado: **17/17 casos sintéticos aprobados** (28/28 al contar la matriz anterior de 11 puertos). La regresión general previa de backend, correspondiente a ese código de integración, también resultó correcta: [run 43436370510](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43436370510).
+
+El script `-Mode Server` **ahora exige** que las dos tareas originales estén en estado `Running`, que `deployment.json` identifique rutas de binarios esperadas (Python y Caddy), que ProgramData legacy no permita escritura a usuarios comunes y que existan registros de ejecución `run/api.json` y `run/caddy.json`. Compara, sin publicar los valores, **PID, fecha de creación e imagen del proceso** vivo con los registros privados y el `OwningProcess` de todos los sockets de FastAPI `8000` y HTTPS Caddy `443`. Una ausencia, discrepancia o propietario adicional produce **NO-GO**. Una ruta de estado fuera de ProgramData también se rechaza inmediatamente.
+
+La política de identidad `deploy/staging/kw/kad_process_policy.ps1` es pura y no consulta procesos; sus 17 escenarios en `tests/kad_process_policy_ci.ps1` usan solamente objetos falsos. El preflight `deploy/staging/kw/kac_ec2_preflight_READONLY.ps1` sí consulta procesos reales, **pero solo cuando un operador ejecute voluntariamente `-Mode Server` en Windows**. No se ejecutó contra EC2. `tests/test_kad_process_preflight_contract.py` impide por regresión retirar comprobaciones cruciales o introducir comandos de escritura.
+
+**Limitaciones:** verificar identidad de proceso no equivale a probar respuesta HTTP, estado real de TLS o autorización física. Si el host usa un proxy distinto en `443`, cambia la instalación o faltan registros tras un reinicio, la política actual devolverá **NO-GO** y se requerirá inspección humana del despliegue; no modificar automáticamente la política para aceptar cualquier proceso. Se mantienen pendientes inventario de firewall, Security Groups, certificados, credenciales y rollback real de Caddy.
 
 ## Puertas de decisión, en orden
 
@@ -54,6 +64,7 @@ Arbitraje **único** entre Swagger, joystick y DEMO; inhibición eléctrica por 
 | --- | --- | --- |
 | K-AC preflight Repository | GitHub CI / Windows local | Preexistente; consultar Actions y SHA exacto |
 | K-AC TLS/fallo/rollback sintético | GitHub Actions, runner efímero | Preexistente; no extrapolar a EC2 |
+| K-AD políticas de puertos y propietario de proceso | Windows CI con objetos simulados | **28/28 aprobadas**, no son prueba de EC2 |
 | K-AD preflight Server | EC2 Windows real | **NO EJECUTADO** |
 | Caddyfile persistente + copia restaurable | EC2 Windows real | **NO VERIFICADO** |
 | Identidad/ACL y secretos del sidecar | EC2 Windows real | **NO CONFIGURADO/NO VERIFICADO** |
