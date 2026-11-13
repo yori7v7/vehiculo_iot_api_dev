@@ -13,7 +13,15 @@ import json
 import ssl
 import sys
 import time
+from pathlib import Path
 from uuid import UUID
+
+# La utilidad K-K ya fue descargada/ejecutada por el usuario en Descargas.
+# El script K-L se ejecuta desde el subdirectorio scripts/ del repositorio.
+UTILIDAD_KK = Path.home() / "Downloads" / "prueba_55kk_post_virtual_seguro.py"
+if not UTILIDAD_KK.is_file():
+    raise SystemExit("[55-K-L] Falta prueba_55kk_post_virtual_seguro.py en Descargas.")
+sys.path.insert(0, str(UTILIDAD_KK.parent))
 
 from prueba_55kk_post_virtual_seguro import (
     CheckedClient,
