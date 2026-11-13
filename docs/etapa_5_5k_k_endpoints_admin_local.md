@@ -20,11 +20,14 @@ Se registró `app/public_control/kk_admin_lab.py` en `app/main.py`, oculto de Sw
 
 `app.main.create_app()` establece `kj_lab_enabled=False`, `kj_expected_host=None`. En `kg_bootstrap.py`, el modo local K-G define Host `192.168.1.82:8443` usando la IP que se lea en configuración (no hardcodear para otras redes) y habilita `kj_lab_enabled=True` **solo después** de autenticar ESP, recibir STOP HMAC, cerrar DEMO/REST legacy y completar el handover K-E. Al salir, cierra ese acceso de nuevo. Si el ESP se desconecta, K-K responde 503 por `controller.connected=False`.
 
-### Pruebas y evidencia
+### Pruebas y evidencia (CI integrado aprobado)
 
-1. `tests/test_kk_admin_lab.py` se subió a la rama, con pruebas HTTP del router, autenticación `require_api_key`, CORS, protección por IP/origen, validación estricta, ausencia en Swagger, conexión única, revocación y fallos. **Pendiente ejecutarlo en el árbol completo del repositorio** (`pytest`/CI o PC del alumno).
-2. Se creó una **réplica aislada** del router con el mismo código funcional, FastAPI + `SingleLinkAdmissionLab` + `KFBridge` reales del laboratorio anterior y stubs de autenticación (sin la dependencia real del backend), y se ejecutaron **7 pruebas: 7 passed (0.37 s)**. Estas confirman la lógica de la ruta, pero **NO validan la integración completa ni el middleware CORS real**.
-3. La etapa K-G anterior **sí** fue comprobada manualmente por el alumno con su NodeMCU físico, WSS HMAC y estados administrativos; K-K no ha sido probado todavía con ese hardware.
+1. `tests/test_kk_admin_lab.py` prueba las cinco rutas bajo FastAPI, la dependencia real `require_api_key`, denegación de Bearer, CORS, origen/IP, validación estricta, ocultamiento de Swagger, controlador WSS único, revocación y cierre ante fallos. Estas pruebas ya se ejecutaron dentro de la suite completa en GitHub Actions.
+2. Se añadió `httpx` sin quitar `httpx2` (necesario para Starlette 1.x), y `pytest-asyncio`, a `requirements-dev.txt`. Así se ejecutan tanto los clientes ASGI históricos como los tests asíncronos.
+3. `legacy_guard.py` mantiene HTTP 503 para simulación y para control exclusivo. Solo distingue sus mensajes de error para conservar los contratos existentes sin permitir despacho legacy.
+4. **Resultado confirmado:** GitHub Actions [ejecución 43368047644](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43368047644), commit `10c5aa4ec771ed8961fa58bfcdcc346eefa209c5`: **602 tests passed, 840 subtests passed**, Python 3.12, sin AWS/RDS, sin acceso a motores. El PR #5 continúa en borrador y no se fusionó.
+5. Antes de la suite integrada se había ensayado una réplica aislada del router: **7 passed (0.37 s)**. Aquella prueba no acreditaba CORS ni la dependencia real de autenticación; la prueba integrada sí lo hace.
+6. **Aún NO está validado K-K mediante HTTP real contra el proceso K-G de la laptop mientras el ESP está conectado**. El ensayo manual K-G anterior confirmó el canal WSS y STOP HMAC virtual, pero no los cinco endpoints K-K con el dispositivo físico.
 
 ### Limitaciones esenciales
 
