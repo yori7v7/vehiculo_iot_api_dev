@@ -32,6 +32,6 @@ Este incremento NO registra la tercera tarea, ni modifica ProgramData, ni instal
 - Solo la rama experimental del backend recibió K-Y; PR #5 sigue en borrador.
 - Frontend `main`, GitHub Pages, API EC2, RDS, llaves AWS, y firmware del vehículo no fueron modificados.
 - El enlace definitivo de entrega digital sigue siendo `https://yori7v7.github.io/control-iot-u4/` y el repositorio `https://github.com/yori7v7/control-iot-u4`.
-- Evidencia de la primera prueba de 14 comprobaciones Windows: [GitHub Actions 43401328770](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43401328770), **success**. Se agregó una verificación adicional de reinicio y exclusiva SQLite para la prueba definitiva, que debe comprobarse por separado.
+- **Evidencia K-Y definitiva:** [GitHub Actions 43401467467](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43401467467), **SUCCESS: 18/18 comprobaciones en Windows**, incluidas parada, segundo arranque, reacquisición SQLite y disponibilidad intacta del servidor simulado en `8000`. La regresión de backend del mismo cambio también resultó aprobada en [43401478032](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43401478032). Esta evidencia corresponde al laboratorio Windows, **no** a la máquina EC2.
 
 **Siguiente decisión:** primero verificar el ensayo definitivo de Windows; después diseñar la tercera tarea con un procedimiento de instalación y reversión independiente, sin encender AWS por adelantado.
