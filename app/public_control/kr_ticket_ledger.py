@@ -199,12 +199,16 @@ class KRTicketLedger:
             self._sealed = True
             self._supervisor_at = None
             raise KRTicketDenied("Hora del servidor invalida; sesiones selladas")
+        # Rechazo de negocio: confirmar las expiraciones y no dejar tickets
+        # caducados en estado waiting por hacer rollback del mantenimiento.
+        if isinstance(result, KRTicketDenied):
+            raise result
         return result
 
     @staticmethod
     def _digest_secret(secret: str) -> bytes:
         if (type(secret) is not str or len(secret) != 43
-                or not all(c.isalnum() or c in "_-" for c in secret)):
+                or not all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-" for c in secret)):
             raise KRTicketDenied("Sesion de navegador invalida")
         return sha256(secret.encode("ascii")).digest()
 
@@ -235,7 +239,7 @@ class KRTicketLedger:
             if (recent >= self._max_per_window or
                     by_client >= self._max_per_client or
                     waiting >= self._max_pending or total >= _MAX_RECORDS):
-                raise KRTicketDenied("Limite de solicitudes alcanzado")
+                return KRTicketDenied("Limite de solicitudes alcanzado")
             request_id = str(uuid4())
             secret = token_urlsafe(32)
             db.execute(
@@ -265,7 +269,7 @@ class KRTicketLedger:
                 (self._epoch, secret_hash),
             ).fetchone()
             if row is None:
-                raise KRTicketDenied("Sesion inexistente o de epoca anterior")
+                return KRTicketDenied("Sesion inexistente o de epoca anterior")
             return {
                 "estado": {
                     "waiting": "esperando_autorizacion",
@@ -327,20 +331,20 @@ class KRTicketLedger:
         def run(db, now, _salt):
             if (self._supervisor_at is None or now < self._supervisor_at
                     or now >= self._supervisor_at + 15):
-                raise KRTicketDenied("Supervision virtual no vigente")
+                return KRTicketDenied("Supervision virtual no vigente")
             row = db.execute(
                 "SELECT state, expires_at FROM kr_ticket "
                 "WHERE epoch=? AND request_id=?",
                 (self._epoch, request_id),
             ).fetchone()
             if row is None or row["state"] != "waiting" or now >= row["expires_at"]:
-                raise KRTicketDenied("Ticket virtual no vigente")
+                return KRTicketDenied("Ticket virtual no vigente")
             if db.execute(
                 "SELECT 1 FROM kr_ticket WHERE epoch=? "
                 "AND state='approved_virtual' LIMIT 1",
                 (self._epoch,),
             ).fetchone():
-                raise KRTicketDenied("Ya existe un turno virtual")
+                return KRTicketDenied("Ya existe un turno virtual")
             db.execute(
                 "UPDATE kr_ticket SET state='approved_virtual', virtual_until=? "
                 "WHERE request_id=? AND epoch=? AND state='waiting'",
@@ -359,7 +363,7 @@ class KRTicketLedger:
                 (self._epoch, request_id),
             )
             if row.rowcount != 1:
-                raise KRTicketDenied("Ticket no pendiente")
+                return KRTicketDenied("Ticket no pendiente")
         self._run(run)
 
     def revoke(self, admin_proof: str) -> None:
