@@ -72,8 +72,22 @@ def main() -> int:
     except (ValueError, KeyError, OSError, json.JSONDecodeError):
         print("[K-Y] NO-GO: precondición de laboratorio incumplida.", file=sys.stderr)
         return 2
-    except Exception:
-        # No incluir excepciones: algunas bibliotecas interpolan secretos.
+    except Exception as error:
+        # Solo bajo runner K-AA: registrar la CLASE, NUNCA el mensaje
+        # (podria contener rutas, credenciales o valores de cabeceras).
+        if (os.getenv("GITHUB_ACTIONS") == "true"
+                and os.getenv("KY_WINDOWS_CI_ONLY") == "isolated-sidecar"
+                and os.getenv("KAA_CI_DIAG_TYPE_ONLY") == "true"):
+            try:
+                fixture = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
+                if (fixture / "KAA_CI_ONLY.marker").is_file():
+                    label = type(error).__name__
+                    if label.isidentifier() and len(label) <= 70:
+                        (fixture / "kaa-origin.txt").write_text(
+                            "ky-exception-" + label + "\n", encoding="utf-8"
+                        )
+            except Exception:
+                pass
         print("[K-Y] NO-GO: sidecar falló cerrado.", file=sys.stderr)
         return 3
 
