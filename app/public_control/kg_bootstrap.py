@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from starlette.routing import WebSocketRoute
 
 from app.public_control.kf_attach import attach_verified_kf_bridge
+from app.public_control.ki_ingress import GuestIngressLab
 
 LOG = logging.getLogger(__name__)
 WSS_PATH = "/ws/dispositivos-lab/1/contrato"
@@ -48,6 +49,10 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
     application.state.kg_lab_mode = True
     application.state.kj_lab_enabled = False
     application.state.kj_expected_host = None
+    # K-L: la admision oficial es inerte hasta el handover de K-G.
+    application.state.ki_ingress = None
+    application.state.ki_expected_host = None
+    application.state.ki_contract_test_enabled = False
 
     # Esta ruta debe preceder al WSS de diagnostico antiguo, que usa el mismo path.
     # Su ws.app.state apunta a la misma instancia FastAPI principal.
@@ -57,6 +62,11 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
     async def attach_when_ready(app: FastAPI, controller, admin_token, stopping):
         while not stopping.is_set():
             barrier = app.state.legacy_handover
+            # Una perdida WSS cierra ambas puertas; no auto-reabrir.
+            if not controller.connected:
+                app.state.kj_lab_enabled = False
+                app.state.ki_contract_test_enabled = False
+                app.state.ki_ingress = None
             if (barrier.phase == "legacy" and controller.connected
                     and controller.last_neutral_virtual):
                 try:
@@ -65,9 +75,21 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
                     app.state.exclusive_device_control_enabled = True
                     LOG.warning("[K-G] Enganche denegado: %s", type(error).__name__)
                 else:
-                    # Se habilita K-K SOLO dentro de K-G, tras STOP y handover.
-                    app.state.kj_lab_enabled = True
-                    LOG.info("[K-G] Puerta interna activada sobre controlador WSS compartido")
+                    # K-L habilita el contrato del invitado solo desde la
+                    # misma laptop: _ingress() tambien comprueba IP de origen.
+                    if (controller.connected
+                            and app.state.kf_wss_controller is controller
+                            and app.state.kf_bridge.controller is controller
+                            and barrier.phase == "exclusive"):
+                        app.state.ki_ingress = GuestIngressLab(controller)
+                        app.state.ki_expected_host = app.state.kj_expected_host
+                        app.state.ki_contract_test_enabled = True
+                        app.state.kj_lab_enabled = True
+                        LOG.info("[K-L] Admision local habilitada; mismo KCController WSS")
+                    else:
+                        app.state.ki_ingress = None
+                        app.state.ki_contract_test_enabled = False
+                        app.state.kj_lab_enabled = False
             if barrier.phase == "blocked":
                 LOG.warning("[K-G] Barrera bloqueada tras fallo; no se permite movimiento")
                 return
@@ -102,6 +124,9 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
                 await asyncio.gather(watcher, bootstrap, return_exceptions=True)
                 app.state.kf_bridge = None
                 app.state.kj_lab_enabled = False
+                app.state.ki_contract_test_enabled = False
+                app.state.ki_ingress = None
+                app.state.ki_expected_host = None
                 app.state.exclusive_device_control_enabled = True
                 await controller.close_on_fault()
 
