@@ -1,0 +1,101 @@
+"""5.5-K-I — Contrato HTTPS de admisión desde una sola URL (NO productivo).
+
+El router NO se habilita al registrarse. La autoridad debe ser EXACTAMENTE el
+controlador WSS compartido con la API; no hay comandos, STOP ni aprobación aquí.
+No usar el adaptador en memoria como arquitectura de producción.
+"""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Request
+from app.public_control.single_link_admission_lab import AdmissionDenied
+
+PAGES_ORIGIN = "https://yori7v7.github.io"
+VISITOR_SECRET = re.compile(r"[A-Za-z0-9_-]{43}\Z", re.ASCII)
+router = APIRouter(prefix="/publico/vehiculos/{id_vehiculo}/solicitudes", include_in_schema=False)
+
+
+class GuestIngressLab:
+    """Sin segundo estado: usa el gate y lock del controlador WSS K-C."""
+
+    def __init__(self, controller: Any):
+        if not all(hasattr(controller, name) for name in ("lock", "gate", "connected")):
+            raise TypeError("Se requiere la autoridad WSS compartida.")
+        self.controller = controller
+
+    async def request(self) -> dict:
+        async with self.controller.lock:
+            if not self.controller.connected:
+                raise HTTPException(503, "Dispositivo desconectado")
+            try:
+                row = self.controller.gate.arrive()
+            except AdmissionDenied:
+                raise HTTPException(429, "No hay solicitudes disponibles") from None
+        return {**row, "simulado": True, "control_fisico": False}
+
+    async def status(self, browser_secret: str) -> dict:
+        async with self.controller.lock:
+            if not self.controller.connected:
+                raise HTTPException(503, "Dispositivo desconectado")
+            try:
+                row = self.controller.gate.visitor_status(browser_secret)
+            except AdmissionDenied:
+                raise HTTPException(401, "Sesión de navegador no válida") from None
+        # Nunca devolver el bearer de movimiento emitido internamente.
+        return {"estado": row["estado"], "display_code": row["display_code"],
+                "simulado": True, "control_fisico": False}
+
+
+def _request_context(request: Request) -> None:
+    # K-I se prueba con HTTPS virtual. No usar el laboratorio LAN HTTP/WSS como
+    # origen público ni confiar ciegamente en X-Forwarded-*.
+    host = getattr(request.app.state, "ki_expected_host", None)
+    if (type(host) is not str or not host or request.url.scheme != "https"
+            or request.headers.getlist("host") != [host]
+            or request.headers.getlist("origin") != [PAGES_ORIGIN]
+            or request.headers.get("sec-fetch-site") not in (None, "cross-site")
+            or any(request.headers.getlist(h) for h in
+                   ("authorization", "x-api-key", "cookie", "forwarded",
+                    "x-forwarded-for", "x-real-ip", "via"))
+            or request.query_params):
+        raise HTTPException(403, "Solicitud pública no autorizada")
+
+
+def _ingress(request: Request, vehicle_id: int) -> GuestIngressLab:
+    settings = getattr(request.app.state, "public_control_settings", None)
+    adapter = getattr(request.app.state, "ki_ingress", None)
+    controller = getattr(request.app.state, "kf_wss_controller", None)
+    barrier = getattr(request.app.state, "legacy_handover", None)
+    if (settings is None or getattr(settings, "app_env", None) != "development"
+            or getattr(request.app.state, "ki_contract_test_enabled", False) is not True
+            or getattr(request.app.state, "exclusive_device_control_enabled", False) is not True
+            or adapter is None or type(adapter) is not GuestIngressLab
+            or controller is None or adapter.controller is not controller
+            or barrier is None or getattr(barrier, "phase", None) != "exclusive"
+            or not controller.connected
+            or vehicle_id != 1):
+        raise HTTPException(503, "Admisión pública aún no disponible")
+    return adapter
+
+
+@router.post("", status_code=201)
+async def request_access(id_vehiculo: int, request: Request) -> dict:
+    _request_context(request)
+    ingress = _ingress(request, id_vehiculo)
+    if request.headers.get("content-length") not in (None, "0"):
+        raise HTTPException(400, "No enviar contenido")
+    if request.headers.getlist("x-browser-session"):
+        raise HTTPException(403, "No reutilizar una sesión existente")
+    return await ingress.request()
+
+
+@router.get("/estado")
+async def check_access(id_vehiculo: int, request: Request) -> dict:
+    _request_context(request)
+    ingress = _ingress(request, id_vehiculo)
+    credentials = request.headers.getlist("x-browser-session")
+    if len(credentials) != 1 or VISITOR_SECRET.fullmatch(credentials[0]) is None:
+        raise HTTPException(401, "Sesión de navegador requerida")
+    return await ingress.status(credentials[0])
