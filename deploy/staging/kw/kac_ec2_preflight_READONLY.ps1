@@ -107,12 +107,16 @@ try {
                 $task.Actions[0].Arguments -eq $arguments) 'Acción de tarea legacy coincide sin modificaciones'
             Test-KAC ($task.Principal.UserId -in @('SYSTEM','NT AUTHORITY\SYSTEM','S-1-5-18')) 'Principal de tarea legacy original'
         }
-        foreach ($port in @(8000,9444)) {
-            $connections = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
-            foreach ($c in $connections) {
-                Test-KAC ($c.LocalAddress -in @('127.0.0.1','::1')) 'Puerto reservado solo a loopback'
-            }
-        }
+        # Preflight ANTES del staging: sin 8000 no hay continuidad legacy;
+        # con CUALQUIER 9444 activo no se debe asumir un estado limpio.
+        # La política es una función pura, probada en Windows CI con fixtures.
+        . (Join-Path $PSScriptRoot 'kad_listener_policy.ps1')
+        $legacyListeners = @(Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue)
+        $sidecarListeners = @(Get-NetTCPConnection -LocalPort 9444 -State Listen -ErrorAction SilentlyContinue)
+        $portVerdict = Test-KADPortPolicy -LegacyListeners $legacyListeners -SidecarListeners $sidecarListeners
+        Test-KAC ($portVerdict.LegacyPresent) 'Backend original 8000 tiene listener'
+        Test-KAC ($portVerdict.LegacyLoopbackOnly) 'Todos los listeners legacy 8000 usan loopback'
+        Test-KAC ($portVerdict.SidecarAbsent) 'Puerto staging 9444 desocupado antes de instalar'
         $staging = Join-Path $programData 'VehiculoIoT-Admission-Staging'
         # Un paquete preinstalado NO es una autorización de arranque.
         if (Test-Path -LiteralPath $staging -PathType Container) {
