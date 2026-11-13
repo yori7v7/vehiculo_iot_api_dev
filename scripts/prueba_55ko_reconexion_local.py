@@ -42,6 +42,30 @@ def safe_virtual(body):
             and body.get("control_fisico") is False)
 
 
+def stable_preflight(client, headers, *, seconds=12):
+    """Comprobar varios ACK HMAC a lo largo del tiempo antes de tocar el USB.
+
+    Si K-G se bloquea durante el preflight, es un ERROR de la fase 1.
+    No pedir nunca una desconexion ante ese escenario.
+    """
+    deadline = monotonic() + seconds
+    checks = 0
+    while True:
+        code, body = read(client, headers)
+        if (code != 200 or not safe_virtual(body)
+                or body.get("turno_activo") is not False
+                or body.get("solicitudes") != []):
+            raise TestStopped(
+                f"Preflight inestable en comprobacion {checks + 1}: HTTP {code}; "
+                "revisar el detalle [K-O] en Terminal 1. No desconectar USB"
+            )
+        checks += 1
+        if monotonic() >= deadline:
+            break
+        sleep(0.75)
+    return checks
+
+
 def expect_closed(client, headers, *, seconds=15):
     deadline = monotonic() + seconds
     seen = []
@@ -61,10 +85,13 @@ def main():
     parser.add_argument("--ip", default="192.168.1.82")
     parser.add_argument("--puerto", type=int, default=8443)
     parser.add_argument("--diagnostico-confirmado", action="store_true")
+    parser.add_argument("--preflight-segundos", type=int, default=12)
     args = parser.parse_args()
     try:
         if not args.diagnostico_confirmado:
             raise TestStopped("Debes verificar firmware DIAGNOSTICO, GPIO inhibidos y bateria fuera")
+        if not 10 <= args.preflight_segundos <= 30:
+            raise TestStopped("Preflight debe estar entre 10 y 30 segundos")
         address = ipaddress.ip_address(args.ip)
         if address.version != 4 or args.ip not in local_ipv4() or args.puerto != 8443:
             raise TestStopped("Solo el servidor 8443 de ESTA laptop")
@@ -83,7 +110,9 @@ def main():
         code, body = read(client, headers)
         if code != 200 or not safe_virtual(body) or body.get("turno_activo") is not False or body.get("solicitudes") != []:
             raise TestStopped(f"Precondicion incumplida: HTTP {code}; debe estar limpio y simulado")
-        print("[K-O] 1/3 OK: admin GET 200; sin turno ni pendientes; sin control fisico")
+        checks = stable_preflight(client, headers, seconds=args.preflight_segundos)
+        print(f"[K-O] 1/3 OK: admin GET 200 estable durante {args.preflight_segundos} s "
+              f"({checks} lecturas); sin turnos ni control fisico")
 
         check = input("\nDesconecta SOLO el USB del ESP (bateria ya desconectada). Escribe DESCONECTADO: ").strip()
         if check != "DESCONECTADO":
