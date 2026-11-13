@@ -10,6 +10,7 @@ excluida por CoordinatorOwnership. Las epocas no certifican STOP fisico.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
 
@@ -101,8 +102,13 @@ class KQRestartFence:
             self._owner.release()
             raise
 
-    def assert_current(self, epoch: int) -> None:
-        """Comprobar dentro de una transaccion que una referencia no es vieja."""
+    @contextmanager
+    def transaction(self, epoch: int):
+        """Verificar y operar bajo EL MISMO bloqueo transaccional SQLite.
+
+        K-R nunca hace check-then-act por separado; la epoca vigente y la
+        mutacion deben estar dentro del mismo BEGIN IMMEDIATE.
+        """
         if (type(epoch) is not int or self._epoch is None
                 or self._invalidated or epoch != self._epoch):
             raise FenceRejected("Epoca antigua o inaccesible")
@@ -113,8 +119,15 @@ class KQRestartFence:
             ).fetchone()
             if (row is None or row["epoch"] != epoch
                     or row["blocked_reason"] != BLOCKED
-                    or row["window_expires"] is not None):
+                    or row["window_expires"] is not None
+                    or self._invalidated):
                 raise FenceRejected("El journal cambio o no esta cerrado")
+            yield db
+
+    def assert_current(self, epoch: int) -> None:
+        """Verificar la epoca vigente con el mismo cierre transaccional."""
+        with self.transaction(epoch):
+            pass
 
     def invalidate(self) -> int:
         """Rotar epoch tras perdida WSS; NO puede rearmarse en este proceso."""
