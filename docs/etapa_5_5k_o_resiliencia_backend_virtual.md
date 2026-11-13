@@ -80,3 +80,15 @@ El alumno proporcionó log del Monitor Serie: autenticación HMAC y varios STOP 
 - CI [43379870137](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43379870137), commit `3a028bf4c5e3575d5cf191d05cc03daa8494da9b`: **618 tests y 840 subtests aprobados**. No sustituye evidencia física.
 
 **Para el siguiente ensayo:** comprobar sincronización Windows (`w32tm /query /status`), estabilidad de alimentación USB y modo diagnóstico cargado. Detener K-G, actualizar rama experimental, arrancar un nuevo proceso con el ESP estable, leer métricas `[K-O]`; no desconectar el USB hasta que el preflight pase y el script solicite hacerlo. Si falla el preflight, conservar ambas salidas y revisar el controlador WSS privado; jamás puentear el bloqueo.
+
+## Tercer ensayo en laptop: K-O 3/3 confirmado por operador (13/11/2026)
+
+**Evidencia de terminal 3 entregada por el alumno** (script `prueba_55ko_reconexion_local.py` con `--preflight-segundos 12`, IP `192.168.1.82`, puerto `8443`):
+
+- TLS 1.3; certificado e identidad IP verificados por la utilidad previa K-K.
+- **Fase 1:** GET administrativo HTTP 200 estable durante **12 s y 17 lecturas**, sin turnos activos ni control físico.
+- **Fase 2:** tras confirmar que desconectó el USB del ESP, la ruta administrativa respondió **HTTP 503**.
+- **Fase 3:** tras reconectar USB y confirmar manualmente el nuevo arranque/autenticación, la ruta administrativa se mantuvo en **HTTP 503**, sin reapertura automática.
+- **Resultado reportado por el propio script: 3/3 barreras HTTP, solo laboratorio virtual.** No hubo solicitudes de movimiento en el guion. La fase 3 depende de que el operador verificara efectivamente los mensajes en Terminal 1; ese log de este tercer ensayo no se recibió todavía, por lo que no debe afirmarse verificación independiente del nuevo desafío WSS.
+
+**Conclusión delimitada:** la comprobación manual de cierre/reapertura de rutas HTTP de **5.5-K-O está APROBADA 3/3**, tras los dos intentos previos fallidos y la corrección de liveness. **No certifica parada mecánica, neutralidad de PC817, seguridad de movimiento físico ni accesibilidad desde Internet**. Las pruebas de integración con el controlador físico y la autoridad pública distribuida siguen pendientes, sin AWS/RDS ni batería conectados.
