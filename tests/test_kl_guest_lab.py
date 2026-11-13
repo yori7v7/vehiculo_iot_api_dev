@@ -3,7 +3,7 @@ import asyncio
 import ast
 from pathlib import Path
 from contextlib import asynccontextmanager
-from time import sleep
+from time import sleep, monotonic
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -41,12 +41,13 @@ class VirtualKC:
         self.connected = online
         self.last_neutral_virtual = online
         self.stop_requests = 0
+        self.responds_to_hmac = True
 
     async def dispatch(self, code):
         assert code == 0
         self.stop_requests += 1
-        if not self.connected:
-            raise OSError("ESP no disponible")
+        if not self.connected or not self.responds_to_hmac:
+            raise OSError("Sin ACK HMAC nuevo del ESP")
         self.last_neutral_virtual = True
 
     async def run_supervision_watchdog(self, event):
@@ -235,3 +236,43 @@ def test_local_manual_script_has_valid_python_and_no_motion_routes():
     assert "/movimientos" not in source
     assert "/demos/" not in source
     assert "/accion" not in source
+
+
+def test_ko_socket_obsoleto_con_connected_true_cierra_admin_y_visitante(monkeypatch):
+    """Un TCP aparentemente abierto NO reemplaza el acuse HMAC firmado."""
+    monkeypatch.setattr("app.public_control.kg_bootstrap.KG_PROBE_INTERVAL_S", 0.05)
+    app = connected_app()
+    with TestClient(app, base_url=BASE, client=("192.168.1.82", 53333)) as client:
+        wait_for_handover(app)
+        assert client.get(ADMIN, headers=HEAD_ADMIN).status_code == 200
+        controller = app.state.control
+        assert controller.connected is True
+        controller.responds_to_hmac = False
+        deadline = monotonic() + 3
+        while monotonic() < deadline and not app.state.kg_transport_fenced:
+            sleep(0.03)
+        assert app.state.kg_transport_fenced is True
+        assert app.state.kg_last_signed_stop_at is None
+        assert app.state.kj_lab_enabled is False
+        assert app.state.ki_contract_test_enabled is False
+        assert client.get(ADMIN, headers=HEAD_ADMIN).status_code == 503
+        assert client.post(GUEST, headers=HEAD_GUEST).status_code == 503
+        # Reconectar socket simulado no debe reabrir K-K/K-I sin nuevo arranque.
+        controller.connected = True
+        controller.responds_to_hmac = True
+        sleep(0.15)
+        assert client.get(ADMIN, headers=HEAD_ADMIN).status_code == 503
+        assert client.post(GUEST, headers=HEAD_GUEST).status_code == 503
+
+
+def test_ko_lease_vencida_denegada_aunque_connected_true():
+    from app.public_control.kg_liveness import (
+        ACK_LEASE_SECONDS, signed_transport_recent,
+    )
+    state = SimpleNamespace(kg_lab_mode=True, kg_transport_fenced=False,
+                            kg_last_signed_stop_at=float(monotonic() - ACK_LEASE_SECONDS - 1))
+    assert signed_transport_recent(state) is False
+    state.kg_last_signed_stop_at = float(monotonic())
+    assert signed_transport_recent(state) is True
+    state.kg_transport_fenced = True
+    assert signed_transport_recent(state) is False
