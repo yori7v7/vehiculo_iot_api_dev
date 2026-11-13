@@ -123,6 +123,10 @@ class KQRestartFence:
                     or self._invalidated):
                 raise FenceRejected("El journal cambio o no esta cerrado")
             yield db
+            # Una invalidacion concurrente invalida la operacion aunque
+            # ocurra mientras el callback tenia el lock SQLite.
+            if self._invalidated or self._epoch != epoch:
+                raise FenceRejected("La autoridad se invalido durante la transaccion")
 
     def assert_current(self, epoch: int) -> None:
         """Verificar la epoca vigente con el mismo cierre transaccional."""
