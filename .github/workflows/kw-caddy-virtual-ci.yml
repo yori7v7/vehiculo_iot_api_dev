@@ -145,7 +145,15 @@ jobs:
           fi
 
       - name: Prueba Caddy REAL HTTPS / CORS / permisos virtuales
-        run: python -m scripts.prueba_55kw_caddy_ci
+        shell: bash
+        run: |
+          if python -m scripts.prueba_55kw_caddy_ci; then
+            echo "K-W: contrato proxy OK"
+          else
+            echo "K-W: error de perimetro, solo indicadores de cabeceras (sin valores)"
+            grep '\[KW_DIAG\]' "$RUNNER_TEMP/kw/backend.log" | tail -n 16 || true
+            exit 1
+          fi
 
       - name: Cierre seguro de procesos y claves temporales
         if: always()
