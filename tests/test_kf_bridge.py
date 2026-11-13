@@ -133,7 +133,7 @@ async def test_request_approve_revoke_same_controller():
         assert (await c.post(PATH + "/accion", json={"codigo": 9})).status_code == 403
         assert (await c.post(PATH + "/admin/detener", headers=admin())).status_code == 200
         assert (await c.get(PATH + "/solicitud/estado", headers=session)).json()["estado"] == "revocado_o_caducado"
-    assert device.orders == [0, 0, 0, 0]
+    assert device.orders == [0, 0, 0]  # sin STOP innecesario antes del heartbeat
 
 
 @pytest.mark.asyncio
