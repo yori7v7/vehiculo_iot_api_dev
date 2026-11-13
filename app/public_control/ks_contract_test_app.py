@@ -16,7 +16,7 @@ import re
 from typing import Literal
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -98,7 +98,7 @@ def _safe(action, *, denial=409):
 def create_ks_contract_test_app(
     private_db: Path | str, admin_proof: str, *,
     expected_host: str = "ks.localhost:9443",
-    clock=None, **limits,
+    clock=None, kt_idempotency_required: bool = False, **limits,
 ) -> FastAPI:
     """Construye ASGI exclusivamente para pruebas de TestClient.
 
@@ -131,12 +131,13 @@ def create_ks_contract_test_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[PAGES_ORIGIN], allow_methods=["GET", "POST"],
-        allow_headers=["X-API-Key", "X-Browser-Session", "Content-Type"],
+        allow_headers=["X-API-Key", "X-Browser-Session", "X-Browser-Proposal", "Idempotency-Key", "Content-Type"],
         allow_credentials=False, max_age=0,
     )
     app.state.ks_lab_only = True
     app.state.ks_expected_host = expected_host
     app.state.ks_ledger = None
+    app.state.kt_idempotency_required = kt_idempotency_required
     app.state.ks_admin_digest = sha256(admin_proof.encode("utf-8")).digest()
 
     @app.middleware("http")
@@ -149,15 +150,41 @@ def create_ks_contract_test_app(
         return response
 
     @app.post(PATH_GUEST, status_code=201)
-    async def request_ticket(id_vehiculo: int, request: Request):
+    async def request_ticket(id_vehiculo: int, request: Request, response: Response):
         ledger = _guard(request, id_vehiculo, admin=False)
         if request.headers.getlist("x-browser-session"):
             raise HTTPException(403, "El ticket debe empezar sin sesión")
         if request.headers.get("transfer-encoding") is not None or await request.body():
             raise HTTPException(400, "No enviar cuerpo en una solicitud")
-        # La IP viene del transporte ASGI, NUNCA de headers de proxy.
-        client = request.client.host
-        return _safe(lambda: ledger.request(client), denial=429)
+        # K-T es opt-in para pruebas legacy K-S; en la futura integración
+        # el perímetro exigirá kt_idempotency_required=True por defecto.
+        keys = request.headers.getlist("idempotency-key")
+        proposals = request.headers.getlist("x-browser-proposal")
+        if len(keys) > 1 or len(proposals) > 1:
+            raise HTTPException(400, "Cabeceras de reintento duplicadas")
+        if bool(keys) != bool(proposals):
+            raise HTTPException(400, "Reintento incompleto")
+        if not keys:
+            if request.app.state.kt_idempotency_required:
+                raise HTTPException(428, "Se requiere clave de idempotencia")
+            return _safe(lambda: ledger.request(request.client.host), denial=429)
+        if not _B64.fullmatch(keys[0]) or not _B64.fullmatch(proposals[0]):
+            raise HTTPException(400, "Identificadores de reintento invalidos")
+        if keys[0] == proposals[0]:
+            raise HTTPException(400, "La clave y la sesion deben ser diferentes")
+        # Distinguir cuota de creacion y conflicto al repetir una clave:
+        # no revelar estado del ticket ni devolver secretos antiguos.
+        try:
+            ticket = ledger.request_idempotent(
+                request.client.host, keys[0], proposals[0]
+            )
+        except KRTicketDenied as error:
+            status = 429 if "Limite de solicitudes" in str(error) else 409
+            raise HTTPException(status, "Solicitud virtual no disponible") from None
+        except (StoreUnavailable, FenceRejected):
+            raise HTTPException(503, "Almacen de laboratorio no verificable") from None
+        response.status_code = 200 if ticket["idempotent_replay"] else 201
+        return ticket
 
     @app.get(PATH_GUEST + "/estado")
     async def visitor_status(id_vehiculo: int, request: Request):
