@@ -57,10 +57,12 @@ function RandomSecret {
 function Set-KAAPrivateAcl([string]$path) {
     $acl = New-Object Security.AccessControl.DirectorySecurity
     $acl.SetAccessRuleProtection($true,$false)
-    foreach($sid in @(
-        'S-1-5-18','S-1-5-19','S-1-5-32-544',
-        ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)
-    ) | Select-Object -Unique) {
+    # local_files.py exige propietario Administradores/SYSTEM/identidad actual
+    # Y ningun ACE de otro usuario (ni siquiera el usuario del runner).
+    # Administradores puede seguir limpiando el fixture por la ACE de grupo.
+    $adminSid=New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $acl.SetOwner($adminSid)
+    foreach($sid in @('S-1-5-18','S-1-5-19','S-1-5-32-544')) {
         $principal = New-Object Security.Principal.SecurityIdentifier($sid)
         $rule = New-Object Security.AccessControl.FileSystemAccessRule(
             $principal,'FullControl','ContainerInherit,ObjectInherit','None','Allow'
@@ -93,6 +95,12 @@ try {
     'CI_MARKER_ONLY' | Set-Content -LiteralPath (Join-Path $fixture 'KAA_CI_ONLY.marker')
     $acl=Get-Acl -LiteralPath $fixture
     Check-KAA $acl.AreAccessRulesProtected 'directorio privado sin ACL heredadas'
+    Check-KAA ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-32-544') 'propietario Administradores aceptado por validador SQLite'
+    $rogue=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) | Where-Object {
+        $_.AccessControlType -eq 'Allow' -and
+        $_.IdentityReference.Value -notin @('S-1-5-18','S-1-5-19','S-1-5-32-544')
+    })
+    Check-KAA ($rogue.Count -eq 0) 'sin ACE individual del runner no confiable para LocalService'
     foreach($sid in @('S-1-1-0','S-1-5-11','S-1-5-32-545')) {
         $writes=@($acl.Access | Where-Object {
             $_.IdentityReference.Value -eq $sid -and
