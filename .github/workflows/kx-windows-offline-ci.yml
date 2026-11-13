@@ -1,0 +1,38 @@
+name: K-X preflight offline Windows 5.1 sin AWS
+
+on:
+  push:
+    branches:
+      - feature/5-5a-dispositivo-protocolo-aislado
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-windows:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout de rama experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validar audit Windows PowerShell 5.1 y falla segura
+        shell: powershell
+        run: |
+          .\tests\kx_windows_offline_checks.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-X Windows offline checks failed' }
+
+      - name: Confirmar que los dos scripts originales no se instalaron
+        shell: powershell
+        run: |
+          $legacy = Get-Content -LiteralPath '.\deploy\windows\Caddyfile' -Raw
+          if ($legacy -notmatch 'reverse_proxy 127\.0\.0\.1:8000') {
+            throw 'Caddy legacy alterado'
+          }
+          if ($legacy -match '9444') {
+            throw 'No ejecutar K-V en Caddy de producción'
+          }
+          Write-Output 'K-X: Windows CI solo lectura / fixture. Sin Scheduled Tasks, EC2 ni RDS.'
