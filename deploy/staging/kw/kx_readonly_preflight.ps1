@@ -44,7 +44,8 @@ try {
     $virtual = Read-KX $virtualApp
 
     # Comparar la topología, no datos secretos ni la IP real del usuario.
-    Assert-KX ($original.Trim() -eq "100-30-4-62.nip.io {`n    reverse_proxy 127.0.0.1:8000`n}") 'Caddyfile del repositorio es el original: solo legacy 8000'
+    $normalOriginal = ($original -replace "`r`n?", "`n").Trim()
+    Assert-KX ($normalOriginal -eq "100-30-4-62.nip.io {`n    reverse_proxy 127.0.0.1:8000`n}") 'Caddyfile del repositorio es el original: solo legacy 8000'
     Assert-KX (Matches-KX $proposed 'reverse_proxy 127.0.0.1:8000') 'Candidato preserva el backend legacy 8000'
     Assert-KX (Matches-KX $proposed 'reverse_proxy 127.0.0.1:9444') 'Candidato separa admision 9444'
     Assert-KX (Matches-KX $proposed 'header_up X-Admission-Client-IP {remote_host}') 'Identidad depende del cliente real, no del test'
@@ -56,7 +57,7 @@ try {
     Assert-KX (Matches-KX $proposed 'KW_PROXY_TOKEN') 'Proxy candidato exige secreto externo, NO está configurado para produccion'
 
     if ($Mode -eq 'Server') {
-        if (-not $IsWindows -and -not ($PSVersionTable.PSEdition -eq 'Desktop')) {
+        if ($env:OS -ne 'Windows_NT') {
             throw 'Modo Server requiere Windows Server con PowerShell nativo.'
         }
         if ([string]::IsNullOrWhiteSpace($StateDirectory)) {
