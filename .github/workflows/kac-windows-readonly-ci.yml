@@ -33,3 +33,6 @@ jobs:
             throw 'K-AC debe responder NO-GO si no hay instalación'
           }
           Write-Output '[K-AC CI] OK: no hay false-positive GO sin Caddy legacy instalado'
+          # El subproceso falló a propósito con código 2 (NO-GO esperado).
+          # La acción CI no debe heredar LASTEXITCODE=2 después de validarlo.
+          exit 0
