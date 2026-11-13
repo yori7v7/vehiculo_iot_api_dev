@@ -14,6 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from app.public_control.single_link_admission_lab import AdmissionDenied
+from app.public_control.kg_liveness import signed_transport_recent
 
 
 def _cache_control(response: Response) -> None:
@@ -89,7 +90,9 @@ def _bridge(request: Request) -> KFBridge:
     handover = getattr(request.app.state, "legacy_handover", None)
     if (settings is None or getattr(settings, "app_env", None) != "development"
             or bridge is None or handover is None or handover.phase != "exclusive"
-            or not bridge.controller.connected):
+            or not bridge.controller.connected
+            or (getattr(request.app.state, "kg_lab_mode", False) is True
+                and not signed_transport_recent(request.app.state))):
         raise HTTPException(503, "Integración K-F cerrada o sin ESP autenticado")
     return bridge
 
