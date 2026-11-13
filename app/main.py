@@ -12,6 +12,7 @@ from app.errors.handlers import register_exception_handlers
 from app.execution.manager import DemoExecutionManager
 from app.public_control.http import ScopedControlMiddleware, router as public_control_router
 from app.public_control.legacy_handover import LegacyHandoverGate
+from app.public_control.kf_bridge import router as kf_bridge_router
 from app.public_control.runtime import public_control_runtime
 from app.routers.commands import router as commands_router
 from app.routers.demos import router as demos_router
@@ -76,6 +77,9 @@ def create_app() -> FastAPI:
     application.state.exclusive_device_control_enabled = False
     # Preparacion K-E solo en proceso; ninguna ruta HTTP cambia su fase.
     application.state.legacy_handover = LegacyHandoverGate()
+    # K-F: NO instalar una autoridad nueva automaticamente ni en AWS.
+    application.state.kf_bridge = None
+    application.state.kf_wss_controller = None
     application.state.public_control_unavailable = False
     application.state.device_lab_settings = settings
     application.state.device_lab_registry = DeviceLabRegistry()
@@ -90,6 +94,8 @@ def create_app() -> FastAPI:
     application.include_router(demos_router)
     application.include_router(demo_execution_router)
     application.include_router(public_control_router)
+    # Rutas de laboratorio K-F: siempre 503 hasta traspaso interno verificado.
+    application.include_router(kf_bridge_router)
     application.include_router(websocket_router)
     # WSS de laboratorio aislado, sin capacidad de actuación física.
     application.include_router(device_lab_router)
