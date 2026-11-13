@@ -43,3 +43,21 @@ Se añadió `scripts/prueba_55ko_reconexion_local.py`, que importa la utilidad H
 4. Para repetir ensayos anteriores K-L, reiniciar K-G de forma controlada y exigir un nuevo handover verificado.
 
 Este guion está **pendiente de ejecución humana** y no demuestra bloqueo mecánico, ni reemplaza una prueba de STOP físico con un interlock independiente. Si no devuelve 503 después de la desconexión, detener la secuencia y revisar K-G; jamás forzar su apertura.
+
+## Incidencia real K-O observada el 13/11/2026 y corrección experimental
+
+El alumno ejecutó `scripts/prueba_55ko_reconexion_local.py` en Windows con servidor K-G y NodeMCU ESP8266:
+- **Fase 1 aprobada:** GET admin HTTP 200 sin turnos ni pendientes; TLS 1.3 con certificado e identidad IP válidos; el servidor había confirmado STOP inicial virtual HMAC.
+- **Fase 2 falló:** tras desconectar el USB según la ejecución informada, el script observó HTTP 200 repetidamente durante toda su ventana de aproximadamente 15 s. No se ejecutó la fase 3. En terminal se vieron tres `WireProtocolError` iniciales y después `ESP autenticado; STOP inicial virtual con HMAC OK`, sin evidencia de cierre posterior.
+
+**Diagnóstico técnico:** K-G confiaba en `controller.connected`; dicho indicador puede permanecer verdadero si el TCP/WSS no informa oportunamente una pérdida abrupta (o si el dispositivo continúa alimentado). **No quedó comprobado cuál de esas causas ocurrió realmente en la laptop.** Se requiere verificar liveness a nivel de mensajes autenticados, no inferir que un TCP abierto equivale a un ESP operativo.
+
+**Parche en la rama experimental solamente:**
+- Nuevo `app/public_control/kg_liveness.py`: préstamo temporal de un ACK HMAC reciente, vencimiento máximo de 8 s y cierre irreversible de la sesión experimental.
+- `app/public_control/kg_bootstrap.py`: tras un handover firmado correcto, cada 2 s solicita un **nuevo STOP virtual código 0** al único `KCController`, bajo su `asyncio.Lock`, con timeout de 2.5 s. Solo el retorno satisfactorio con dos ACK HMAC comprobados permite renovar el préstamo. Ante timeout/acuse inválido/desconexión, bloquea inmediatamente K-K/K-I/K-F, invalida el modelo de invitaciones y pide cierre del transporte; no reabre sin reiniciar K-G y un handover nuevo.
+- `ki_ingress.py`, `kk_admin_lab.py`, `kf_bridge.py`: comprueban además que la última verificación HMAC no esté vencida, aunque `controller.connected` continuara True.
+- Pruebas de regresión: respuesta HMAC perdida con TCP aparentemente abierto, recepción WSS bloqueada sin cierre, bloqueo persistente tras simular reconexión y préstamo vencido.
+
+**Evidencia CI:** [ejecución 43378217865](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43378217865), commit `4d335f5f2ab57568c1a49e3b923eb4026148b325`: **617 pruebas y 840 subpruebas aprobadas**. Estas pruebas emplean un KC virtual: **no garantizan que el código local privado `servidor_55kc.py` acepte el nuevo sondeo con ESP físico**. Si este controlador no devuelve HMAC para cada STOP, el sistema fallará cerrado y debe revisarse, nunca saltarse la comprobación.
+
+**Resultado físico actual de K-O:** NO APROBADO; retest pendiente en laptop tras `git pull --ff-only`, con firmware diagnóstico realmente grabado, GPIO/PC817 inhibidos, batería fuera y AWS/RDS apagados. Solo lectura HTTP desde el script. Si la fase 1 no llega a HTTP 200 después del nuevo arranque, detener el ensayo y reportar los logs sin claves; si la fase 2 sigue HTTP 200 tras desconectar USB, comprobar si el ESP sigue encendido por otro cable o fuente y suspender el trabajo de control remoto.
