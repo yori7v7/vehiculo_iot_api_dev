@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import logging
+from time import monotonic
 
 from fastapi import FastAPI
 from starlette.routing import WebSocketRoute
@@ -128,8 +129,11 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
         puede continuar True. Un envío STOP firmado debe fallar por timeout;
         las rutas se cierran *antes* de intentar reparar el socket.
         """
+        success_count = 0
         while not stopping.is_set() and not app.state.kg_transport_fenced:
             if app.state.legacy_handover.phase == "exclusive":
+                probe_started = monotonic()
+                ack_before = getattr(app.state, "kg_last_signed_stop_at", None)
                 try:
                     async with asyncio.timeout(KG_PROBE_TIMEOUT_S):
                         async with controller.lock:
@@ -142,7 +146,13 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
                             if not controller.connected or controller.last_neutral_virtual is not True:
                                 raise ConnectionError("Sin acuse STOP HMAC nuevo")
                     acknowledge_signed_stop(app.state)
-                except (Exception, asyncio.CancelledError) as error:
+                    success_count += 1
+                    if success_count == 1 or success_count % 10 == 0:
+                        LOG.warning("[K-O] STOP HMAC fresco confirmado; sondeos=%d; duracion_ms=%d",
+                                    success_count, int((monotonic() - probe_started) * 1000))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
                     # Fallo irreversible de esta sesión, aunque el socket
                     # siga reportando connected=True por TCP obsoleto.
                     close_lab_access(app.state)
@@ -150,8 +160,17 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
                         controller.gate.device_lost()
                     except Exception:
                         pass
-                    LOG.error("[K-O] WSS sin STOP HMAC vigente: bloqueado (%s)",
-                              type(error).__name__)
+                    age = (monotonic() - ack_before) if type(ack_before) is float else None
+                    LOG.error(
+                        "[K-O] WSS sin STOP HMAC vigente: bloqueado (%s); "
+                        "sondeos_ok=%d duracion_ms=%d ultimo_ack_edad_s=%s "
+                        "conectado=%s neutral_virtual=%s",
+                        type(error).__name__, success_count,
+                        int((monotonic() - probe_started) * 1000),
+                        "sin_dato" if age is None else round(age, 2),
+                        bool(getattr(controller, "connected", False)),
+                        bool(getattr(controller, "last_neutral_virtual", False)),
+                    )
                     try:
                         await asyncio.wait_for(controller.close_on_fault(), timeout=2.0)
                     except Exception:
