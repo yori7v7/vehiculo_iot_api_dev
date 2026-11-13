@@ -6,6 +6,8 @@ prueba STOP mecanico ni autoriza la publicacion de las rutas de laboratorio.
 from __future__ import annotations
 
 import asyncio
+import ast
+from pathlib import Path
 
 import pytest
 
@@ -142,3 +144,18 @@ async def test_ko_concurrent_approve_revoke_cannot_leave_guest_active():
         assert all(isinstance(x, (type(None), AdmissionDenied)) for x in results)
         assert gate.snapshot()["guest_active"] is False
         assert gate.snapshot()["simulated_only"] is True
+
+
+def test_ko_local_script_syntax_get_only_and_no_unsafe_tls():
+    source = (Path(__file__).resolve().parents[1] / "scripts"
+              / "prueba_55ko_reconexion_local.py").read_text(encoding="utf-8")
+    tree = ast.parse(source, filename="prueba_55ko_reconexion_local.py")
+    # La prueba remota K-O puede LEER el estado, nunca escribir permisos ni movimientos.
+    methods = [node.args[0].value for node in ast.walk(tree)
+               if isinstance(node, ast.Call)
+               and isinstance(node.func, ast.Attribute)
+               and node.func.attr == "call"
+               and node.args and isinstance(node.args[0], ast.Constant)]
+    assert methods == ["GET"]
+    assert "/movimientos" not in source and "/accion" not in source
+    assert "CERT_NONE" not in source and "check_hostname = False" not in source
