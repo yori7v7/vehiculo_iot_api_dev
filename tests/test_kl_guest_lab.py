@@ -42,10 +42,13 @@ class VirtualKC:
         self.last_neutral_virtual = online
         self.stop_requests = 0
         self.responds_to_hmac = True
+        self.stall_on_probe = False
 
     async def dispatch(self, code):
         assert code == 0
         self.stop_requests += 1
+        if self.stall_on_probe:
+            await asyncio.sleep(10)
         if not self.connected or not self.responds_to_hmac:
             raise OSError("Sin ACK HMAC nuevo del ESP")
         self.last_neutral_virtual = True
@@ -276,3 +279,24 @@ def test_ko_lease_vencida_denegada_aunque_connected_true():
     assert signed_transport_recent(state) is True
     state.kg_transport_fenced = True
     assert signed_transport_recent(state) is False
+
+
+def test_ko_wss_silencioso_sin_ack_cierra_por_timeout_y_no_reabre(monkeypatch):
+    """El USB puede morir sin enviar close; un recv bloqueado debe vencer."""
+    monkeypatch.setattr("app.public_control.kg_bootstrap.KG_PROBE_INTERVAL_S", 0.05)
+    monkeypatch.setattr("app.public_control.kg_bootstrap.KG_PROBE_TIMEOUT_S", 0.16)
+    app = connected_app()
+    with TestClient(app, base_url=BASE, client=("192.168.1.82", 53344)) as client:
+        wait_for_handover(app)
+        assert client.get(ADMIN, headers=HEAD_ADMIN).status_code == 200
+        app.state.control.stall_on_probe = True
+        deadline = monotonic() + 2
+        while monotonic() < deadline and not app.state.kg_transport_fenced:
+            sleep(0.03)
+        assert app.state.kg_transport_fenced is True
+        assert client.get(ADMIN, headers=HEAD_ADMIN).status_code == 503
+        assert client.post(GUEST, headers=HEAD_GUEST).status_code == 503
+        app.state.control.stall_on_probe = False
+        app.state.control.connected = True
+        sleep(0.1)
+        assert client.get(ADMIN, headers=HEAD_ADMIN).status_code == 503
