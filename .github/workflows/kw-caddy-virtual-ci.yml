@@ -79,7 +79,7 @@ jobs:
             -e KW_TLS_CERT=/lab/server.crt \
             -e KW_TLS_KEY=/lab/server.key \
             -e KW_PROXY_TEST_KEY="$KW_PROXY_TEST_KEY" \
-            caddy:2.10.2 validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            caddy:2.10.2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - name: FastAPI K-V aislado en 127.0.0.1 puerto 9444
         shell: bash
@@ -111,7 +111,7 @@ jobs:
             -e KW_TLS_CERT=/lab/server.crt \
             -e KW_TLS_KEY=/lab/server.key \
             -e KW_PROXY_TEST_KEY="$KW_PROXY_TEST_KEY" \
-            caddy:2.10.2 run --config /etc/caddy/Caddyfile --adapter caddyfile
+            caddy:2.10.2 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
           ready=0
           for i in $(seq 1 35); do
             status="$(curl --silent --show-error --noproxy '*' \
