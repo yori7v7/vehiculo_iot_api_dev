@@ -68,8 +68,12 @@ try {
             $LegacyStateDirectory = Join-Path $programData 'VehiculoIoT'
         }
         $installed = [IO.Path]::GetFullPath($LegacyStateDirectory).TrimEnd('\')
-        Test-KAC ($installed.StartsWith(($programData + '\'),
-            [StringComparison]::OrdinalIgnoreCase)) 'Estado legacy dentro de ProgramData'
+        $stateInsideProgramData = $installed.StartsWith(($programData + '\'),
+            [StringComparison]::OrdinalIgnoreCase)
+        Test-KAC ($stateInsideProgramData) 'Estado legacy dentro de ProgramData'
+        if (-not $stateInsideProgramData) {
+            throw 'NO-GO: directorio de estado fuera de ProgramData'
+        }
         if (-not (Test-Path -LiteralPath $installed -PathType Container)) {
             throw 'No existe el estado original de Windows.'
         }
@@ -79,14 +83,19 @@ try {
         $cfg = (Read-KAC $configurationPath) | ConvertFrom-Json
         $persistent = Normalize-KAC (Read-KAC $currentCaddyPath)
         # El Caddyfile REAL puede diferir de la plantilla; no reemplazarlo.
+        $expectedPython = Join-Path $root '.venv\Scripts\python.exe'
+        $expectedCaddy = Join-Path $installed 'bin\caddy.exe'
         Test-KAC (($cfg.schema_version -eq 1) -and
             ($cfg.state_directory -eq $installed) -and
             ($cfg.project_root -eq $root) -and
-            ($cfg.caddyfile_path -eq $currentCaddyPath)) 'deployment.json corresponde al checkout y estado real'
+            ($cfg.caddyfile_path -eq $currentCaddyPath) -and
+            ($cfg.python_path -eq $expectedPython) -and
+            ($cfg.caddy_path -eq $expectedCaddy)) 'deployment.json corresponde al checkout, binarios y estado real'
+        Test-KAC (-not (HasUnsafeWrite-KAC $installed)) 'Directorio de estado legacy no editable por usuarios comunes'
         Test-KAC ($persistent.Contains('reverse_proxy 127.0.0.1:8000') -and
             (-not $persistent.Contains('127.0.0.1:9444'))) 'Caddy persistente conserva la ruta anterior antes de cambios'
         Test-KAC (-not (HasUnsafeWrite-KAC $currentCaddyPath)) 'Caddy persistente no editable por usuarios comunes'
-        foreach ($path in @($root, (Join-Path $root 'app'), $cfg.python_path)) {
+        foreach ($path in @($root, (Join-Path $root 'app'), $cfg.python_path, $cfg.caddy_path)) {
             Test-KAC ((Test-Path -LiteralPath $path) -and (-not (HasUnsafeWrite-KAC $path))) 'Codigo/Python no modificable por usuarios comunes'
         }
         # No confundir plantilla y Caddy activo. La revisión verifica
@@ -106,6 +115,7 @@ try {
                 $task.Actions[0].Execute -eq $powershell -and
                 $task.Actions[0].Arguments -eq $arguments) 'Acción de tarea legacy coincide sin modificaciones'
             Test-KAC ($task.Principal.UserId -in @('SYSTEM','NT AUTHORITY\SYSTEM','S-1-5-18')) 'Principal de tarea legacy original'
+            Test-KAC ([string]$task.State -eq 'Running') 'La tarea legacy original se mantiene ejecutando'
         }
         # Preflight ANTES del staging: sin 8000 no hay continuidad legacy;
         # con CUALQUIER 9444 activo no se debe asumir un estado limpio.
@@ -117,6 +127,30 @@ try {
         Test-KAC ($portVerdict.LegacyPresent) 'Backend original 8000 tiene listener'
         Test-KAC ($portVerdict.LegacyLoopbackOnly) 'Todos los listeners legacy 8000 usan loopback'
         Test-KAC ($portVerdict.SidecarAbsent) 'Puerto staging 9444 desocupado antes de instalar'
+        # K-AD: un puerto abierto no prueba identidad del servidor. Las tareas
+        # originales registran PID + fecha de creación + imagen del proceso hijo
+        # en ProgramData privado. El preflight solo lee y coteja ese registro
+        # con el proceso Windows vivo y el PID dueño de cada socket.
+        # NO se imprimen PID, rutas, tokens ni registros del host.
+        . (Join-Path $PSScriptRoot 'kad_process_policy.ps1')
+        foreach ($component in @('api', 'caddy')) {
+            $processRecordPath = Join-Path $installed ('run\' + $component + '.json')
+            $record = (Read-KAC $processRecordPath) | ConvertFrom-Json
+            $child = $record.child
+            $expectedImage = if ($component -eq 'api') { $expectedPython } else { $expectedCaddy }
+            $processIdToInspect = [int]$child.process_id
+            $livingProcess = $null
+            if ($processIdToInspect -gt 0) {
+                $livingProcess = Get-CimInstance Win32_Process -Filter ('ProcessId = {0}' -f $processIdToInspect) -ErrorAction SilentlyContinue
+            }
+            $ownedListeners = if ($component -eq 'api') {
+                $legacyListeners
+            } else {
+                @(Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue)
+            }
+            $ownership = Test-KADProcessOwnership -Listeners $ownedListeners -Record $child -Process $livingProcess -ExpectedImagePath $expectedImage
+            Test-KAC ($ownership.IsSafe) ('Propiedad de proceso y listeners '+ $component + ' confirmada')
+        }
         $staging = Join-Path $programData 'VehiculoIoT-Admission-Staging'
         # Un paquete preinstalado NO es una autorización de arranque.
         if (Test-Path -LiteralPath $staging -PathType Container) {
