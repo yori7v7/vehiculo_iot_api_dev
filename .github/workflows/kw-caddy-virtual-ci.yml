@@ -124,6 +124,16 @@ jobs:
           done
           if [ "$ready" -ne 1 ]; then
             echo "Caddy TLS no disponible; NO abrir AWS"
+            docker inspect --format 'Contenedor: {{.State.Status}}; exit={{.State.ExitCode}}' kw-virtual-ci-proxy || true
+            # Solo errores TLS/red: NO hay credenciales en esta solicitud GET /docs.
+            curl --verbose --noproxy '*' --max-time 3 --cacert "$KW_ROOT_CA" \
+              --resolve '100-30-4-62.nip.io:9443:127.0.0.1' \
+              -o /dev/null https://100-30-4-62.nip.io:9443/docs 2>&1 \
+              | grep -E -i 'error|connection|connect to|SSL|TLS|certificate|refused' \
+              | tail -n 18 || true
+            # Solo log de arranque, censurando cualquier hex string secreto.
+            docker logs --tail 25 kw-virtual-ci-proxy 2>&1 \
+              | sed -E 's/[[:xdigit:]]{64}/[REDACTED]/g' | tail -n 25 || true
             exit 1
           fi
 
