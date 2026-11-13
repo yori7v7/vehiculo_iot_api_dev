@@ -87,6 +87,12 @@ jobs:
             -e KW_TLS_KEY=/lab/server.key \
             -e KW_PROXY_TEST_KEY="$KW_PROXY_TEST_KEY" \
             caddy:2.10.2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          # Solo validación offline del Caddyfile CANDIDATO.
+          # NO instala ni ejecuta esta ruta en Windows/EC2.
+          docker run --rm --network none \
+            -v "$GITHUB_WORKSPACE/deploy/staging/kw/Caddyfile.candidate_NOT_DEPLOY:/etc/caddy/Caddyfile:ro" \
+            -e KW_PROXY_TOKEN=ONLY-SYNTAX-VALIDATION-NOT-A-SECRET \
+            caddy:2.10.2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - name: FastAPI K-V aislado en 127.0.0.1 puerto 9444
         shell: bash
