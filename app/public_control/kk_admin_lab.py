@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.public_control.http import PAGES_ORIGIN, reject_admin_bearer
 from app.public_control.kf_bridge import KFBridge
+from app.public_control.kg_liveness import signed_transport_recent
 from app.public_control.single_link_admission_lab import AdmissionDenied
 from app.security.api_key import require_api_key
 
@@ -72,6 +73,7 @@ def _bridge(request: Request, vehicle_id: int) -> KFBridge:
 
     if (settings is None or getattr(settings, "app_env", None) != "development"
             or getattr(state, "kj_lab_enabled", False) is not True
+            or not signed_transport_recent(state)
             or getattr(state, "kg_lab_mode", False) is not True
             or vehicle_id != 1
             or type(bridge) is not KFBridge
