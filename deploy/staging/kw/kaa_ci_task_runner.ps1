@@ -41,6 +41,10 @@ catch {
     # El tipo de fallo no se revela en salida pública.
     if (Test-Path -LiteralPath (Join-Path $Fixture 'kaa-state.txt')) {
         'wrapper-failed' | Add-Content -LiteralPath (Join-Path $Fixture 'kaa-state.txt')
+        $exceptionName = $_.Exception.GetType().Name
+        if ($exceptionName -match '^[A-Za-z][A-Za-z0-9]{2,70}$') {
+            ('exception-' + $exceptionName) | Add-Content -LiteralPath (Join-Path $Fixture 'kaa-state.txt')
+        }
     }
     Write-Output '[K-AA] NO-GO: runner LocalService no pudo iniciar la admision virtual.'
     exit 2
