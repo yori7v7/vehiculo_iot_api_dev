@@ -140,6 +140,29 @@ try {
     Check (-not (Is-Listening 9444)) 'sidecar detenido y puerto 9444 liberado'
     Check ((Get-HttpStatus 8000 '/') -eq 200) 'legacy sigue arriba tras parar sidecar'
     Check ($legacy.HasExited -eq $false) 'PID legacy no fue detenido'
+
+    # Reinicio del sidecar, reutilizando SU SQLite privada, nunca la BD
+    # ni el proceso legacy. K-Q debe volver a adquirir el candado exclusivo.
+    $sidecar.Dispose()
+    $sidecar = Start-Process -FilePath $python -WorkingDirectory $root -PassThru `
+        -ArgumentList ('-m app.public_control.ky_windows_sidecar --config "' + $config + '"') `
+        -RedirectStandardOutput (Join-Path $private 'ky-restart.out') `
+        -RedirectStandardError (Join-Path $private 'ky-restart.err')
+    $restarted = $false
+    for ($attempt = 0; $attempt -lt 45; $attempt++) {
+        if ($sidecar.HasExited) { break }
+        try {
+            if ((Get-HttpStatus 9444 '/') -eq 404) { $restarted = $true; break }
+        }
+        catch { }
+        Start-Sleep -Milliseconds 300
+    }
+    Check $restarted 'reinicio de sidecar recupera 9444 y exclusiva SQLite'
+    Check ((Get-HttpStatus 9444 '/admin/vehiculos/1/control-publico/solicitudes' $trusted) -eq 200) 'API virtual reabierta con nueva epoca tras reinicio'
+    Check ((Get-HttpStatus 8000 '/') -eq 200) '8000 preservado tambien durante reinicio'
+    Stop-Process -Id $sidecar.Id -Force
+    $sidecar.WaitForExit()
+    Check (-not (Is-Listening 9444)) 'segundo cierre deja 9444 libre'
     Write-Output ('[K-Y] RESULTADO: ' + $script:checks + ' comprobaciones; 8000 preservado, 9444 reversible')
 }
 finally {
