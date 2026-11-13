@@ -160,3 +160,6 @@ finally {
         Remove-Item -LiteralPath $private -Recurse -Force
     }
 }
+# Los rechazos intencionales devolvieron codigo 2. El resultado de CI debe
+# reflejar las 14 aserciones, no el ultimo subproceso fallido a proposito.
+exit 0
