@@ -135,4 +135,4 @@ def test_kae_documentation_explicitly_disables_physical_control():
     source = (ROOT / "app/public_control/kv_virtual_staging.py").read_text("utf-8")
     assert '"canDrive": False' in source
     assert '"control_fisico": False' in source
-    assert "No" or source  # no runtime use, covered by response tests elsewhere
+    assert "NO cableada a app.main" in source
