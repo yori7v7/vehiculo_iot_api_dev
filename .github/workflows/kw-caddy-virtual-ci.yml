@@ -1,0 +1,141 @@
+name: K-W Caddy HTTPS real aislado (solo admision virtual)
+
+on:
+  push:
+    branches:
+      - feature/5-5a-dispositivo-protocolo-aislado
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  caddy-virtual-loopback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Repositorio experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Dependencias de FastAPI
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Secretos y CA temporales, separados del repositorio
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kw/ca" "$RUNNER_TEMP/kw/tls" "$RUNNER_TEMP/kw/private"
+          chmod 700 "$RUNNER_TEMP/kw" "$RUNNER_TEMP/kw/"{ca,tls,private}
+          echo "KW_TEST_LAB=isolated-loopback-only" >> "$GITHUB_ENV"
+          echo "APP_ENV=staging" >> "$GITHUB_ENV"
+          echo "ADMISSION_VIRTUAL_ONLY=enabled" >> "$GITHUB_ENV"
+          echo "KW_PRIVATE_DB=$RUNNER_TEMP/kw/private/ledger.sqlite3" >> "$GITHUB_ENV"
+          echo "KW_ROOT_CA=$RUNNER_TEMP/kw/ca/root.crt" >> "$GITHUB_ENV"
+          admin="$(openssl rand -hex 32)"
+          proxy="$(openssl rand -hex 32)"
+          echo "::add-mask::$admin"
+          echo "::add-mask::$proxy"
+          echo "KW_ADMIN_TEST_KEY=$admin" >> "$GITHUB_ENV"
+          echo "KW_PROXY_TEST_KEY=$proxy" >> "$GITHUB_ENV"
+          openssl req -x509 -new -newkey rsa:2048 -nodes -days 1 \
+            -keyout "$RUNNER_TEMP/kw/ca/root.key" \
+            -out "$RUNNER_TEMP/kw/ca/root.crt" \
+            -subj "/CN=KW-ephemeral-CI-root" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign"
+          openssl req -new -newkey rsa:2048 -nodes \
+            -keyout "$RUNNER_TEMP/kw/tls/server.key" \
+            -out "$RUNNER_TEMP/kw/tls/server.csr" \
+            -subj "/CN=100-30-4-62.nip.io" \
+            -addext "subjectAltName=DNS:100-30-4-62.nip.io"
+          printf 'basicConstraints=critical,CA:FALSE\nsubjectAltName=DNS:100-30-4-62.nip.io\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature,keyEncipherment\n' \
+            > "$RUNNER_TEMP/kw/tls/server.ext"
+          openssl x509 -req -days 1 -sha256 \
+            -in "$RUNNER_TEMP/kw/tls/server.csr" \
+            -CA "$RUNNER_TEMP/kw/ca/root.crt" \
+            -CAkey "$RUNNER_TEMP/kw/ca/root.key" \
+            -CAcreateserial \
+            -out "$RUNNER_TEMP/kw/tls/server.crt" \
+            -extfile "$RUNNER_TEMP/kw/tls/server.ext"
+          chmod 600 "$RUNNER_TEMP/kw/ca/root.key" "$RUNNER_TEMP/kw/tls/server.key"
+          openssl verify -CAfile "$RUNNER_TEMP/kw/ca/root.crt" "$RUNNER_TEMP/kw/tls/server.crt"
+
+      - name: Caddy 2.10.2 validar sintaxis de rutas y proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -v "$GITHUB_WORKSPACE/deploy/staging/kw/Caddyfile.ci:/etc/caddy/Caddyfile:ro" \
+            -v "$RUNNER_TEMP/kw/tls:/lab:ro" \
+            -e KW_TLS_CERT=/lab/server.crt \
+            -e KW_TLS_KEY=/lab/server.key \
+            -e KW_PROXY_TEST_KEY="$KW_PROXY_TEST_KEY" \
+            caddy:2.10.2 validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: FastAPI K-V aislado en 127.0.0.1 puerto 9444
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.servidor_55kw_ci > "$RUNNER_TEMP/kw/backend.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/kw/backend.pid"
+          ready=0
+          for i in $(seq 1 35); do
+            status="$(curl --silent --noproxy '*' --max-time 1 -o /dev/null -w '%{http_code}' http://127.0.0.1:9444/ || true)"
+            if [ "$status" = "404" ]; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "FastAPI virtual no inicio: fail closed"
+            exit 1
+          fi
+
+      - name: Caddy HTTPS con Docker y red host SOLO runner efimero
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name kw-virtual-ci-proxy \
+            --network host --read-only --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --tmpfs /data --tmpfs /config \
+            -v "$GITHUB_WORKSPACE/deploy/staging/kw/Caddyfile.ci:/etc/caddy/Caddyfile:ro" \
+            -v "$RUNNER_TEMP/kw/tls:/lab:ro" \
+            -e KW_TLS_CERT=/lab/server.crt \
+            -e KW_TLS_KEY=/lab/server.key \
+            -e KW_PROXY_TEST_KEY="$KW_PROXY_TEST_KEY" \
+            caddy:2.10.2 run --config /etc/caddy/Caddyfile --adapter caddyfile
+          ready=0
+          for i in $(seq 1 35); do
+            status="$(curl --silent --show-error --noproxy '*' \
+              --max-time 2 --cacert "$KW_ROOT_CA" \
+              --resolve '100-30-4-62.nip.io:9443:127.0.0.1' \
+              -o /dev/null -w '%{http_code}' \
+              https://100-30-4-62.nip.io:9443/docs 2>/dev/null || true)"
+            if [ "$status" = "404" ]; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "Caddy TLS no disponible; NO abrir AWS"
+            exit 1
+          fi
+
+      - name: Prueba Caddy REAL HTTPS / CORS / permisos virtuales
+        run: python -m scripts.prueba_55kw_caddy_ci
+
+      - name: Cierre seguro de procesos y claves temporales
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f kw-virtual-ci-proxy > /dev/null 2>&1 || true
+          if [ -f "$RUNNER_TEMP/kw/backend.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/kw/backend.pid")" 2>/dev/null || true
+          fi
+          rm -rf "$RUNNER_TEMP/kw"
