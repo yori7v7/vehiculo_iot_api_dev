@@ -21,6 +21,11 @@ jobs:
         run: |
           .\tests\kac_ec2_preflight_ci.ps1
           if ($LASTEXITCODE -ne 0) { throw 'K-AC preflight no aprobado' }
+      - name: K-AD matriz fail-closed de listeners (sin sockets)
+        shell: powershell
+        run: |
+          .\tests\kad_listener_policy_ci.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-AD: política de puertos no aprobada' }
       - name: Modo Server no debe autorizar una instalación ausente
         shell: powershell
         run: |
