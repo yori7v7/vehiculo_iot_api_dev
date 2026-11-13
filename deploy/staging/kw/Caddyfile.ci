@@ -35,9 +35,8 @@ https://100-30-4-62.nip.io:9443 {
             header_up -Proxy-Authorization
             header_up -X-Original-URL
             header_up -X-Rewrite-URL
-            header_up -X-Admission-Proxy-Token
-            header_up -X-Admission-Client-IP
-            header_up -X-Admission-Scheme
+            # header_up X-Admission-* sobrescribe por completo entradas
+            # del cliente; no combinar con -X-Admission-* (delete gana).
             header_up X-Admission-Proxy-Token {$KW_PROXY_TEST_KEY}
             # SOLO CI: sustituye {remote_host} por identidad controlada
             # para no depender de NAT ni de una IP pública externa.
