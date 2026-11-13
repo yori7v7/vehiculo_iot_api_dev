@@ -7,6 +7,7 @@ No usar el adaptador en memoria como arquitectura de producción.
 from __future__ import annotations
 
 import re
+from ipaddress import ip_address
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -65,6 +66,19 @@ def _request_context(request: Request) -> None:
 
 def _ingress(request: Request, vehicle_id: int) -> GuestIngressLab:
     settings = getattr(request.app.state, "public_control_settings", None)
+    # K-L: cuando K-G habilita el router, la admision solo proviene del
+    # mismo PC administrador. Otros equipos LAN y el ESP quedan excluidos.
+    if getattr(request.app.state, "kg_lab_mode", False) is True:
+        raw_client = request.client.host if request.client else ""
+        own_ip = getattr(request.app.state, "kg_lab_local_ip", None)
+        try:
+            address = ip_address(raw_client)
+            address = getattr(address, "ipv4_mapped", None) or address
+            local_client = address.is_loopback or (type(own_ip) is str and str(address) == own_ip)
+        except ValueError:
+            local_client = False
+        if not local_client or request.headers.getlist("x-forwarded-host"):
+            raise HTTPException(403, "Solo la laptop del laboratorio K-G")
     adapter = getattr(request.app.state, "ki_ingress", None)
     controller = getattr(request.app.state, "kf_wss_controller", None)
     barrier = getattr(request.app.state, "legacy_handover", None)
