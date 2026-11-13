@@ -93,8 +93,10 @@ def test_kt_conflicts_wrong_secret_different_key_or_different_client(tmp_path):
         assert client.post(GUEST, headers=mismatch).status_code == 409
         reused_secret = {**original, "Idempotency-Key": token_urlsafe(32)}
         assert client.post(GUEST, headers=reused_secret).status_code == 409
-        with tc(instance, "::1") as another_ip:
-            assert another_ip.post(GUEST, headers=original).status_code == 409
+        # Dos clientes sobre EL MISMO ASGI activo, sin iniciar otro lifespan
+        # ni disputar el mismo propietario de SQLite (protección K-Q).
+        another_ip = tc(instance, "::1")
+        assert another_ip.post(GUEST, headers=original).status_code == 409
         assert len(client.get(ADMIN, headers=ADM).json()["solicitudes"]) == 1
         assert client.post(GUEST, headers=original).status_code == 200
 
