@@ -46,6 +46,8 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
     application.state.kf_wss_controller = None
     application.state.kg_lab_local_ip = None
     application.state.kg_lab_mode = True
+    application.state.kj_lab_enabled = False
+    application.state.kj_expected_host = None
 
     # Esta ruta debe preceder al WSS de diagnostico antiguo, que usa el mismo path.
     # Su ws.app.state apunta a la misma instancia FastAPI principal.
@@ -63,6 +65,8 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
                     app.state.exclusive_device_control_enabled = True
                     LOG.warning("[K-G] Enganche denegado: %s", type(error).__name__)
                 else:
+                    # Se habilita K-K SOLO dentro de K-G, tras STOP y handover.
+                    app.state.kj_lab_enabled = True
                     LOG.info("[K-G] Puerta interna activada sobre controlador WSS compartido")
             if barrier.phase == "blocked":
                 LOG.warning("[K-G] Barrera bloqueada tras fallo; no se permite movimiento")
@@ -80,6 +84,7 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
         app.state.key = secret
         app.state.admin_token = admin_token
         app.state.kg_lab_local_ip = config["ip"]
+        app.state.kj_expected_host = f"{config['ip']}:8443"
         controller = kc_module.KCController(admin_token)
         app.state.control = controller
         app.state.kf_wss_controller = controller
@@ -96,6 +101,7 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
                 stopping.set()
                 await asyncio.gather(watcher, bootstrap, return_exceptions=True)
                 app.state.kf_bridge = None
+                app.state.kj_lab_enabled = False
                 app.state.exclusive_device_control_enabled = True
                 await controller.close_on_fault()
 
