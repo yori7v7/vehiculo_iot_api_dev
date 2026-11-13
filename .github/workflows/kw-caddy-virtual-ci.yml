@@ -102,7 +102,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --detach --rm --name kw-virtual-ci-proxy \
+          docker run --detach --name kw-virtual-ci-proxy \
             --network host --read-only --cap-drop ALL \
             --security-opt no-new-privileges \
             --tmpfs /data --tmpfs /config \
