@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from app.public_control.single_link_admission_lab import AdmissionDenied
+from app.public_control.kg_liveness import signed_transport_recent
 
 PAGES_ORIGIN = "https://yori7v7.github.io"
 VISITOR_SECRET = re.compile(r"[A-Za-z0-9_-]{43}\Z", re.ASCII)
@@ -84,6 +85,8 @@ def _ingress(request: Request, vehicle_id: int) -> GuestIngressLab:
     barrier = getattr(request.app.state, "legacy_handover", None)
     if (settings is None or getattr(settings, "app_env", None) != "development"
             or getattr(request.app.state, "ki_contract_test_enabled", False) is not True
+            or (getattr(request.app.state, "kg_lab_mode", False) is True
+                and not signed_transport_recent(request.app.state))
             or getattr(request.app.state, "exclusive_device_control_enabled", False) is not True
             or adapter is None or type(adapter) is not GuestIngressLab
             or controller is None or adapter.controller is not controller
