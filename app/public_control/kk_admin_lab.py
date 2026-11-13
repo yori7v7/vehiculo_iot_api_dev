@@ -7,13 +7,14 @@ pertenecen a KCController y nunca se despachan motores por este router.
 from __future__ import annotations
 
 from typing import Literal
+from ipaddress import ip_address
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.public_control.http import PAGES_ORIGIN, reject_admin_bearer
-from app.public_control.kf_bridge import KFBridge, _local
+from app.public_control.kf_bridge import KFBridge
 from app.public_control.single_link_admission_lab import AdmissionDenied
 from app.security.api_key import require_api_key
 
@@ -36,7 +37,25 @@ def _bridge(request: Request, vehicle_id: int) -> KFBridge:
     """No permitir HTTP LAN ajeno, proxies ni uso sin handover verificado."""
     # El navegador real Pages usa Origin externo; la IP de transporte DEBE
     # seguir siendo la de la propia laptop en laboratorio.
-    _local(request)
+    # La pagina oficial origina peticiones cross-site, pero el socket de
+    # laboratorio solo acepta como cliente a la propia laptop, nunca al ESP.
+    client = request.client.host if request.client else ""
+    own_ip = getattr(request.app.state, "kg_lab_local_ip", None)
+    try:
+        parsed_ip = ip_address(client)
+        parsed_ip = getattr(parsed_ip, "ipv4_mapped", None) or parsed_ip
+        is_local = parsed_ip.is_loopback or (
+            type(own_ip) is str and bool(own_ip) and client == own_ip
+        )
+    except ValueError:
+        is_local = False
+    if (not is_local
+            or request.headers.get("sec-fetch-site") not in (None, "cross-site", "same-origin")
+            or any(request.headers.getlist(key) for key in (
+                "forwarded", "x-forwarded-for", "x-forwarded-host",
+                "x-real-ip", "via"
+            ))):
+        raise HTTPException(403, "Solo la laptop administradora en laboratorio")
     settings = getattr(request.app.state, "public_control_settings", None)
     state = request.app.state
     bridge = getattr(state, "kf_bridge", None)
