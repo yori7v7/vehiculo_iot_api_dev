@@ -13,6 +13,18 @@ Verificar de manera incremental la posibilidad de convivir con el backend FastAP
 - Preparar criterios de aceptación y una plantilla de evidencia **sin contraseñas, tokens, archivos con secretos, IP privadas ni contenido íntegro del Caddyfile persistente**.
 - Mantener el PR en borrador sin fusionar ni cambiar repositorios productivos.
 
+## Avance offline confirmado: control fail-closed de listeners
+
+**Windows CI aprobada (13/11/2026):** [K-AD, workflow de preflight Windows run 43435119393](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43435119393). El paso `K-AD matriz fail-closed de listeners (sin sockets)` concluyó correctamente: 11/11 escenarios sintéticos ejecutados en un runner Windows, **sin consultar la red real ni tocar EC2**. La regresión general del backend del mismo commit también concluyó con éxito: [run 43435127636](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43435127636).
+
+Se corrigió un falso positivo previo: el preflight podía informar GO sobre los puertos si no había ningún listener porque iteraba solo los resultados existentes. Ahora:
+- **NO-GO** si el puerto 8000 del backend original no tiene listener.
+- **NO-GO** si cualquier listener de 8000 no pertenece a `127.0.0.1` o `::1`.
+- **NO-GO** si 9444 ya está ocupado, incluso por un servicio local: esta inspección es deliberadamente **preinstalación**, no una monitorización de un sidecar ya autorizado.
+- El control es de solo lectura y devuelve códigos de decisión; **NO comprueba salud HTTP del backend, identidad del proceso, ACL del listener ni seguridad del firewall externo**.
+
+Archivos: `deploy/staging/kw/kad_listener_policy.ps1` (función pura), `tests/kad_listener_policy_ci.ps1` (11 casos), `deploy/staging/kw/kac_ec2_preflight_READONLY.ps1` (integración Server) y `.github/workflows/kac-windows-readonly-ci.yml`. Este avance no autoriza encendido ni despliegue.
+
 ## Puertas de decisión, en orden
 
 ### A. Inventario EC2 (solo en una futura ventana expresamente autorizada)
