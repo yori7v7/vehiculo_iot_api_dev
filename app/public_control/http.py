@@ -32,6 +32,7 @@ PAGES_ORIGIN = "https://yori7v7.github.io"
 MAX_BODY_BYTES = 2048
 ADMIN_PATH = re.compile(r"/admin/vehiculos/[^/]+/control-publico(?:/|$)")
 GUEST_PATH = "/publico/vehiculos/"
+GUEST_ADMISSION_RE = re.compile(r"^/publico/vehiculos/[1-9][0-9]*/solicitudes(?:/|$)")
 BODY_METHODS = frozenset(("POST", "PUT", "DELETE"))
 BEARER_VALUE = re.compile(rf"(?i:Bearer) ({TOKEN_PATTERN.pattern})")
 CLIENT_SALT = token_bytes(32)
@@ -108,6 +109,12 @@ class ScopedControlMiddleware:
             allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
             allow_headers=["Content-Type", "Authorization"], expose_headers=["Retry-After"],
         )
+        # K-I: entrada desde la pagina oficial, sin API key ni Authorization.
+        self._admission = CORSMiddleware(
+            self._bounded, allow_origins=[PAGES_ORIGIN], allow_credentials=False,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type", "X-Browser-Session"], expose_headers=["Retry-After"],
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -117,7 +124,10 @@ class ScopedControlMiddleware:
         root_path = scope.get("root_path", "")
         if root_path and path.startswith(root_path + "/"):
             path = path[len(root_path):]
-        if path.startswith(GUEST_PATH):
+        admission = bool(GUEST_ADMISSION_RE.match(path))
+        if admission:
+            cors = self._admission
+        elif path.startswith(GUEST_PATH):
             cors = self._guest
         elif ADMIN_PATH.match(path):
             cors = self._admin
@@ -127,7 +137,13 @@ class ScopedControlMiddleware:
 
         async def no_store(message: Message) -> None:
             if message["type"] == "http.response.start":
-                MutableHeaders(scope=message)["Cache-Control"] = "no-store"
+                headers = MutableHeaders(scope=message)
+                headers["Cache-Control"] = "no-store"
+                if admission:
+                    headers["Referrer-Policy"] = "no-referrer"
+                    headers["X-Content-Type-Options"] = "nosniff"
+                    headers["X-Frame-Options"] = "DENY"
+                    headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
             await send(message)
 
         await cors(scope, receive, no_store)
