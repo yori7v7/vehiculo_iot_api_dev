@@ -37,7 +37,8 @@ try {
     Require-KZ ($cand.Contains('header_up X-Admission-Client-IP {remote_host}')) 'Identidad IP no atestada'
     Require-KZ (-not $cand.Contains('8.8.8.8')) 'IP sintetica CI no debe entrar en AWS'
     Require-KZ ($virtual.Contains('"canDrive": False')) 'Sidecar no certificado virtual-only'
-    Require-KZ ($installer.Contains('VehiculoIoT-Caddy') -eq $false) 'Verificar contrato de instalador manualmente'
+    Require-KZ ($installer.Contains('Get-VehicleTaskNames')) 'Instalador legacy debe usar sus tareas originales'
+    Require-KZ (-not $installer.Contains('VehiculoIoT-Admission-Virtual')) 'Instalador legacy no debe registrar tercera tarea'
     # Se valida la estructura, NO se asume que el servidor EC2 la cumple.
     if ($Mode -eq 'Plan') {
         if ([string]::IsNullOrWhiteSpace($StateDirectory)) {
