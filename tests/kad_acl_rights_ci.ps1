@@ -40,17 +40,16 @@ function Mock-Rule([string]$Sid, [string]$Kind, [Security.AccessControl.FileSyst
         FileSystemRights = $Rights
     }
 }
-$rights = [Security.AccessControl.FileSystemRights]
 $cases = @(
-    @{name='Everyone delete children';rules=@((Mock-Rule 'S-1-1-0' 'Allow' $rights::DeleteSubdirectoriesAndFiles));unsafe=$true},
-    @{name='Authenticated Users delete children';rules=@((Mock-Rule 'S-1-5-11' 'Allow' $rights::DeleteSubdirectoriesAndFiles));unsafe=$true},
-    @{name='Builtin Users delete children';rules=@((Mock-Rule 'S-1-5-32-545' 'Allow' $rights::DeleteSubdirectoriesAndFiles));unsafe=$true},
-    @{name='Everyone write';rules=@((Mock-Rule 'S-1-1-0' 'Allow' $rights::Write));unsafe=$true},
-    @{name='Everyone delete';rules=@((Mock-Rule 'S-1-1-0' 'Allow' $rights::Delete));unsafe=$true},
-    @{name='Everyone change permissions';rules=@((Mock-Rule 'S-1-1-0' 'Allow' $rights::ChangePermissions));unsafe=$true},
-    @{name='Everyone take ownership';rules=@((Mock-Rule 'S-1-1-0' 'Allow' $rights::TakeOwnership));unsafe=$true},
-    @{name='Everyone read only';rules=@((Mock-Rule 'S-1-1-0' 'Allow' $rights::ReadAndExecute));unsafe=$false},
-    @{name='Denied write does not grant write';rules=@((Mock-Rule 'S-1-1-0' 'Deny' $rights::Write));unsafe=$false},
+    @{name='Everyone delete children';rules=@((Mock-Rule 'S-1-1-0' 'Allow' [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles));unsafe=$true},
+    @{name='Authenticated Users delete children';rules=@((Mock-Rule 'S-1-5-11' 'Allow' [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles));unsafe=$true},
+    @{name='Builtin Users delete children';rules=@((Mock-Rule 'S-1-5-32-545' 'Allow' [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles));unsafe=$true},
+    @{name='Everyone write';rules=@((Mock-Rule 'S-1-1-0' 'Allow' [Security.AccessControl.FileSystemRights]::Write));unsafe=$true},
+    @{name='Everyone delete';rules=@((Mock-Rule 'S-1-1-0' 'Allow' [Security.AccessControl.FileSystemRights]::Delete));unsafe=$true},
+    @{name='Everyone change permissions';rules=@((Mock-Rule 'S-1-1-0' 'Allow' [Security.AccessControl.FileSystemRights]::ChangePermissions));unsafe=$true},
+    @{name='Everyone take ownership';rules=@((Mock-Rule 'S-1-1-0' 'Allow' [Security.AccessControl.FileSystemRights]::TakeOwnership));unsafe=$true},
+    @{name='Everyone read only';rules=@((Mock-Rule 'S-1-1-0' 'Allow' [Security.AccessControl.FileSystemRights]::ReadAndExecute));unsafe=$false},
+    @{name='Denied write does not grant write';rules=@((Mock-Rule 'S-1-1-0' 'Deny' [Security.AccessControl.FileSystemRights]::Write));unsafe=$false},
     @{name='No allow rules';rules=@();unsafe=$false}
 )
 $pass = 0
