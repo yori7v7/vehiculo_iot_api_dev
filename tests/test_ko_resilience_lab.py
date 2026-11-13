@@ -159,3 +159,23 @@ def test_ko_local_script_syntax_get_only_and_no_unsafe_tls():
     assert methods == ["GET"]
     assert "/movimientos" not in source and "/accion" not in source
     assert "CERT_NONE" not in source and "check_hostname = False" not in source
+
+
+def test_ko_usb_test_requires_stable_preflight_before_disconnect():
+    source = (Path(__file__).resolve().parents[1] / "scripts"
+              / "prueba_55ko_reconexion_local.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    assert any(isinstance(node, ast.FunctionDef) and node.name == "stable_preflight"
+               for node in ast.walk(tree))
+    main = next(node for node in tree.body
+                if isinstance(node, ast.FunctionDef) and node.name == "main")
+    preflights = [node.lineno for node in ast.walk(main)
+                  if isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Name)
+                  and node.func.id == "stable_preflight"]
+    disconnects = [node.lineno for node in ast.walk(main)
+                   if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                   and "Desconecta SOLO el USB" in node.value]
+    assert len(preflights) == 1 and len(disconnects) == 1
+    assert preflights[0] < disconnects[0]
+    assert "CONTROL_PUBLICO_ENABLED" not in source
