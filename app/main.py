@@ -71,6 +71,8 @@ def create_app() -> FastAPI:
         settings.control_publico_enabled or settings.control_publico_simulation
     )
     application.state.public_control = None
+    # K-D: apagado hasta integrar en el mismo proceso una autoridad única y STOP seguro.
+    application.state.exclusive_device_control_enabled = False
     application.state.public_control_unavailable = False
     application.state.device_lab_settings = settings
     application.state.device_lab_registry = DeviceLabRegistry()
