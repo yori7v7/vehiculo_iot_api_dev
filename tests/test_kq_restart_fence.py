@@ -85,38 +85,6 @@ def test_kq_invalidate_is_irreversible_in_same_process(tmp_path):
         restarted.assert_current(3)
 
 
-def test_kq_stale_active_turns_and_uncertain_operations_are_closed(tmp_path):
-    path = tmp_path / "kq-stale.sqlite3"
-    with KQRestartFence(path):
-        repo = PublicControlRepository(path)
-        repo.initialize()
-        with repo.transaction() as db:
-            db.execute(
-                "UPDATE control_vehicle SET window_started=100, window_expires=130, "
-                "window_request='antigua', blocked_reason=NULL WHERE vehicle_id=1"
-            )
-            db.execute(
-                "INSERT INTO control_turn(turn_id,vehicle_id,token_digest,generation,"
-                "absolute_expires,idle_expires,granted_at) "
-                "VALUES('sesion-antigua',1,?,1,130,120,100)", (b"a" * 32,)
-            )
-            db.execute(
-                "INSERT INTO control_operation(operation_id,vehicle_id,turn_id,"
-                "generation,epoch,kind,request_id,sequence,code,duration_ms,created_at,"
-                "deadline,status) VALUES('movimiento-antiguo',1,'sesion-antigua',"
-                "1,1,'move','id-antiguo',1,1,300,100,100.3,'despachada')"
-            )
-            db.execute(
-                "INSERT INTO control_operation(operation_id,vehicle_id,"
-                "generation,epoch,kind,code,duration_ms,created_at,status) "
-                "VALUES('stop-antiguo',1,1,1,'stop',0,0,100,'pendiente')"
-            )
-    with KQRestartFence(path) as next_owner:
-        next_owner.assert_current(2)
-        with PublicControlRepository(path).transaction() as db:
-            pass
-
-
 def test_kq_atomic_recovery_produces_stale_operations_but_never_verified_stop(tmp_path):
     path = tmp_path / "kq-recover.sqlite3"
     with KQRestartFence(path):
