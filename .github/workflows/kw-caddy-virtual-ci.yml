@@ -103,7 +103,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --detach --name kw-virtual-ci-proxy \
-            --network host --read-only --cap-drop ALL \
+            --network host --read-only --cap-drop ALL --cap-add NET_BIND_SERVICE \
             --security-opt no-new-privileges \
             --tmpfs /data --tmpfs /config \
             -v "$GITHUB_WORKSPACE/deploy/staging/kw/Caddyfile.ci:/etc/caddy/Caddyfile:ro" \
