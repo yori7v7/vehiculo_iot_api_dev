@@ -27,6 +27,7 @@ function Normalize-KAC([string]$Value) { return (($Value -replace "`r`n?", "`n")
 function HasUnsafeWrite-KAC([string]$Path) {
     $mask = [Security.AccessControl.FileSystemRights]::Write -bor
         [Security.AccessControl.FileSystemRights]::Delete -bor
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
         [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
         [Security.AccessControl.FileSystemRights]::TakeOwnership
     $everyone = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')
