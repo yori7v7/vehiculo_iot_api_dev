@@ -28,7 +28,7 @@ GitHub Actions backend [43385380685](https://github.com/yori7v7/vehiculo_iot_api
 
 `tests/test_kt_idempotency.py` verifica respuesta HTTP perdida, un solo ticket para seis solicitudes concurrentes, cuota que no se consume dos veces, falsificación de claves, reutilización de secretos, expiración, revocación, aprobación, nueva época tras reinicio y separación del contrato K-S legacy.
 
-**Cliente web:** la rama experimental del frontend se está adecuando para generar/reutilizar ambos valores y no activar las dos banderas públicas. Su resultado debe citarse únicamente tras un CI de navegador aprobado; las pruebas Python no certifican al cliente JS.
+**Cliente web aprobado en CI:** rama experimental `feature/5-5k-portal-unico-invitado`, GitHub Actions [43386103986](https://github.com/yori7v7/control-iot-u4/actions/runs/43386103986), commit `98cc45d14badd52fd889f7a0d34f84ee2f8a3f63`: **93 pruebas Node y 4 pruebas Chrome aprobadas**. El cliente JS genera el par con `crypto.getRandomValues`, lo mantiene solo en memoria, reintenta sin cambiarlo si falla la primera respuesta y lo invalida al cerrar. El mock Chrome devuelve el secreto propuesto; ningún permiso virtual habilita joystick. Ambas banderas del frontend siguen `false`. No es una prueba con K-S conectado por TLS real ni un despliegue en AWS.
 
 ## Próximo paso
 
