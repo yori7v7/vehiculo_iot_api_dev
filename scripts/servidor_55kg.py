@@ -19,7 +19,7 @@ import servidor_55kc as kc
 def main() -> None:
     firmware = LAB / "firmware" / "plantilla_55h.ino"
     if (not firmware.is_file() or not re.search(
-        r"(?m)^\\s*#define\\s+ETAPA54_DIAGNOSTICO_SEGURO\\s+1\\s*$",
+        r"(?m)^\s*#define\s+ETAPA54_DIAGNOSTICO_SEGURO\s+1\s*$",
         firmware.read_text(encoding="utf-8-sig", errors="replace"),
     )):
         raise SystemExit("[55-K-G] ABORTADO: plantilla firmware sin inhibicion GPIO.")
