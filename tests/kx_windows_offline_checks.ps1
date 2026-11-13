@@ -47,3 +47,6 @@ finally {
     }
 }
 Write-Output '[K-X TEST] 3 comprobaciones Windows, sin tareas reales ni conexiones AWS'
+# El ultimo subproceso fallo deliberadamente con 2 (NO-GO esperado);
+# restaurar exit 0 del harness tras comprobarlo expresamente.
+exit 0
