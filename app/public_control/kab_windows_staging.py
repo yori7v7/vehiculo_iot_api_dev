@@ -74,9 +74,10 @@ def _state_root(configured: str | None) -> tuple[Path, bool]:
 
 def load_staging(state: str | None, *, serve: bool):
     """Validate all permissions and file identities before reading proofs."""
-    from app.public_control.local_files import _current_windows_sid
-
+    # Resolver primero el guard Windows; en Linux _current_windows_sid
+    # intencionalmente no existe y la petición se rechaza con NO-GO limpio.
     root, ci = _state_root(state)
+    from app.public_control.local_files import _current_windows_sid
     _real_private(root, directory=True)
     if root.is_relative_to(_REPO):
         raise StagingRefused("Estado no puede ubicarse en repositorio")
