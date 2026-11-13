@@ -1,5 +1,6 @@
 """K-K: rutas administrativas reales bajo FastAPI, con ESP virtual, sin motores."""
 import asyncio
+from time import monotonic
 from types import SimpleNamespace
 
 import pytest
@@ -78,6 +79,8 @@ def rig():
     app.state.legacy_handover = SimpleNamespace(phase="exclusive")
     app.state.exclusive_device_control_enabled = True
     app.state.kg_lab_mode = True
+    app.state.kg_transport_fenced = False
+    app.state.kg_last_signed_stop_at = float(monotonic())
     app.state.kg_lab_local_ip = "192.168.1.82"
     app.state.kj_lab_enabled = False
     app.state.kj_expected_host = "192.168.1.82:8443"
