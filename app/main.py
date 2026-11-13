@@ -11,6 +11,7 @@ from app.device_channel.command_lab_ws import router as command_lab_router
 from app.errors.handlers import register_exception_handlers
 from app.execution.manager import DemoExecutionManager
 from app.public_control.http import ScopedControlMiddleware, router as public_control_router
+from app.public_control.legacy_handover import LegacyHandoverGate
 from app.public_control.runtime import public_control_runtime
 from app.routers.commands import router as commands_router
 from app.routers.demos import router as demos_router
@@ -73,6 +74,8 @@ def create_app() -> FastAPI:
     application.state.public_control = None
     # K-D: apagado hasta integrar en el mismo proceso una autoridad única y STOP seguro.
     application.state.exclusive_device_control_enabled = False
+    # Preparacion K-E solo en proceso; ninguna ruta HTTP cambia su fase.
+    application.state.legacy_handover = LegacyHandoverGate()
     application.state.public_control_unavailable = False
     application.state.device_lab_settings = settings
     application.state.device_lab_registry = DeviceLabRegistry()
