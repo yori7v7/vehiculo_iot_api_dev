@@ -19,6 +19,9 @@ try {
     if (-not (Test-Path -LiteralPath $config -PathType Leaf)) {
         throw 'Configuracion privada no disponible.'
     }
+    # Instrumentación CI: SOLO estados y salida numérica, sin secretos.
+    $stateFile = Join-Path $Fixture 'kaa-state.txt'
+    'wrapper-started' | Set-Content -LiteralPath $stateFile
     # Esta asignacion SOLO permite probar la barrera K-Y en CI; no da
     # autorizacion de despliegue. La clave real nunca entra en argumentos.
     $env:GITHUB_ACTIONS = 'true'
@@ -27,11 +30,18 @@ try {
     $env:ADMISSION_VIRTUAL_ONLY = 'enabled'
     $env:RUNNER_TEMP = $Fixture
     Set-Location -LiteralPath $Workspace
-    & $PythonPath -m app.public_control.ky_windows_sidecar --config $config
-    exit $LASTEXITCODE
+    'python-start' | Add-Content -LiteralPath $stateFile
+    # Los registros se quedan EN EL FIXTURE PRIVADO; no se suben a CI.
+    & $PythonPath -m app.public_control.ky_windows_sidecar --config $config 1> (Join-Path $Fixture 'kaa.stdout.log') 2> (Join-Path $Fixture 'kaa.stderr.log')
+    $code = $LASTEXITCODE
+    ('python-exit-' + [string]$code) | Add-Content -LiteralPath $stateFile
+    exit $code
 }
 catch {
-    # No imprimir rutas privadas, cabeceras, tokens ni detalles de Python.
+    # El tipo de fallo no se revela en salida pública.
+    if (Test-Path -LiteralPath (Join-Path $Fixture 'kaa-state.txt')) {
+        'wrapper-failed' | Add-Content -LiteralPath (Join-Path $Fixture 'kaa-state.txt')
+    }
     Write-Output '[K-AA] NO-GO: runner LocalService no pudo iniciar la admision virtual.'
     exit 2
 }
