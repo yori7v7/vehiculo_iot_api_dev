@@ -34,6 +34,30 @@ def main() -> int:
         return 1
 
     app = create_kv_virtual_app(db, admin, proxy)
+    # SOLO CI: inspeccion de la estructura de cabeceras, nunca valores
+    # secretos ni IP personal. Se elimina al salir del runner.
+    from fastapi import Request
+
+    @app.middleware("http")
+    async def safe_ci_diagnostic(request: Request, call_next):
+        response = await call_next(request)
+        if response.status_code in (401, 403) and "/control-publico/solicitudes" in request.url.path:
+            forbidden = (
+                "forwarded", "x-forwarded-for", "x-forwarded-host",
+                "x-forwarded-proto", "x-real-ip", "cookie", "authorization",
+                "proxy-authorization",
+            )
+            print("[KW_DIAG] status", response.status_code,
+                  "peer_loopback", request.client.host in ("127.0.0.1", "::1"),
+                  "host_correct", request.headers.getlist("host") == ["100-30-4-62.nip.io"],
+                  "origin_correct", request.headers.getlist("origin") == ["https://yori7v7.github.io"],
+                  "scheme_proof", request.headers.getlist("x-admission-scheme") == ["https"],
+                  "proxy_token_present", len(request.headers.getlist("x-admission-proxy-token")) == 1,
+                  "client_ip_present", len(request.headers.getlist("x-admission-client-ip")) == 1,
+                  "forbidden_present", [n for n in forbidden if request.headers.getlist(n)],
+                  flush=True)
+        return response
+
     print("[K-W] SOLO virtual: 127.0.0.1:9444; sin hardware.", flush=True)
     uvicorn.run(
         app, host="127.0.0.1", port=9444, workers=1,
