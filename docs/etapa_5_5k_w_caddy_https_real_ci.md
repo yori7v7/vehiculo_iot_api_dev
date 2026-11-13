@@ -6,7 +6,7 @@
 
 Demostrar que un proxy Caddy **real** puede recibir una solicitud HTTPS con certificado válido, sanear las cabeceras no confiables, atestar la solicitud a un FastAPI virtual privado y mantener inaccesibles las rutas del vehículo. Se ejercitó el módulo K-V con SQLite durable e idempotencia K-T; no se utilizó el TestClient para el tramo de red de K-W.
 
-**Prueba de CI aprobada:** [GitHub Actions 43396944609](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43396944609). Registro del paso: `[K-W] Caddy TLS/CA + FastAPI real: 21 comprobaciones OK, SOLO VIRTUAL`.
+**Prueba de CI aprobada (incluye validación offline del Caddyfile candidato):** [GitHub Actions 43397627107](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43397627107). **Regresión backend:** [43397634176](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43397634176), **661 pruebas y 840 subpruebas aprobadas**. Registro del paso: `[K-W] Caddy TLS/CA + FastAPI real: 21 comprobaciones OK, SOLO VIRTUAL`.
 
 ## Topología ejecutada (solo runner de GitHub Actions)
 
@@ -47,7 +47,7 @@ curl HTTP/1.1, origen simulado de Pages
 **NO desplegar este Caddyfile de CI.** El Caddyfile oficial de Windows `deploy/windows/Caddyfile` se conserva igual: atiende `100-30-4-62.nip.io` y envía el tráfico al backend legacy del puerto 8000. Sustituirlo por el archivo aislado K-W rompería CONTROL y MONITOREO, porque en K-W el fallback es HTTP 404. Nunca prometer que el link Pages completo funciona a distancia por este CI.
 
 Requisitos de la siguiente preparación:
-- Diseñar un Caddyfile integrado **candidato**, que enrute solo las rutas K-V al servicio virtual y preserve el resto del backend, pero se mantenga sin instalar. Revisar el impacto en los endpoints legacy y las vulnerabilidades administrativas detectadas previamente.
+- **Candidato creado, NO desplegado:** `deploy/staging/kw/Caddyfile.candidate_NOT_DEPLOY`. Enruta **exclusivamente** las solicitudes K-V al puerto 9444, mantiene todas las demás rutas del backend legacy en el puerto 8000, sobrescribe las pruebas del proxy y usa `{remote_host}` en lugar de la IP artificial de CI. Caddy 2.10.2 validó sintaxis offline con `--network none`. Los tests `tests/test_kw_caddy_contract_static.py` protegen el Caddyfile Windows vigente y verifican que el candidato no introduzca el IP 8.8.8.8. **Todavía requiere revisión de la topología Windows, los endpoints legacy y las vulnerabilidades administrativas previas: NO es un GO de despliegue.**
 - Sustituir la identidad de CI por `{remote_host}` únicamente con Caddy conectado directamente al cliente; si hay otro proxy/CDN, definir una cadena de confianza explícita sin aceptar `X-Forwarded-For` arbitrario.
 - Proteger `127.0.0.1:9444` con ACL y proceso exclusivo, evitar que clientes locales no confiables obtengan la clave del proxy y confirmar la configuración en Windows.
 - Preparar el frontend completo de la misma URL Pages, con `guestAdmissionEnabled` y `adminApprovalEnabled` en modo virtual **solo cuando** el endpoint de admisión esté realmente desplegado, accesible desde un teléfono y sin bloquear CONTROL/STOP legacy.
@@ -58,6 +58,8 @@ Requisitos de la siguiente preparación:
 ## Archivos de esta etapa
 
 - `deploy/staging/kw/Caddyfile.ci`: proxy Caddy real **solo CI**, con origen e IP sintéticos.
+- `deploy/staging/kw/Caddyfile.candidate_NOT_DEPLOY`: ejemplo de integración futura, sin instalar; mantiene `8000` legacy y `9444` solo para tickets virtuales. **Nunca reutilizar la IP fija sintética de CI.**
+- `tests/test_kw_caddy_contract_static.py`: cuatro verificaciones de separación, fallback, identidad real del cliente y ausencia de importaciones en legacy.
 - `scripts/servidor_55kw_ci.py`: FastAPI virtual solo CI; diagnóstico de estructuras de cabecera cuando hay 401/403, sin imprimir secretos.
 - `scripts/prueba_55kw_caddy_ci.py`: verificación HTTPS/CORS/identidad, solicitudes, aprobación, revocación y rutas no existentes.
 - `.github/workflows/kw-caddy-virtual-ci.yml`: genera certificados, arranca Caddy Docker/FastAPI en loopback, ejecuta pruebas y destruye los temporales.
