@@ -68,6 +68,13 @@ jobs:
             -extfile "$RUNNER_TEMP/kw/tls/server.ext"
           chmod 600 "$RUNNER_TEMP/kw/ca/root.key" "$RUNNER_TEMP/kw/tls/server.key"
           openssl verify -CAfile "$RUNNER_TEMP/kw/ca/root.crt" "$RUNNER_TEMP/kw/tls/server.crt"
+          # La imagen Caddy 2.10.2 corre como root CON cap-drop ALL;
+          # el bind mount debe tener propiedad de uid 0 para leer TLS
+          # sin otorgar DAC_OVERRIDE ni hacer world-readable la clave.
+          sudo chown -R 0:0 "$RUNNER_TEMP/kw/tls"
+          sudo chmod 700 "$RUNNER_TEMP/kw/tls"
+          sudo chmod 600 "$RUNNER_TEMP/kw/tls/server.key"
+          sudo chmod 644 "$RUNNER_TEMP/kw/tls/server.crt"
 
       - name: Caddy 2.10.2 validar sintaxis de rutas y proxy
         shell: bash
@@ -148,4 +155,4 @@ jobs:
           if [ -f "$RUNNER_TEMP/kw/backend.pid" ]; then
             kill "$(cat "$RUNNER_TEMP/kw/backend.pid")" 2>/dev/null || true
           fi
-          rm -rf "$RUNNER_TEMP/kw"
+          sudo rm -rf "$RUNNER_TEMP/kw"
