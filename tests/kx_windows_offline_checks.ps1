@@ -46,7 +46,16 @@ finally {
         Remove-Item -LiteralPath $fixture -Recurse -Force
     }
 }
-Write-Output '[K-X TEST] 3 comprobaciones Windows, sin tareas reales ni conexiones AWS'
+# Modo Windows Server ejecutado en un runner SIN instalacion real:
+# debe devolver NO-GO ante una carpeta de estado inexistente.
+# No se crea carpeta bajo ProgramData ni se consulta una red.
+$nonexistentState = Join-Path $env:ProgramData ('KX-NoInstall-' + [guid]::NewGuid().ToString('N'))
+& $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $audit -Mode Server -StateDirectory $nonexistentState
+if ($LASTEXITCODE -ne 2) {
+    throw 'K-X: Server debe negar un despliegue no instalado sin tocar tareas'
+}
+Write-Output '[K-X TEST] Modo Server sin instalacion => NO-GO correcto'
+Write-Output '[K-X TEST] 4 comprobaciones Windows, sin tareas reales ni conexiones AWS'
 # El ultimo subproceso fallo deliberadamente con 2 (NO-GO esperado);
 # restaurar exit 0 del harness tras comprobarlo expresamente.
 exit 0
