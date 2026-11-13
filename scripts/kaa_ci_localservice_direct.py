@@ -38,17 +38,22 @@ def main() -> int:
         })
         status = fixture / "kaa-state.txt"
         status.write_text("direct-python-started\n", encoding="utf-8")
+        os.environ["KAA_CI_DIAG_TYPE_ONLY"] = "true"
         sys.argv = ["ky_windows_sidecar", "--config", str(config)]
         from app.public_control.ky_windows_sidecar import main as start_sidecar
+        status.write_text("sidecar-imported\n", encoding="utf-8")
         result = start_sidecar()
-        with status.open("a", encoding="utf-8") as stream:
-            stream.write("direct-python-exit-" + str(result) + "\n")
+        status.write_text("ky-main-return-" + str(result) + "\n", encoding="utf-8")
         return result
-    except Exception:
-        # Never reveal the exception, file paths, secrets, headers or keys.
+    except Exception as error:
+        # CI-only exception class, NEVER exception message or path.
         try:
-            with (fixture / "kaa-state.txt").open("a", encoding="utf-8") as stream:
-                stream.write("direct-python-failed\n")
+            label = type(error).__name__
+            if not label.isidentifier() or len(label) > 70:
+                label = "Unknown"
+            (fixture / "kaa-state.txt").write_text(
+                "direct-exception-" + label + "\n", encoding="utf-8"
+            )
         except Exception:
             pass
         return 3
