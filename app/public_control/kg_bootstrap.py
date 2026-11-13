@@ -14,9 +14,17 @@ from starlette.routing import WebSocketRoute
 
 from app.public_control.kf_attach import attach_verified_kf_bridge
 from app.public_control.ki_ingress import GuestIngressLab
+from app.public_control.kg_liveness import (
+    acknowledge_signed_stop, close_lab_access, signed_transport_recent,
+)
 
 LOG = logging.getLogger(__name__)
 WSS_PATH = "/ws/dispositivos-lab/1/contrato"
+
+# Cada comprobación demanda dos ACK HMAC nuevos del ESP. Ninguna operación
+# en estos timers puede actuar físicamente en el firmware diagnóstico.
+KG_PROBE_INTERVAL_S = 2.0
+KG_PROBE_TIMEOUT_S = 2.5
 
 
 def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
@@ -49,6 +57,8 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
     application.state.kg_lab_mode = True
     application.state.kj_lab_enabled = False
     application.state.kj_expected_host = None
+    application.state.kg_transport_fenced = False
+    application.state.kg_last_signed_stop_at = None
     # K-L: la admision oficial es inerte hasta el handover de K-G.
     application.state.ki_ingress = None
     application.state.ki_expected_host = None
@@ -61,12 +71,21 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
 
     async def attach_when_ready(app: FastAPI, controller, admin_token, stopping):
         while not stopping.is_set():
+            if app.state.kg_transport_fenced:
+                return
             barrier = app.state.legacy_handover
             # Una perdida WSS cierra ambas puertas; no auto-reabrir.
             if not controller.connected:
                 app.state.kj_lab_enabled = False
                 app.state.ki_contract_test_enabled = False
                 app.state.ki_ingress = None
+                if barrier.phase == "exclusive":
+                    close_lab_access(app.state)
+                    try:
+                        controller.gate.device_lost()
+                    except Exception:
+                        pass
+                    return
             if (barrier.phase == "legacy" and controller.connected
                     and controller.last_neutral_virtual):
                 try:
@@ -80,7 +99,10 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
                     if (controller.connected
                             and app.state.kf_wss_controller is controller
                             and app.state.kf_bridge.controller is controller
-                            and barrier.phase == "exclusive"):
+                            and barrier.phase == "exclusive"
+                            and app.state.kg_transport_fenced is False):
+                        # attach_verified_kf_bridge verificó STOP con ACK HMAC.
+                        acknowledge_signed_stop(app.state)
                         app.state.ki_ingress = GuestIngressLab(controller)
                         app.state.ki_expected_host = app.state.kj_expected_host
                         app.state.ki_contract_test_enabled = True
@@ -91,12 +113,54 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
                         app.state.ki_contract_test_enabled = False
                         app.state.kj_lab_enabled = False
             if barrier.phase == "blocked":
+                close_lab_access(app.state)
                 LOG.warning("[K-G] Barrera bloqueada tras fallo; no se permite movimiento")
                 return
             try:
                 await asyncio.wait_for(stopping.wait(), timeout=0.1)
             except TimeoutError:
                 continue
+
+    async def monitor_authenticated_wss(app: FastAPI, controller, stopping) -> None:
+        """Probar VIDA del ESP con STOP 0 + dos ACK HMAC, no solo TCP abierto.
+
+        Si un USB se desconecta sin FIN/RST inmediato, controller.connected
+        puede continuar True. Un envío STOP firmado debe fallar por timeout;
+        las rutas se cierran *antes* de intentar reparar el socket.
+        """
+        while not stopping.is_set() and not app.state.kg_transport_fenced:
+            if app.state.legacy_handover.phase == "exclusive":
+                try:
+                    async with asyncio.timeout(KG_PROBE_TIMEOUT_S):
+                        async with controller.lock:
+                            if not controller.connected:
+                                raise ConnectionError("ESP sin canal WSS")
+                            # Nunca reutilizar un neutro confirmado ANTES
+                            # de este desafío autenticado.
+                            controller.last_neutral_virtual = False
+                            await controller.dispatch(0)
+                            if not controller.connected or controller.last_neutral_virtual is not True:
+                                raise ConnectionError("Sin acuse STOP HMAC nuevo")
+                    acknowledge_signed_stop(app.state)
+                except (Exception, asyncio.CancelledError) as error:
+                    # Fallo irreversible de esta sesión, aunque el socket
+                    # siga reportando connected=True por TCP obsoleto.
+                    close_lab_access(app.state)
+                    try:
+                        controller.gate.device_lost()
+                    except Exception:
+                        pass
+                    LOG.error("[K-O] WSS sin STOP HMAC vigente: bloqueado (%s)",
+                              type(error).__name__)
+                    try:
+                        await asyncio.wait_for(controller.close_on_fault(), timeout=2.0)
+                    except Exception:
+                        LOG.error("[K-O] El cierre del canal no pudo confirmarse")
+                    return
+            try:
+                await asyncio.wait_for(stopping.wait(), timeout=KG_PROBE_INTERVAL_S)
+            except TimeoutError:
+                pass
 
     @asynccontextmanager
     async def combined_lifespan(app: FastAPI):
@@ -117,15 +181,14 @@ def create_kg_app(kc_module, *, app_factory=None) -> FastAPI:
             watcher = asyncio.create_task(controller.run_supervision_watchdog(stopping))
             bootstrap = asyncio.create_task(attach_when_ready(
                 app, controller, admin_token, stopping))
+            signed_probe = asyncio.create_task(monitor_authenticated_wss(
+                app, controller, stopping))
             try:
                 yield
             finally:
                 stopping.set()
-                await asyncio.gather(watcher, bootstrap, return_exceptions=True)
-                app.state.kf_bridge = None
-                app.state.kj_lab_enabled = False
-                app.state.ki_contract_test_enabled = False
-                app.state.ki_ingress = None
+                await asyncio.gather(watcher, bootstrap, signed_probe, return_exceptions=True)
+                close_lab_access(app.state)
                 app.state.ki_expected_host = None
                 app.state.exclusive_device_control_enabled = True
                 await controller.close_on_fault()
