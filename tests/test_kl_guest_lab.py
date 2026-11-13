@@ -1,5 +1,7 @@
 """5.5-K-L: admision de visitante en el mismo ASGI K-G (solo laboratorio)."""
 import asyncio
+import ast
+from pathlib import Path
 from contextlib import asynccontextmanager
 from time import sleep
 from types import SimpleNamespace
@@ -224,3 +226,12 @@ def test_before_authenticated_esp_guest_routes_closed():
         assert app.state.ki_contract_test_enabled is False
         assert local.get(ADMIN, headers=HEAD_ADMIN).status_code == 503
         assert local.post(GUEST, headers=HEAD_GUEST).status_code in (403, 503)
+
+
+def test_local_manual_script_has_valid_python_and_no_motion_routes():
+    source = (Path(__file__).resolve().parents[1] / "scripts"
+              / "prueba_55kl_admision_local.py").read_text(encoding="utf-8")
+    ast.parse(source, filename="prueba_55kl_admision_local.py")
+    assert "/movimientos" not in source
+    assert "/demos/" not in source
+    assert "/accion" not in source
