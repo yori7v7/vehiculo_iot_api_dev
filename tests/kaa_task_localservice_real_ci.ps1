@@ -145,12 +145,20 @@ try {
         $file=Join-Path $fixture 'kaa-state.txt'
         if(Test-Path -LiteralPath $file) {
             foreach($phase in @(Get-Content -LiteralPath $file)) {
-                if($phase -match '^(direct-python-started|direct-python-exit-[0-9]+|direct-python-failed)$') {
+                if($phase -match '^(direct-python-started|sidecar-imported|ky-main-return-[0-9]+|direct-exception-[A-Za-z0-9]+)$') {
                     Write-Output ('[K-AA DIAG] phase=' + $phase)
                 }
             }
         }
         else { Write-Output '[K-AA DIAG] python-not-reached' }
+        $originFile=Join-Path $fixture 'kaa-origin.txt'
+        if(Test-Path -LiteralPath $originFile) {
+            foreach($line in @(Get-Content -LiteralPath $originFile)) {
+                if($line -match '^ky-exception-[A-Za-z0-9]+$') {
+                    Write-Output ('[K-AA DIAG] backend=' + $line)
+                }
+            }
+        }
         $errFile=Join-Path $fixture 'kaa.stderr.log'
         if(Test-Path -LiteralPath $errFile) {
             $errorText=[string](Get-Content -LiteralPath $errFile -Raw)
