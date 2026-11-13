@@ -58,6 +58,15 @@ _SCHEMA = (
        ON kr_ticket(epoch, state)""",
     """CREATE UNIQUE INDEX IF NOT EXISTS kr_one_virtual_turn
        ON kr_ticket(epoch) WHERE state = 'approved_virtual'""",
+    """
+    CREATE TABLE IF NOT EXISTS kt_idempotency (
+        key_digest BLOB PRIMARY KEY CHECK(length(key_digest) = 32),
+        request_id TEXT NOT NULL UNIQUE,
+        epoch INTEGER NOT NULL CHECK(epoch > 0),
+        client_digest BLOB NOT NULL CHECK(length(client_digest) = 32),
+        browser_hash BLOB NOT NULL CHECK(length(browser_hash) = 32)
+    ) STRICT
+    """,
 )
 
 
@@ -164,6 +173,12 @@ class KRTicketLedger:
             "DELETE FROM kr_ticket WHERE state IN ('expired','rejected','revoked') "
             "AND created_at < ?", (now - 86400,),
         )
+        # Conservar los tickets y sus claves de repeticion en conjunto:
+        # despues de 24 h ya no hay resultado que reenviar o revivir.
+        db.execute(
+            "DELETE FROM kt_idempotency WHERE request_id NOT IN "
+            "(SELECT request_id FROM kr_ticket)"
+        )
 
     def _run(self, callback):
         if not self._prepared or self._sealed:
@@ -257,6 +272,103 @@ class KRTicketLedger:
                 "simulado": True, "control_fisico": False, "canDrive": False,
             }
 
+        return self._run(run)
+
+    def request_idempotent(
+        self, client_identity: str, idempotency_key: str, browser_secret: str,
+    ) -> dict:
+        """K-T: repetir la misma petición nunca genera otro ticket.
+
+        El navegador crea ANTES de enviar dos valores aleatorios de 32 bytes
+        Base64url: clave de idempotencia y secreto de sesión. El servidor
+        guarda exclusivamente resúmenes HMAC/SHA-256 y puede responder a un
+        reintento aun cuando la primera respuesta HTTP se haya perdido.
+
+        Una aprobación virtual anterior jamás se traduce en canDrive=True.
+        Claves reutilizadas con otro cliente o secreto se rechazan cerradas.
+        """
+        if type(client_identity) is not str or not 1 <= len(client_identity) <= 256:
+            raise KRTicketDenied("Identidad de conexion invalida")
+        key_hash = self._digest_secret(idempotency_key)
+        secret_hash = self._digest_secret(browser_secret)
+
+        def run(db, now, salt):
+            # El hash de la clave incorpora un salt durable secreto; una
+            # clave elegida por el visitante no se guarda en texto plano.
+            dedup = hmac_new(salt, b"KT:" + key_hash, "sha256").digest()
+            client_hash = hmac_new(
+                salt, client_identity.encode("utf-8"), "sha256"
+            ).digest()
+            previous = db.execute(
+                "SELECT i.epoch, i.request_id, i.client_digest, i.browser_hash, "
+                "t.display_code, t.state, t.expires_at "
+                "FROM kt_idempotency i LEFT JOIN kr_ticket t "
+                "ON t.request_id=i.request_id WHERE i.key_digest=?",
+                (dedup,),
+            ).fetchone()
+            if previous is not None:
+                if (previous["epoch"] != self._epoch
+                        or not compare_digest(previous["client_digest"], client_hash)
+                        or not compare_digest(previous["browser_hash"], secret_hash)
+                        or previous["display_code"] is None
+                        or previous["state"] != "waiting"
+                        or previous["expires_at"] <= now):
+                    return KRTicketDenied("Reintento de solicitud no vigente")
+                return {
+                    "request_id": previous["request_id"],
+                    "display_code": previous["display_code"],
+                    "browser_secret": browser_secret,
+                    "estado": "esperando_autorizacion",
+                    "idempotent_replay": True,
+                    "simulado": True, "control_fisico": False, "canDrive": False,
+                }
+            # Un secreto ya asociado a otro ticket nunca puede reutilizarse.
+            if db.execute(
+                "SELECT 1 FROM kr_ticket WHERE browser_hash=? LIMIT 1",
+                (secret_hash,),
+            ).fetchone():
+                return KRTicketDenied("La sesion ya fue usada en otra solicitud")
+
+            recent = db.execute(
+                "SELECT COUNT(*) FROM kr_ticket WHERE created_at > ?",
+                (now - _WINDOW_S,),
+            ).fetchone()[0]
+            per_client = db.execute(
+                "SELECT COUNT(*) FROM kr_ticket "
+                "WHERE client_digest=? AND created_at > ?",
+                (client_hash, now - _WINDOW_S),
+            ).fetchone()[0]
+            pending = db.execute(
+                "SELECT COUNT(*) FROM kr_ticket "
+                "WHERE epoch=? AND state='waiting'",
+                (self._epoch,),
+            ).fetchone()[0]
+            count_all = db.execute("SELECT COUNT(*) FROM kr_ticket").fetchone()[0]
+            if (recent >= self._max_per_window or
+                    per_client >= self._max_per_client or
+                    pending >= self._max_pending or count_all >= _MAX_RECORDS):
+                return KRTicketDenied("Limite de solicitudes alcanzado")
+
+            request_id = str(uuid4())
+            code = request_id.split("-")[0].upper()
+            db.execute(
+                "INSERT INTO kr_ticket(request_id,epoch,browser_hash,client_digest,"
+                "display_code,created_at,expires_at,state) "
+                "VALUES(?,?,?,?,?,?,?,'waiting')",
+                (request_id,self._epoch,secret_hash,client_hash,code,
+                 now,now+self._pending_ttl),
+            )
+            db.execute(
+                "INSERT INTO kt_idempotency(key_digest,request_id,epoch,"
+                "client_digest,browser_hash) VALUES(?,?,?,?,?)",
+                (dedup,request_id,self._epoch,client_hash,secret_hash),
+            )
+            return {
+                "request_id": request_id, "display_code": code,
+                "browser_secret": browser_secret,
+                "estado": "esperando_autorizacion", "idempotent_replay": False,
+                "simulado": True, "control_fisico": False, "canDrive": False,
+            }
         return self._run(run)
 
     def status(self, browser_secret: str) -> dict:
