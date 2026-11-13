@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_kaa_task_runner_can_only_target_ci_virtual_sidecar():
-    source = (ROOT / "deploy/staging/kw/kaa_ci_task_runner.ps1").read_text("utf-8")
+    source = (ROOT / "scripts/kaa_ci_localservice_direct.py").read_text("utf-8")
     assert "KAA_CI_ONLY.marker" in source
     assert "KY_WINDOWS_CI_ONLY" in source
     assert "GITHUB_ACTIONS" in source
@@ -19,6 +19,8 @@ def test_kaa_task_runner_can_only_target_ci_virtual_sidecar():
     assert "0.0.0.0" not in source
     assert "Start-ScheduledTask" not in source
     assert "Register-ScheduledTask" not in source
+    assert "subprocess" not in source
+    assert "os.environ.update" in source
 
 
 def test_kaa_ci_harness_is_ephemeral_localservice_no_autostart():
@@ -50,7 +52,7 @@ def test_kaa_still_does_not_deploy_anything_public():
         "deploy/windows/Caddyfile",
     ):
         contents = (ROOT / path).read_text("utf-8")
-        assert "kaa_ci_task_runner" not in contents
+        assert "kaa_ci_localservice_direct" not in contents
         assert "KAA-CI" not in contents
     assert "127.0.0.1:8000" in (
         ROOT / "deploy/windows/Caddyfile").read_text("utf-8")
