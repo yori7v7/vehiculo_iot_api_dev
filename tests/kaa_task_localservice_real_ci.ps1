@@ -136,72 +136,26 @@ try {
         Start-Sleep -Milliseconds 350
     }
     if(-not $up) {
-        # Diagnostico en CI (sin rutas privadas ni contenido de secretos).
-        $liveTask=Get-KAATask
-        $lastTask=Get-ScheduledTaskInfo -TaskPath '\\' -TaskName $task -ErrorAction SilentlyContinue
-        $status = if($null -eq $liveTask) { 'missing' } else { [string]$liveTask.State }
-        $code = if($null -eq $lastTask) { 'unavailable' } else { [string]$lastTask.LastTaskResult }
-        Write-Output ('[K-AA DIAG] task=' + $status + '; last_result=' + $code)
-        $phaseFile=Join-Path $fixture 'kaa-state.txt'
-        $phases=if(Test-Path -LiteralPath $phaseFile) { @(Get-Content -LiteralPath $phaseFile) } else { @('wrapper-not-reached') }
-        foreach($phase in $phases) {
-            if($phase -match '^(wrapper-started|python-start|python-exit-[0-9]+|wrapper-failed|wrapper-not-reached)
-    Check-KAA ((Get-Status 8000 '/') -eq 200) 'legacy dummy 8000 intacto tras Task Scheduler'
-    Check-KAA ((Get-Status 9444 '/docs') -eq 404) 'sidecar no expone Swagger'
-    Check-KAA ((Get-Status 9444 '/vehiculos/1/movimientos') -eq 404) 'sidecar no expone motores'
-    Check-KAA ((Get-Status 9444 '/admin/vehiculos/1/control-publico/solicitudes') -eq 403) 'sin atestación proxy => cerrado'
-
-    $trusted=@{
-        'Host'='100-30-4-62.nip.io';
-        'Origin'='https://yori7v7.github.io';
-        'X-Admission-Client-IP'='8.8.8.8';
-        'X-Admission-Scheme'='https';
-        'X-Admission-Proxy-Token'=$proxy;
-        'X-API-Key'=$admin;
-    }
-    Check-KAA ((Get-Status 9444 '/admin/vehiculos/1/control-publico/solicitudes' $trusted) -eq 200) 'administración virtual solo con pruebas correctas'
-
-    Stop-KAATask
-    $down=$false
-    for($i=0;$i -lt 40;$i++) {
-        if(-not (Is-Listening 9444)) { $down=$true; break }
-        Start-Sleep -Milliseconds 250
-    }
-    Check-KAA $down 'detener tarea detiene sidecar sin PID huérfano'
-    Check-KAA ((Get-Status 8000 '/') -eq 200) 'legacy intacto tras detener task'
-    Disable-ScheduledTask -TaskPath '\' -TaskName $task | Out-Null
-    Check-KAA ((Get-KAATask).State -eq 'Disabled') 'tarea deshabilitada antes de rollback'
-    Unregister-ScheduledTask -TaskPath '\' -TaskName $task -Confirm:$false
-    $taskRegistered=$false
-    Check-KAA ($null -eq (Get-KAATask)) 'rollback retira exclusivamente la tercera tarea'
-    Check-KAA ((Get-Status 8000 '/') -eq 200) 'legacy intacto después del rollback'
-    Write-Output ('[K-AA] RESULTADO: ' + $checks + ' comprobaciones con tarea LocalService y sidecar real, SIN EC2.')
-}
-finally {
-    Stop-KAATask
-    if($taskRegistered) {
-        try { Unregister-ScheduledTask -TaskPath '\' -TaskName $task -Confirm:$false } catch { }
-    }
-    if($null -ne $dummy) {
-        try { if(-not $dummy.HasExited) { Stop-Process -Id $dummy.Id -Force; $dummy.WaitForExit() } } catch { }
-        $dummy.Dispose()
-    }
-    # Eliminar el fixture y todas las credenciales sintéticas, sin logs.
-    if(Test-Path -LiteralPath $fixture) {
-        try { Remove-Item -LiteralPath $fixture -Recurse -Force } catch { }
-    }
-}
-exit 0
-) {
-                Write-Output ('[K-AA DIAG] phase=' + $phase)
+        $taskInfo=Get-ScheduledTaskInfo -TaskPath '\' -TaskName $task -ErrorAction SilentlyContinue
+        $taskLive=Get-KAATask
+        $taskState=if($null -eq $taskLive){'missing'}else{[string]$taskLive.State}
+        $exitCode=if($null -eq $taskInfo){'unknown'}else{[string]$taskInfo.LastTaskResult}
+        Write-Output ('[K-AA DIAG] state=' + $taskState + ', result=' + $exitCode)
+        $file=Join-Path $fixture 'kaa-state.txt'
+        if(Test-Path -LiteralPath $file) {
+            foreach($phase in @(Get-Content -LiteralPath $file)) {
+                if($phase -match '^(wrapper-started|python-start|python-exit-[0-9]+|wrapper-failed)$') {
+                    Write-Output ('[K-AA DIAG] phase=' + $phase)
+                }
             }
         }
+        else { Write-Output '[K-AA DIAG] wrapper-not-reached' }
         $errFile=Join-Path $fixture 'kaa.stderr.log'
         if(Test-Path -LiteralPath $errFile) {
-            $content=Get-Content -LiteralPath $errFile -Raw
+            $errorText=Get-Content -LiteralPath $errFile -Raw
             foreach($pattern in @('ModuleNotFoundError','PermissionError','Access is denied','No module named',
-                                    'K-Y.*NO-GO', 'unable to open database file', 'WinError 5')) {
-                if($content -match [regex]::Escape($pattern)) {
+                                   'NO-GO','unable to open database file','WinError 5')) {
+                if($errorText.Contains($pattern)) {
                     Write-Output ('[K-AA DIAG] classification=' + $pattern)
                 }
             }
