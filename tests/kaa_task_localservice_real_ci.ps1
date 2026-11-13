@@ -131,7 +131,7 @@ try {
 
     Start-ScheduledTask -TaskPath '\' -TaskName $task
     $up=$false
-    for($i=0;$i -lt 80;$i++) {
+    for($i=0;$i -lt 45;$i++) {
         try { if((Get-Status 9444 '/') -eq 404) { $up=$true; break } } catch { }
         Start-Sleep -Milliseconds 350
     }
@@ -144,7 +144,7 @@ try {
         $file=Join-Path $fixture 'kaa-state.txt'
         if(Test-Path -LiteralPath $file) {
             foreach($phase in @(Get-Content -LiteralPath $file)) {
-                if($phase -match '^(wrapper-started|python-start|python-exit-[0-9]+|wrapper-failed)$') {
+                if($phase -match '^(wrapper-started|python-start|python-exit-[0-9]+|wrapper-failed|exception-[A-Za-z0-9]+)$') {
                     Write-Output ('[K-AA DIAG] phase=' + $phase)
                 }
             }
@@ -152,7 +152,7 @@ try {
         else { Write-Output '[K-AA DIAG] wrapper-not-reached' }
         $errFile=Join-Path $fixture 'kaa.stderr.log'
         if(Test-Path -LiteralPath $errFile) {
-            $errorText=Get-Content -LiteralPath $errFile -Raw
+            $errorText=[string](Get-Content -LiteralPath $errFile -Raw)
             foreach($pattern in @('ModuleNotFoundError','PermissionError','Access is denied','No module named',
                                    'NO-GO','unable to open database file','WinError 5')) {
                 if($errorText.Contains($pattern)) {
