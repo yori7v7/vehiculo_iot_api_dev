@@ -37,7 +37,7 @@
 7. Doble propietario, desaparición de archivo, aprobaciones concurrentes y pérdida de autoridad K-Q.
 8. Test de separación arquitectónica: ninguna ruta FastAPI ni K-G/K-C importa K-R y el módulo no despacha movimiento.
 
-**CI confirmado antes del gate estático:** [43383196524](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43383196524): **636 tests y 840 subtests aprobados**. La ejecución posterior que incluye el test de separación arquitectónica se debe comprobar aparte.
+**CI final confirmado:** [43383430392](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43383430392), commit `cfcfc29c4070fde6049c5134924fa94b363bcb5a`: **637 tests y 840 subtests aprobados**, incluyendo la comprobación de que K-R no se importa en las rutas HTTP o despacho WSS.
 
 ## Lo que NO está aprobado
 
