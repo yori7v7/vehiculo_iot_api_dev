@@ -26,6 +26,11 @@ jobs:
         run: |
           .\tests\kad_listener_policy_ci.ps1
           if ($LASTEXITCODE -ne 0) { throw 'K-AD: política de puertos no aprobada' }
+      - name: K-AD verificación de propiedad de procesos (sin procesos del host)
+        shell: powershell
+        run: |
+          .\tests\kad_process_policy_ci.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-AD: identidad de procesos no aprobada' }
       - name: Modo Server no debe autorizar una instalación ausente
         shell: powershell
         run: |
