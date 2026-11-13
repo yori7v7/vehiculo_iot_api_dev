@@ -1,6 +1,6 @@
 # 5.5-K-AB — Candidato de staging Windows, identidad dedicada y GO/NO-GO
 
-**Estado (13/11/2026): CANDIDATO EN RAMA EXPERIMENTAL, NO DESPLEGADO.** No arrancar AWS EC2/RDS, no conectar la batería del carrito y no copiar el material de CI al servidor de producción. El PR #5 sigue siendo trabajo aislado: `main` de backend y frontend se preservan.
+**Estado (13/11/2026): CANDIDATO VALIDADO EN WINDOWS CI, NO DESPLEGADO EN EC2.** No arrancar AWS EC2/RDS, no conectar la batería del carrito y no copiar el material de CI al servidor de producción. El PR #5 sigue siendo trabajo aislado: `main` de backend y frontend se preservan.
 
 ## Motivación
 
@@ -14,6 +14,14 @@ K-AB añade un **lanzador candidato de staging** que exige que el manifiesto dec
 - `scripts/kab_ci_direct.py`: puente **exclusivo de GitHub Actions** para ensayar el lanzador con LocalService. No debe copiarse a EC2 ni permitir que una cuenta compartida se convierta en la identidad de staging.
 - `tests/kab_windows_staging_ci.ps1`: runner Windows crea una carpeta privada temporal, prueba preflight como LocalService, denegación de `serve` con `enabled=false`, arranque virtual solo tras activación sintética, administración con claves temporales, inexistencia de Swagger/movimientos, parada sin huérfanos, rollback y supervivencia de un servidor dummy en 8000.
 - `.github/workflows/kab-windows-staging-ci.yml` y `tests/test_kab_windows_staging_contract.py`: pruebas nativas y de contrato.
+
+## Evidencias automatizadas confirmadas
+
+- [K-AB Windows 43420253430](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43420253430): **23/23 comprobaciones** en Windows Task Scheduler bajo LocalService, incluyendo preflight sin servidor, rechazo de `enabled=false`, arranque local autorizado solo en el fixture de CI, HTTP admin virtual, ausencia de rutas de motores, parada sin huérfanos y rollback sin cortar el dummy legado.
+- [Regresión backend 43420259983](https://github.com/yori7v7/vehiculo_iot_api_dev/actions/runs/43420259983): **677 pruebas Python + 840 subpruebas aprobadas**; se corrigió el rechazo temprano en Linux antes de importar funciones exclusivas de Windows.
+- Los workflows K-W, K-X, K-Y, K-Z y K-AA de la misma revisión se completaron correctamente. Los seis workflows de Windows/Caddy se probaron con identidades y secretos sintéticos, **no con la configuración de EC2**.
+
+**Límite de la evidencia:** la tarea de CI usa LocalService bajo una excepción explícita de laboratorio. La política de K-AB **rechaza LocalService, SYSTEM y NetworkService en staging real**. No se ha creado ni ejecutado todavía una cuenta dedicada en EC2, ni se ha probado ningún Caddyfile integrado allí.
 
 ## Diseño protegido: no instalar todavía
 
