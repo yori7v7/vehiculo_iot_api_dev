@@ -228,3 +228,21 @@ def test_kr_sealed_on_invalidation_and_never_offers_physical_control(tmp_path):
     with pytest.raises(FenceRejected):
         ledger.status(a["browser_secret"])
     fence.close()
+
+
+def test_kr_not_installed_in_http_or_motor_runtime():
+    """K-R NO se activa por importar FastAPI, ni por iniciar el servidor K-G."""
+    root = Path(__file__).resolve().parents[1]
+    prohibited = (
+        "app/main.py",
+        "app/public_control/kg_bootstrap.py",
+        "app/public_control/ki_ingress.py",
+        "app/public_control/kk_admin_lab.py",
+        "app/public_control/kf_bridge.py",
+    )
+    for filename in prohibited:
+        assert "kr_ticket_ledger" not in (root / filename).read_text(encoding="utf-8")
+    source = (root / "app/public_control/kr_ticket_ledger.py").read_text(encoding="utf-8")
+    assert "FastAPI(" not in source and "@router." not in source
+    assert "await controller.dispatch(" not in source
+    assert "mqtt" not in source.lower()
