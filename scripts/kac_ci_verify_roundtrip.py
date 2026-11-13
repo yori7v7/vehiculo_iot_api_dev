@@ -16,7 +16,7 @@ LEGACY = "/__kac_legacy_probe"
 VIRTUAL = "/publico/vehiculos/1/solicitudes/estado"
 
 
-def get(path: str, *, origin: bool = False):
+def get(path: str, *, origin: bool = False, spoof_proxy: bool = False):
     assert path.startswith("/") and "?" not in path
     args = [
         "curl", "--silent", "--show-error", "--http1.1",
@@ -26,6 +26,15 @@ def get(path: str, *, origin: bool = False):
     ]
     if origin:
         args += ["-H", "Origin: https://yori7v7.github.io"]
+    if spoof_proxy:
+        # Solicitud a Caddy con cabeceras falsas. Debe sobrescribirlas
+        # con IP real de loopback; la admisión permanece 403.
+        args += [
+            "-H", "X-Admission-Proxy-Token: cliente-no-confiable",
+            "-H", "X-Admission-Client-IP: 8.8.8.8",
+            "-H", "X-Admission-Scheme: https",
+            "-H", "X-Forwarded-For: 8.8.8.8",
+        ]
     args += ["--write-out", "\n__KAC_STATUS__%{http_code}", HTTPS + path]
     p = subprocess.run(args, text=True, capture_output=True, timeout=7)
     if p.returncode:
@@ -54,8 +63,12 @@ def main():
         assert status == 403, (
             "La IP loopback no debe autorizar tickets; resultado " + str(status)
         )
+        spoofed_status, _ = get(VIRTUAL, origin=True, spoof_proxy=True)
+        assert spoofed_status == 403, (
+            "El proxy aceptó identidad falsa; status " + str(spoofed_status)
+        )
         assert get("/vehiculos/1/movimientos")[0] == 404
-        print("[K-AC] Candidato TLS: legacy 200, ingreso virtual fail-closed 403, sin motores.")
+        print("[K-AC] Candidato TLS: legacy 200, virtual 403, spoofing rechazado, sin motores.")
     elif phase == "sidecar_off":
         status, _ = get(VIRTUAL, origin=True)
         assert status == 502, (
