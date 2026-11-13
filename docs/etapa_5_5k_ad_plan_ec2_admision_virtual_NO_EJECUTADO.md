@@ -1,0 +1,56 @@
+# 5.5-K-AD — Plan de inspección EC2 y primera admisión virtual (NO EJECUTADO)
+
+**Estado al 13/11/2026:** PREPARACIÓN DOCUMENTAL. Solo se añade este plan a la rama experimental del PR #5. **No se ha encendido EC2, no se ha intervenido Caddy, no se ha creado servicio, no se ha probado con ESP ni se ha publicado admisión alguna.** `main`, el frontend y GitHub Pages siguen fuera del alcance de esta etapa.
+
+## Objetivo acotado
+
+Verificar de manera incremental la posibilidad de convivir con el backend FastAPI legacy en `8000` y un sidecar **exclusivamente virtual** en `127.0.0.1:9444`. La primera meta con EC2 no es habilitar órdenes al vehículo: consiste en obtener inventario de solo lectura, tomar una decisión GO/NO-GO documentada y, en una ventana posterior, validar admisión `canDrive=false` con rollback comprobado.
+
+## Lo que SÍ se puede avanzar sin laptop, ESP ni AWS
+
+- Auditar en GitHub el plan K-AB, el preflight K-AC, las pruebas del candidato Caddy y los resultados CI. La ejecución remota de Actions usa runners efímeros y no representa inspección de la instancia EC2 real.
+- Revisar que el pipeline comprueba rechazo ante acceso no autorizado, inyección de cabeceras, caída del sidecar y recuperación del servicio legacy sintético.
+- Preparar criterios de aceptación y una plantilla de evidencia **sin contraseñas, tokens, archivos con secretos, IP privadas ni contenido íntegro del Caddyfile persistente**.
+- Mantener el PR en borrador sin fusionar ni cambiar repositorios productivos.
+
+## Puertas de decisión, en orden
+
+### A. Inventario EC2 (solo en una futura ventana expresamente autorizada)
+
+1. Confirmar encendido autorizado de EC2, sin iniciar RDS; batería RC desconectada y ESP innecesaria.
+2. Guardar por un canal privado de trabajo una copia/restauración verificable del Caddyfile **persistente de Windows**, distinto del template del repositorio. No adjuntarlo al repositorio.
+3. En una copia actualizada de la rama experimental, revisar el script antes de ejecutarlo. Ejecutar solo el modo de lectura `-Mode Server` de `deploy/staging/kw/kac_ec2_preflight_READONLY.ps1`. Ante NO-GO/salida 2, **detener la etapa**; no ejecutar instalaciones, reinicios ni correcciones automáticas.
+4. Inspeccionar las tareas existentes `VehiculoIoT-FastAPI` y `VehiculoIoT-Caddy`, identidad, ACL, listeners, Security Groups y Firewall; confirmar que no existe acceso externo a `9444`.
+5. Verificar el servicio original `8000` y sus dependencias con RDS apagada, únicamente mediante solicitudes de lectura sin provocar comandos de actuación.
+6. Registrar únicamente resultados saneados: fecha, rama/SHA, comando, código de salida, GO/NO-GO y observaciones, **nunca valores de secretos**.
+
+### B. Antes de crear o habilitar el sidecar (trabajo posterior, no autorizado por este documento)
+
+- Aprobar identidad dedicada de Windows y permisos mínimos; no utilizar SYSTEM/LocalService/NetworkService para saltar la restricción de K-AB.
+- Definir almacenamiento seguro para secretos de proxy y administrador, distintos entre sí. No pasar secretos por argumentos, logs, GitHub Pages, archivos del repositorio ni variables expuestas a usuarios.
+- Acordar procedimiento probado de backup/restore del Caddyfile persistente y rollback de tareas, certificados y puerto. El rollback de contenedor Linux K-AC **no prueba** un rollback en Windows.
+- Revalidar FastAPI/CONTROL/MONITOREO y WSS originales; confirmar que un fallo de sidecar no ocasiona regresión ni expone un endpoint motor.
+- Mantener la admisión `canDrive=false` aun si HTTPS, autenticación y turnos virtuales funcionan.
+
+### C. Requisitos independientes antes de cualquier operación física
+
+Arbitraje **único** entre Swagger, joystick y DEMO; inhibición eléctrica por defecto, STOP seguro real y prioritario, watchdog, desconexión, expiración/revocación y supervisión humana. **Ninguna prueba virtual ni estado 200/101 equivale a parada mecánica comprobada.** Las pruebas físicas deberán hacerse únicamente con laptop, ESP, vehículo, entorno seguro y autorización explícita.
+
+## Matriz de evidencia (pendiente, no rellenar hasta observar resultados)
+
+| Prueba | Entorno requerido | Resultado |
+| --- | --- | --- |
+| K-AC preflight Repository | GitHub CI / Windows local | Preexistente; consultar Actions y SHA exacto |
+| K-AC TLS/fallo/rollback sintético | GitHub Actions, runner efímero | Preexistente; no extrapolar a EC2 |
+| K-AD preflight Server | EC2 Windows real | **NO EJECUTADO** |
+| Caddyfile persistente + copia restaurable | EC2 Windows real | **NO VERIFICADO** |
+| Identidad/ACL y secretos del sidecar | EC2 Windows real | **NO CONFIGURADO/NO VERIFICADO** |
+| Coexistencia real 8000/9444 | EC2 Windows real | **NO EJECUTADO** |
+| Admisión virtual externa canDrive=false | EC2 Windows real + cliente remoto | **NO EJECUTADO** |
+| Movimiento / STOP físico | Equipo físico completo | **FUERA DE ALCANCE DE K-AD** |
+
+## Regla de salida
+
+**Sin evidencia real y saneada de los puntos A, el estado es NO-GO para desplegar.** Mantener `main`, Pages y servicio legacy sin cambios. Este archivo es una planificación y NO certifica que haya pruebas nuevas aprobadas.
+
+Referencias: `docs/etapa_5_5k_ac_preflight_ec2_y_rollback_caddy.md`, `docs/etapa_5_5k_ab_staging_windows_candidato.md`, `deploy/staging/kw/kac_ec2_preflight_READONLY.ps1` y `deploy/staging/kw/Caddyfile.candidate_NOT_DEPLOY`.
