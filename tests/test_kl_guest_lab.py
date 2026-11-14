@@ -26,6 +26,7 @@ ORIGIN = "https://yori7v7.github.io"
 ADMIN_SECRET = "k" * 64
 HTTP_KEY = "clave-de-pruebas-KL-nunca-publicar-123456"
 HEAD_GUEST = {"Origin": ORIGIN, "Sec-Fetch-Site": "cross-site"}
+HEAD_TICKET = {**HEAD_GUEST, "Idempotency-Key": "A" * 43, "X-Browser-Proposal": "B" * 43}
 HEAD_ADMIN = {**HEAD_GUEST, "X-API-Key": HTTP_KEY}
 
 
@@ -150,8 +151,12 @@ def test_single_controller_guest_admin_and_revoke():
         assert app.state.kf_bridge.controller is app.state.control
         assert app.state.kj_lab_enabled is True
 
-        ticket_resp = client.post(GUEST, headers=HEAD_GUEST)
+        ticket_resp = client.post(GUEST, headers=HEAD_TICKET)
         assert ticket_resp.status_code == 201
+        retry = client.post(GUEST, headers=HEAD_TICKET)
+        assert retry.status_code == 200
+        assert retry.json()["request_id"] == ticket_resp.json()["request_id"]
+        assert retry.json()["idempotent_replay"] is True
         ticket = ticket_resp.json()
         assert ticket["simulado"] is True and ticket["control_fisico"] is False
         secret = ticket["browser_secret"]
