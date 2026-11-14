@@ -136,3 +136,55 @@ def test_clock_rollback_fails_closed(gate):
         g.visitor_status(v['browser_secret'])
     c.step(2)
     assert g.visitor_status(v['browser_secret'])['estado'] == 'revocado_o_caducado'
+
+
+
+def test_lab_browser_retry_is_idempotent_on_same_kc_gate(gate):
+    g, c = gate
+    pair = dict(idempotency_key="A" * 43, browser_secret="B" * 43,
+                client_identity="127.0.0.1")
+    first = g.arrive_idempotent(**pair)
+    second = g.arrive_idempotent(**pair)
+    assert first["request_id"] == second["request_id"]
+    assert first["browser_secret"] == second["browser_secret"]
+    assert first["idempotent_replay"] is False
+    assert second["idempotent_replay"] is True
+    assert g.snapshot()["pendientes"] == 1
+    assert "guest_token" not in second
+    assert "canDrive" not in second
+
+
+def test_lab_browser_pair_mismatch_or_expiry_fails_closed(gate):
+    g, c = gate
+    pair = dict(idempotency_key="C" * 43, browser_secret="D" * 43,
+                client_identity="127.0.0.1")
+    first = g.arrive_idempotent(**pair)
+    for changed in (
+        {**pair, "browser_secret": "E" * 43},
+        {**pair, "client_identity": "127.0.0.2"},
+        {**pair, "idempotency_key": "F" * 43},
+        {**pair, "idempotency_key": pair["browser_secret"]},
+        {**pair, "browser_secret": "bad"},
+    ):
+        with pytest.raises(AdmissionDenied):
+            g.arrive_idempotent(**changed)
+    assert g.snapshot()["pendientes"] == 1
+    assert g.visitor_status(first["browser_secret"])["estado"] == "esperando_autorizacion"
+    c.step(120)
+    with pytest.raises(AdmissionDenied):
+        g.arrive_idempotent(**pair)
+
+
+def test_lab_browser_retry_never_revives_approved_or_revoked_ticket(gate):
+    g, c = gate
+    pair = dict(idempotency_key="G" * 43, browser_secret="H" * 43,
+                client_identity="127.0.0.1")
+    ticket = g.arrive_idempotent(**pair)
+    g.supervisor_heartbeat(ADMIN)
+    g.approve(ADMIN, ticket["request_id"], mode="timed", turn_seconds=30)
+    with pytest.raises(AdmissionDenied):
+        g.arrive_idempotent(**pair)
+    g.revoke(ADMIN)
+    with pytest.raises(AdmissionDenied):
+        g.arrive_idempotent(**pair)
+    assert g.visitor_status(ticket["browser_secret"])["estado"] == "revocado_o_caducado"
