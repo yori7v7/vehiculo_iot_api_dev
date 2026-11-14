@@ -10,7 +10,7 @@ import re
 from ipaddress import ip_address
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from app.public_control.single_link_admission_lab import AdmissionDenied
 from app.public_control.kg_liveness import signed_transport_recent
 
@@ -27,15 +27,20 @@ class GuestIngressLab:
             raise TypeError("Se requiere la autoridad WSS compartida.")
         self.controller = controller
 
-    async def request(self) -> dict:
+    async def request(self, *, idempotency_key: str, browser_secret: str,
+                      client_identity: str) -> dict:
         async with self.controller.lock:
             if not self.controller.connected:
                 raise HTTPException(503, "Dispositivo desconectado")
             try:
-                row = self.controller.gate.arrive()
+                row = self.controller.gate.arrive_idempotent(
+                    idempotency_key=idempotency_key,
+                    browser_secret=browser_secret,
+                    client_identity=client_identity,
+                )
             except AdmissionDenied:
-                raise HTTPException(429, "No hay solicitudes disponibles") from None
-        return {**row, "simulado": True, "control_fisico": False}
+                raise HTTPException(409, "Solicitud no disponible o reintento invalido") from None
+        return {**row, "simulado": True, "control_fisico": False, "canDrive": False}
 
     async def status(self, browser_secret: str) -> dict:
         async with self.controller.lock:
@@ -47,7 +52,7 @@ class GuestIngressLab:
                 raise HTTPException(401, "Sesión de navegador no válida") from None
         # Nunca devolver el bearer de movimiento emitido internamente.
         return {"estado": row["estado"], "display_code": row["display_code"],
-                "simulado": True, "control_fisico": False}
+                "simulado": True, "control_fisico": False, "canDrive": False}
 
 
 def _request_context(request: Request) -> None:
@@ -98,14 +103,28 @@ def _ingress(request: Request, vehicle_id: int) -> GuestIngressLab:
 
 
 @router.post("", status_code=201)
-async def request_access(id_vehiculo: int, request: Request) -> dict:
+async def request_access(id_vehiculo: int, request: Request, response: Response) -> dict:
     _request_context(request)
     ingress = _ingress(request, id_vehiculo)
-    if request.headers.get("content-length") not in (None, "0"):
+    if (request.headers.get("content-length") not in (None, "0")
+            or request.headers.get("transfer-encoding") is not None
+            or await request.body()):
         raise HTTPException(400, "No enviar contenido")
     if request.headers.getlist("x-browser-session"):
         raise HTTPException(403, "No reutilizar una sesión existente")
-    return await ingress.request()
+    keys = request.headers.getlist("idempotency-key")
+    proposals = request.headers.getlist("x-browser-proposal")
+    if (len(keys) != 1 or len(proposals) != 1 or
+            VISITOR_SECRET.fullmatch(keys[0]) is None or
+            VISITOR_SECRET.fullmatch(proposals[0]) is None or
+            keys[0] == proposals[0]):
+        raise HTTPException(428, "Claves opacas de reintento obligatorias")
+    identity = request.client.host if request.client else ""
+    row = await ingress.request(idempotency_key=keys[0],
+                                browser_secret=proposals[0],
+                                client_identity=identity)
+    response.status_code = 200 if row["idempotent_replay"] else 201
+    return row
 
 
 @router.get("/estado")
