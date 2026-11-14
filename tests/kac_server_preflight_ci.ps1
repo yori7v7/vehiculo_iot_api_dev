@@ -181,6 +181,36 @@ function Get-Acl {
             IsInherited = $true
         })
     }
+    $descriptorSddl = if ($LiteralPath -eq $venvConfig -and $scenario -eq 'null-dacl') {
+        'D:NO_ACCESS_CONTROL'
+    } elseif ($LiteralPath -eq $venvConfig -and $scenario -eq 'missing-dacl') {
+        'O:BAG:BA'
+    } else { 'D:' }
+    $acl | Add-Member NoteProperty FixtureDescriptor $descriptorSddl
+    $acl | Add-Member ScriptMethod GetSecurityDescriptorBinaryForm {
+        $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new($this.FixtureDescriptor)
+        $buffer = New-Object byte[] $descriptor.BinaryLength
+        $descriptor.GetBinaryForm($buffer, 0)
+        return ,$buffer
+    }
+    if ($scenario -eq 'user-read-only' -and $LiteralPath -eq $venvConfig) {
+        $rules = @([pscustomobject]@{
+            AccessControlType = 'Allow'
+            IdentityReference = [pscustomobject]@{Value = $untrustedUser}
+            FileSystemRights = [Security.AccessControl.FileSystemRights]::ReadAndExecute
+            PropagationFlags = [Security.AccessControl.PropagationFlags]::None
+            IsInherited = $true
+        })
+    }
+    if ($scenario -eq 'user-denied-only' -and $LiteralPath -eq $venvConfig) {
+        $rules = @([pscustomobject]@{
+            AccessControlType = 'Deny'
+            IdentityReference = [pscustomobject]@{Value = $untrustedUser}
+            FileSystemRights = [Security.AccessControl.FileSystemRights]::FullControl
+            PropagationFlags = [Security.AccessControl.PropagationFlags]::None
+            IsInherited = $false
+        })
+    }
     $acl | Add-Member NoteProperty FixtureRules $rules
     $acl | Add-Member ScriptMethod GetAccessRules {
         param($Explicit, $Inherited, $IdentityType)
@@ -250,6 +280,8 @@ $cases = @(
     @{Name='redirector';ExpectedExit=0;Root=$legacy;Message='FastAPI: redireccionador de Python validado'},
     @{Name='direct';ExpectedExit=0;Root=$legacy;Message='Propiedad de proceso y listeners api confirmada'},
     @{Name='inherit-only-parent-acl';ExpectedExit=0;Root=$legacy;Message='FastAPI: redireccionador de Python validado'},
+    @{Name='user-read-only';ExpectedExit=0;Root=$legacy;Message='FastAPI: redireccionador de Python validado'},
+    @{Name='user-denied-only';ExpectedExit=0;Root=$legacy;Message='FastAPI: redireccionador de Python validado'},
     @{Name='wrong-project';ExpectedExit=2;Root=$repository;Message='deployment.json corresponde'},
     @{Name='wrong-working-directory';ExpectedExit=2;Root=$legacy;Message='de tarea legacy coincide'},
     @{Name='invalid-parent';ExpectedExit=2;Root=$legacy;Message='Propiedad de proceso y listeners api confirmada'},
@@ -267,6 +299,8 @@ $cases = @(
     @{Name='untrusted-venv-user-inherited';ExpectedExit=2;Root=$legacy;Message='Categoria segura: ancestros-venv; permiso de escritura heredado'},
     @{Name='untrusted-parent-user-explicit';ExpectedExit=2;Root=$legacy;Message='Categoria segura: ancestros-venv; permiso de escritura explicito'},
     @{Name='untrusted-base-user-inherited';ExpectedExit=2;Root=$legacy;Message='Categoria segura: archivos-python-base; permiso de escritura heredado'},
+    @{Name='null-dacl';ExpectedExit=2;Root=$legacy;Message='Categoria segura: archivos-venv; DACL ausente o nula'},
+    @{Name='missing-dacl';ExpectedExit=2;Root=$legacy;Message='Categoria segura: archivos-venv; DACL ausente o nula'},
     @{Name='wrong-base-version';ExpectedExit=2;Root=$legacy;Message='Preflight incompleto'}
 )
 foreach ($case in $cases) {
