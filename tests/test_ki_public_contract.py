@@ -9,7 +9,7 @@ import pytest
 
 from app.public_control.http import ScopedControlMiddleware
 from app.public_control.ki_ingress import router, GuestIngressLab
-from app.public_control.single_link_admission_lab import AdmissionDenied
+from app.public_control.single_link_admission_lab import AdmissionDenied, SingleLinkAdmissionLab
 
 BASE = "https://api.example.test"
 PATH = "/publico/vehiculos/1/solicitudes"
@@ -243,3 +243,39 @@ def test_production_denied_even_when_fake_adapter_installed(rig):
     app.state.public_control_settings.app_env = "production"
     with TestClient(app, base_url=BASE) as client:
         assert client.post(PATH, headers=HEAD).status_code == 503
+
+
+def test_real_kc_gate_ticket_approval_revoke_and_loss_never_expose_drive_token(rig):
+    """Integration: HTTPS browser request and supervisor share ONE lab gate.
+
+    The controller is a WSS *stub*: this is an authorization contract test,
+    not evidence that the real ESP has been stopped or can be driven.
+    """
+    app, controller = rig
+    admin = "Prueba-de-admin-local-estricta-12345678901234567890"
+    controller.gate = SingleLinkAdmissionLab(admin)
+    app.state.ki_contract_test_enabled = True
+    with TestClient(app, base_url=BASE) as client:
+        created = client.post(PATH, headers=ticket_headers())
+        assert created.status_code == 201
+        ticket = created.json()
+        assert ticket["canDrive"] is False
+        assert controller.gate.pending(admin)[0]["request_id"] == ticket["request_id"]
+        replay = client.post(PATH, headers=ticket_headers())
+        assert replay.status_code == 200
+        assert replay.json()["request_id"] == ticket["request_id"]
+        controller.gate.supervisor_heartbeat(admin)
+        controller.gate.approve(admin, ticket["request_id"],
+                                mode="timed", turn_seconds=30)
+        status_headers = {**HEAD, "X-Browser-Session": ticket["browser_secret"]}
+        approved = client.get(PATH + "/estado", headers=status_headers)
+        assert approved.status_code == 200
+        assert approved.json()["estado"] == "autorizado"
+        assert approved.json()["canDrive"] is False
+        assert "guest_token" not in approved.json()
+        controller.gate.revoke(admin)
+        revoked = client.get(PATH + "/estado", headers=status_headers)
+        assert revoked.json()["estado"] == "revocado_o_caducado"
+        assert revoked.json()["canDrive"] is False
+        controller.connected = False
+        assert client.get(PATH + "/estado", headers=status_headers).status_code == 503
