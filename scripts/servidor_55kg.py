@@ -13,7 +13,16 @@ if not (LAB / "servidor_55kc.py").is_file() or not (LAB / "servidor_55j.py").is_
 sys.path.append(str(LAB))
 
 from app.public_control.kg_bootstrap import create_kg_app
+from app.public_control.single_link_admission_lab import SingleLinkAdmissionLab as CanonicalAdmissionGate
 import servidor_55kc as kc
+
+# Fallar ANTES de iniciar Uvicorn si KC usa una copia local obsoleta del gate.
+# No aceptar la coincidencia por nombre: tienen que ser la misma clase Python.
+if getattr(kc, "SingleLinkAdmissionLab", None) is not CanonicalAdmissionGate:
+    raise SystemExit(
+        "[55-K-G] NO-GO: KC usa un gate distinto al del backend experimental. "
+        "No se ha iniciado WSS ni el servidor."
+    )
 
 
 def main() -> None:
