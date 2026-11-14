@@ -15,6 +15,9 @@ from app.public_control.legacy_handover import LegacyHandoverGate
 from app.public_control.kf_bridge import router as kf_bridge_router
 from app.public_control.ki_ingress import router as ki_ingress_router
 from app.public_control.kk_admin_lab import router as kk_admin_lab_router
+from app.public_control.kx_inline_admission import (
+    KXWriteFence, admission_lifespan, router as kx_inline_router,
+)
 from app.public_control.runtime import public_control_runtime
 from app.routers.commands import router as commands_router
 from app.routers.demos import router as demos_router
@@ -34,7 +37,8 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
 
     try:
         async with public_control_runtime(application):
-            yield
+            async with admission_lifespan(application):
+                yield
     finally:
         try:
             await application.state.demo_execution_manager.close_all()
@@ -69,6 +73,7 @@ def create_app() -> FastAPI:
         ],
     )
     application.add_middleware(ScopedControlMiddleware)
+    application.add_middleware(KXWriteFence)
 
     application.state.public_control_settings = settings
     application.state.public_control_simulation = (
@@ -76,11 +81,15 @@ def create_app() -> FastAPI:
     )
     application.state.public_control = None
     # K-D: apagado hasta integrar en el mismo proceso una autoridad única y STOP seguro.
-    application.state.exclusive_device_control_enabled = False
+    application.state.exclusive_device_control_enabled = settings.public_virtual_admission_enabled
     # Preparacion K-E solo en proceso; ninguna ruta HTTP cambia su fase.
     application.state.legacy_handover = LegacyHandoverGate()
     # K-F: NO instalar una autoridad nueva automaticamente ni en AWS.
     application.state.kf_bridge = None
+    # K-X: virtual, in-process, sin despacho fisico ni servicio adicional.
+    application.state.kx_enabled = settings.public_virtual_admission_enabled
+    application.state.kx_ledger = None
+    application.state.kx_admin_proof = None
     application.state.kf_wss_controller = None
     # K-I: contrato HTTPS solo para pruebas; en produccion siempre cerrado.
     application.state.ki_ingress = None
@@ -105,6 +114,11 @@ def create_app() -> FastAPI:
     application.include_router(public_control_router)
     # Rutas de laboratorio K-F: siempre 503 hasta traspaso interno verificado.
     application.include_router(kf_bridge_router)
+    # K-X toma prioridad sobre las rutas de laboratorio SOLO si está
+    # habilitado explícitamente en producción. En laboratorio K-I/K-K siguen
+    # conservando su comportamiento previo y no hay colisión de paths.
+    if settings.public_virtual_admission_enabled:
+        application.include_router(kx_inline_router)
     # Ruta K-I pública en forma, pero HTTP 403/503 hasta infraestructura auditada.
     application.include_router(ki_ingress_router)
     # K-K: rutas administrativas inactivas salvo handover local verificado.
