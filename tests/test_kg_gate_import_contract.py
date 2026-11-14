@@ -25,7 +25,7 @@ def _guard_code():
         node for node in tree.body
         if isinstance(node, ast.If)
         and "CanonicalAdmissionGate" in ast.unparse(node.test)
-        and 'getattr(kc, "SingleLinkAdmissionLab", None)' in ast.unparse(node.test)
+        and "getattr(kc, 'SingleLinkAdmissionLab', None)" in ast.unparse(node.test)
     ]
     assert len(checks) == 1
     return compile(
