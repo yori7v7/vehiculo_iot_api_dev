@@ -113,7 +113,8 @@ class ScopedControlMiddleware:
         self._admission = CORSMiddleware(
             self._bounded, allow_origins=[PAGES_ORIGIN], allow_credentials=False,
             allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Content-Type", "X-Browser-Session"], expose_headers=["Retry-After"],
+            allow_headers=["Content-Type", "X-Browser-Session", "Idempotency-Key", "X-Browser-Proposal"],
+            expose_headers=["Retry-After"],
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
