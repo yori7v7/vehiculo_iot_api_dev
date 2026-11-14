@@ -40,6 +40,21 @@ El modo Server coteja las rutas de la instalación estable con el registro prote
 
 La salida 0 acredita la inspección observada. La salida 2 indica NO-GO. Conserva la instalación original, su configuración y sus tareas durante todo el procedimiento. La validación de GitHub Actions incluye casos sintéticos para Windows sin instalación y para una auditoría de Server desde una copia separada.
 
+### Diagnóstico real de ACL y plan de mantenimiento (14/11/2026)
+
+**Evidencia de EC2, obtenida solo por lectura:** el `python.exe` que escucha en `127.0.0.1:8000` es hijo directo del lanzador del `venv`, con Python base y argumentos Uvicorn compatibles. La copia de auditoría del commit `fc4c84b` pasó `Repository` pero devolvió **NO-GO / código 2** en `Server`. La revisión posterior de ACL encontró una regla `Allow FullControl` para el SID individual de la cuenta administrativa conectada: heredada en el entorno virtual, lanzador y Python base, y explícita en un padre. La cuenta coincidía con el usuario de la sesión elevada. Esto **no autoriza confiar automáticamente en ese SID**: el SID de usuario también se usa en un token sin elevación UAC. No existe evidencia de que el servidor real haya sido endurecido o de que el preflight Server apruebe.
+
+**Correcciones offline:** el preflight ahora devuelve una categoría fija de fase y motivo de fallo de ACL, sin mostrar rutas/identidades/excepciones de Windows; rechaza DACL inexistente o nula, además de ACE de escritura heredada o explícita. Las pruebas sintéticas de PowerShell 5.1 reproducen los casos. Las modificaciones no relajan el bloqueo para cuentas individuales ni ejecutan `Set-Acl`, `icacls`, tareas o servicios.
+
+**Procedimiento propuesto para una futura ventana de mantenimiento expresamente autorizada (NO EJECUTADO):**
+
+1. Inventariar en privado la identidad, origen y herencia de las ACE, propietarios y permisos efectivos del árbol del `venv`, Python base y sus padres; incluir DLL, `site-packages`, código y scripts de arranque. Identificar si las rutas están en el perfil de usuario u otro árbol compartido. No asumir que una ACL resumida describe todas las rutas desde las que se cargará código.
+2. Antes de modificar, preparar copia restaurable de código, configuración privada y entorno Python, exportar XML de las tareas y respaldar **DACL y propietarios** de los árboles específicos, por ejemplo usando `icacls <arbol> /save <respaldo_privado> /T` y SDDL/propietario por separado en una ubicación con acceso administrativo. Verificar la restauración en una copia aislada. `icacls /save` no guarda por sí solo el propietario. No publicar respaldos o secretos.
+3. Si la regla individual nace en una carpeta compartida o perfil de usuario, **preferir una instalación protegida paralela** de Python de máquina y un checkout dedicado con identidad de servicio y rutas explícitas. No aplicar `icacls /reset` ni retirar ACE de carpetas generales de Windows. Planificar conjuntamente las rutas del `venv`, `deployment.json`, scripts y tareas; reemplazos de venv o binarios no se realizan durante inspecciones de solo lectura.
+4. Con respaldo y rollback probado, validar en una ventana supervisada `Repository` y luego `Server` desde una copia de auditoría fijada al nuevo SHA; revisar HTTP/WSS legacy y restaurar la configuración si algo falla. Conservar **NO-GO** y prohibir despliegue/flags físicos mientras no aprueben seguridad, autoridad de comandos y parada física.
+
+**Alcance:** estas son instrucciones de preparación, no una autorización para cambiar ACL de EC2 ahora. Mientras Codex/ChatGPT avanza con el código, EC2/RDS pueden permanecer detenidos y ESP/batería desconectadas.
+
 ### Componente 2: HTTPS con candidato, caída y reversión
 
 El workflow `.github/workflows/kac-caddy-coexistence-ci.yml` ejecuta en un runner Linux efímero:
