@@ -38,6 +38,8 @@ def test_negative_witness_labels_stop_as_not_physically_preemptive():
         '"MOVIMIENTO_SALIO"',
         '["STOP_VIRTUAL", "MOVIMIENTO_ENTRO"]',
         'stopped["parada_fisica_verificada"] is False',
+        'isinstance(result, HTTPException) and result.status_code == 409',
+        "SIN FALSO EXITO",
         "NO-GO CONTROL FISICO",
     ):
         assert phrase in source
