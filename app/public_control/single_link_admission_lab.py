@@ -23,7 +23,7 @@ class AdmissionDenied(Exception):
     pass
 
 
-_CLIENT_TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\\Z", re.ASCII)
+_CLIENT_TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z", re.ASCII)
 
 
 @dataclass
