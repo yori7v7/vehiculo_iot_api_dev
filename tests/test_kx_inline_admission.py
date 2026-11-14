@@ -121,7 +121,7 @@ def test_kx_rejects_invalid_context_and_never_exposes_motion(app):
         assert client.post(GUEST, headers=headers).status_code == 201
         assert client.post(GUEST, headers={
             **headers, "X-Browser-Proposal": token_urlsafe(32)
-        }).status_code != 201
+        }).status_code == 409
 
         allowed = client.options(GUEST, headers={
             "Origin": ORIGIN,
