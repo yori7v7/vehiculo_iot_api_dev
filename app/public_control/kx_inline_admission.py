@@ -113,8 +113,14 @@ async def visitor_request(id_vehiculo: int, request: Request, response: Response
     # El límite durable aplica incluso si Caddy no propaga IP: no se confía
     # en encabezados X-Forwarded-* que aporte el visitante.
     peer = request.client.host if request.client else "sin-identidad"
-    row = _run(lambda: ledger.request_idempotent(peer, keys[0], proposals[0]),
-               denied=429)
+    try:
+        row = ledger.request_idempotent(peer, keys[0], proposals[0])
+    except KRTicketDenied as error:
+        # Cuota agotada: 429; reintento con otras credenciales: 409.
+        status = 429 if "Limite de solicitudes" in str(error) else 409
+        raise HTTPException(status, "Solicitud de admision no disponible") from None
+    except (FenceRejected, StoreUnavailable):
+        raise HTTPException(503, "Registro de admision no verificable") from None
     response.status_code = 200 if row["idempotent_replay"] else 201
     return row
 
