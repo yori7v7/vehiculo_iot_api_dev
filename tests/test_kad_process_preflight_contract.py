@@ -94,6 +94,7 @@ def test_kad_identity_matrix_is_executed_by_windows_ci_only():
         assert f"Name='{scenario}'" in case_scenarios
 
     # Fail closed even when a nullable ACL would otherwise report no unsafe ACEs.
+    code = PREFLIGHT.read_text(encoding="utf-8")
     assert "KAC_ACL_DACL_AUSENTE" in code
     assert "GetSecurityDescriptorBinaryForm" in code
     assert "Categoria segura" in code
