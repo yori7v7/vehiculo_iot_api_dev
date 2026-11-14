@@ -147,6 +147,38 @@ function Get-Acl {
             IdentityReference = [pscustomobject]@{Value = 'S-1-5-32-545'}
             FileSystemRights = [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles
             PropagationFlags = $propagation
+            IsInherited = $false
+        })
+    }
+    # Reproduce the EC2 finding without using the machine's real SID:
+    # explicit FullControl for an individual local administrator remains unsafe
+    # even when the interactive operator currently has an elevated token.
+    $untrustedUser = 'S-1-5-21-111111-222222-333333-500'
+    if ($scenario -eq 'untrusted-venv-user-inherited' -and $LiteralPath -eq $venvRoot) {
+        $rules = @([pscustomobject]@{
+            AccessControlType = 'Allow'
+            IdentityReference = [pscustomobject]@{Value = $untrustedUser}
+            FileSystemRights = [Security.AccessControl.FileSystemRights]::FullControl
+            PropagationFlags = [Security.AccessControl.PropagationFlags]::None
+            IsInherited = $true
+        })
+    }
+    if ($scenario -eq 'untrusted-parent-user-explicit' -and $LiteralPath -eq $legacy) {
+        $rules = @([pscustomobject]@{
+            AccessControlType = 'Allow'
+            IdentityReference = [pscustomobject]@{Value = $untrustedUser}
+            FileSystemRights = [Security.AccessControl.FileSystemRights]::FullControl
+            PropagationFlags = [Security.AccessControl.PropagationFlags]::None
+            IsInherited = $false
+        })
+    }
+    if ($scenario -eq 'untrusted-base-user-inherited' -and $LiteralPath -eq $baseImage) {
+        $rules = @([pscustomobject]@{
+            AccessControlType = 'Allow'
+            IdentityReference = [pscustomobject]@{Value = $untrustedUser}
+            FileSystemRights = [Security.AccessControl.FileSystemRights]::FullControl
+            PropagationFlags = [Security.AccessControl.PropagationFlags]::None
+            IsInherited = $true
         })
     }
     $acl | Add-Member NoteProperty FixtureRules $rules
@@ -232,6 +264,9 @@ $cases = @(
     @{Name='linked-config';ExpectedExit=2;Root=$legacy;Message='Preflight incompleto'},
     @{Name='untrusted-config-owner';ExpectedExit=2;Root=$legacy;Message='Preflight incompleto'},
     @{Name='unsafe-parent-acl';ExpectedExit=2;Root=$legacy;Message='Preflight incompleto'},
+    @{Name='untrusted-venv-user-inherited';ExpectedExit=2;Root=$legacy;Message='Categoria segura: ancestros-venv; permiso de escritura heredado'},
+    @{Name='untrusted-parent-user-explicit';ExpectedExit=2;Root=$legacy;Message='Categoria segura: ancestros-venv; permiso de escritura explicito'},
+    @{Name='untrusted-base-user-inherited';ExpectedExit=2;Root=$legacy;Message='Categoria segura: archivos-python-base; permiso de escritura heredado'},
     @{Name='wrong-base-version';ExpectedExit=2;Root=$legacy;Message='Preflight incompleto'}
 )
 foreach ($case in $cases) {
