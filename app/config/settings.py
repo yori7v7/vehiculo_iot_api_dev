@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     control_publico_turn_seconds: int = Field(default=120, ge=1, le=1200)
     control_publico_inactivity_seconds: int = Field(default=20, ge=1, le=1200)
 
+    # K-X: admisión VIRTUAL in-process. Nunca autoriza motores; OFF por defecto.
+    public_virtual_admission_enabled: ExplicitBool = False
+    public_virtual_admission_sqlite_path: Path | None = None
+
     # Canal WSS aislado para pruebas con dispositivo virtual, jamás físico.
     device_lab_enabled: ExplicitBool = False
     device_lab_vehicle_id: SimulatedVehicleId = 1
@@ -87,6 +91,17 @@ class Settings(BaseSettings):
                 decoded(self.device_lab_key.get_secret_value(), NONCE_LEN)
             except ValueError as e:
                 raise ValueError("Configura una clave privada de laboratorio de 32 bytes en Base64url.") from e
+        if self.public_virtual_admission_enabled:
+            admission = self.public_virtual_admission_sqlite_path
+            if (self.app_env != "production" or self.control_publico_enabled
+                    or self.device_lab_enabled or admission is None
+                    or not admission.is_absolute()
+                    or admission.resolve().is_relative_to(PROJECT_ROOT.resolve())
+                    or len(self.api_key.get_secret_value()) < 32):
+                raise ValueError(
+                    "La admision virtual exige produccion, SQLite privada fuera del repo "
+                    "y API_KEY administrativa robusta; nunca activa motores."
+                )
         return self
 
 
