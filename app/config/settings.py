@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     control_publico_turn_seconds: int = Field(default=120, ge=1, le=1200)
     control_publico_inactivity_seconds: int = Field(default=20, ge=1, le=1200)
 
+    # Canal WSS aislado para pruebas con dispositivo virtual, jamás físico.
+    device_lab_enabled: ExplicitBool = False
+    device_lab_vehicle_id: SimulatedVehicleId = 1
+    device_lab_key: SecretStr = Field(default=SecretStr(""), repr=False)
+
     @model_validator(mode="after")
     def check_public_control_settings(self) -> "Settings":
         if self.control_publico_enabled != self.control_publico_simulation:
@@ -74,6 +79,14 @@ class Settings(BaseSettings):
             raise ValueError("Los vehículos simulados deben ser únicos y contener al menos un ID.")
         if self.control_publico_inactivity_seconds > self.control_publico_turn_seconds:
             raise ValueError("La inactividad no puede superar la duración máxima de turno.")
+        if self.device_lab_enabled:
+            if self.app_env != "development" or self.control_publico_enabled:
+                raise ValueError("El WSS de laboratorio exige desarrollo sin turnos simultáneos.")
+            from app.device_channel.authenticated_lab import decoded, NONCE_LEN
+            try:
+                decoded(self.device_lab_key.get_secret_value(), NONCE_LEN)
+            except ValueError as e:
+                raise ValueError("Configura una clave privada de laboratorio de 32 bytes en Base64url.") from e
         return self
 
 

@@ -1,0 +1,30 @@
+name: K-AA LocalService ejecuta sidecar REAL virtual (CI)
+on:
+  push:
+    branches:
+      - feature/5-5a-dispositivo-protocolo-aislado
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-localservice-real:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python de pruebas Windows
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Librerías aisladas
+        run: python -m pip install -r requirements-dev.txt
+      - name: Task Scheduler LocalService y FastAPI virtual reales
+        shell: powershell
+        run: |
+          .\tests\kaa_task_localservice_real_ci.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-AA sidecar LocalService NO-GO' }

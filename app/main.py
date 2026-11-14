@@ -6,9 +6,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config.settings import get_settings
+from app.device_channel.ws_lab import DeviceLabRegistry, router as device_lab_router
+from app.device_channel.command_lab_ws import router as command_lab_router
 from app.errors.handlers import register_exception_handlers
 from app.execution.manager import DemoExecutionManager
 from app.public_control.http import ScopedControlMiddleware, router as public_control_router
+from app.public_control.legacy_handover import LegacyHandoverGate
+from app.public_control.kf_bridge import router as kf_bridge_router
+from app.public_control.ki_ingress import router as ki_ingress_router
+from app.public_control.kk_admin_lab import router as kk_admin_lab_router
 from app.public_control.runtime import public_control_runtime
 from app.routers.commands import router as commands_router
 from app.routers.demos import router as demos_router
@@ -69,7 +75,23 @@ def create_app() -> FastAPI:
         settings.control_publico_enabled or settings.control_publico_simulation
     )
     application.state.public_control = None
+    # K-D: apagado hasta integrar en el mismo proceso una autoridad única y STOP seguro.
+    application.state.exclusive_device_control_enabled = False
+    # Preparacion K-E solo en proceso; ninguna ruta HTTP cambia su fase.
+    application.state.legacy_handover = LegacyHandoverGate()
+    # K-F: NO instalar una autoridad nueva automaticamente ni en AWS.
+    application.state.kf_bridge = None
+    application.state.kf_wss_controller = None
+    # K-I: contrato HTTPS solo para pruebas; en produccion siempre cerrado.
+    application.state.ki_ingress = None
+    application.state.ki_expected_host = None
+    application.state.ki_contract_test_enabled = False
+    # K-K: acceso exclusivo al laboratorio K-G, nunca AWS.
+    application.state.kj_lab_enabled = False
+    application.state.kj_expected_host = None
     application.state.public_control_unavailable = False
+    application.state.device_lab_settings = settings
+    application.state.device_lab_registry = DeviceLabRegistry()
     application.state.websocket_manager = WebSocketManager()
     application.state.demo_execution_manager = DemoExecutionManager(application.state.websocket_manager)
     application.include_router(health_router)
@@ -81,7 +103,16 @@ def create_app() -> FastAPI:
     application.include_router(demos_router)
     application.include_router(demo_execution_router)
     application.include_router(public_control_router)
+    # Rutas de laboratorio K-F: siempre 503 hasta traspaso interno verificado.
+    application.include_router(kf_bridge_router)
+    # Ruta K-I pública en forma, pero HTTP 403/503 hasta infraestructura auditada.
+    application.include_router(ki_ingress_router)
+    # K-K: rutas administrativas inactivas salvo handover local verificado.
+    application.include_router(kk_admin_lab_router)
     application.include_router(websocket_router)
+    # WSS de laboratorio aislado, sin capacidad de actuación física.
+    application.include_router(device_lab_router)
+    application.include_router(command_lab_router)
     register_exception_handlers(application)
     return application
 
