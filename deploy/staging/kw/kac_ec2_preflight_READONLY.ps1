@@ -13,6 +13,8 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..\..')).ProviderPath
 $script:failures = New-Object 'System.Collections.Generic.List[string]'
 $script:passed = New-Object 'System.Collections.Generic.List[string]'
+# Public status contains only fixed diagnostic categories, never OS exception text.
+$script:phase = 'repositorio'
 
 function Test-KAC([bool]$Ok, [string]$Message) {
     if ($Ok) { $script:passed.Add($Message) }
@@ -53,7 +55,7 @@ function Get-KACArtifact([string]$Path, [bool]$Directory, [switch]$Protected, [s
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     if ($item.PSIsContainer -ne $Directory -or
         ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        throw 'Artefacto legacy de tipo inesperado o redirigido.'
+        throw 'KAC_ARTEFACTO_TIPO_O_REPARSE'
     }
     if ($Protected -or $Ancestor) {
         # SYSTEM, Administrators and TrustedInstaller can replace these artifacts.
@@ -68,14 +70,15 @@ function Get-KACArtifact([string]$Path, [bool]$Directory, [switch]$Protected, [s
             $write = $write -bor [Security.AccessControl.FileSystemRights]::Write -bor 0x40000000 # GENERIC_WRITE
         }
         if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin $trusted) {
-            throw 'Propietario inesperado de un artefacto protegido.'
+            throw 'KAC_ACL_PROPIETARIO'
         }
         foreach ($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
             if ($rule.AccessControlType -eq 'Allow' -and
                 $rule.IdentityReference.Value -notin $trusted -and
                 -not ($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -and
                 ($rule.FileSystemRights -band $write)) {
-                throw 'Escritura no autorizada sobre un artefacto protegido.'
+                if ($rule.IsInherited) { throw 'KAC_ACL_ESCRITURA_HEREDADA' }
+                throw 'KAC_ACL_ESCRITURA_EXPLICITA'
             }
         }
     }
@@ -164,6 +167,7 @@ try {
             throw 'No existe el estado original de Windows.'
         }
 
+        $script:phase = 'configuracion-estable'
         $configurationPath = Join-Path $installed 'deployment.json'
         $currentCaddyPath = Join-Path $installed 'Caddyfile'
         $null = Get-KACArtifact $installed $true -Protected
@@ -192,6 +196,7 @@ try {
         }
         # No confundir plantilla y Caddy activo. La revisión verifica
         # autoridad y acciones EXACTAS, sin arrancar servicios.
+        $script:phase = 'tareas-estables'
         $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $scriptNames = @('api','caddy')
         $taskNames = @('VehiculoIoT-FastAPI','VehiculoIoT-Caddy')
@@ -217,6 +222,7 @@ try {
         # Preflight ANTES del staging: sin 8000 no hay continuidad legacy;
         # con CUALQUIER 9444 activo no se debe asumir un estado limpio.
         # La política es una función pura, probada en Windows CI con fixtures.
+        $script:phase = 'puertos'
         . (Join-Path $PSScriptRoot 'kad_listener_policy.ps1')
         $listeners = @(Get-KACListeners)
         $legacyListeners = @($listeners | Where-Object LocalPort -eq 8000)
@@ -233,6 +239,7 @@ try {
         # con el proceso Windows vivo y el PID dueño de cada socket.
         # NO se imprimen PID, rutas, tokens ni registros del host.
         . (Join-Path $PSScriptRoot 'kad_process_policy.ps1')
+        $script:phase = 'registros-procesos'
         $runDirectory = Join-Path $installed 'run'
         $null = Get-KACArtifact $runDirectory $true -Protected
         $observed = @{}
@@ -257,7 +264,9 @@ try {
                     $listenerId = [int]$legacyListeners[0].OwningProcess
                     $ownershipArgs.ListenerProcess = Read-KACObservedProcess $observed $listenerId
                     $venvDirectory = Join-Path $legacyRoot '.venv'
+                    $script:phase = 'ancestros-venv'
                     Assert-KACLocalParents $expectedPython
+                    $script:phase = 'archivos-venv'
                     $null = Get-KACArtifact $venvDirectory $true -Protected
                     $null = Get-KACArtifact (Join-Path $venvDirectory 'Scripts') $true -Protected
                     $launcher = Get-KACArtifact $expectedPython $false -Protected
@@ -271,7 +280,9 @@ try {
                     if ($null -eq $venv -or $ownershipArgs.ListenerProcess.ExecutablePath -ne $venv.BaseImagePath) {
                         throw 'El runtime del listener no coincide con pyvenv.cfg.'
                     }
+                    $script:phase = 'ancestros-python-base'
                     Assert-KACLocalParents $venv.BaseImagePath
+                    $script:phase = 'archivos-python-base'
                     $null = Get-KACArtifact ([IO.Path]::GetDirectoryName($venv.BaseImagePath)) $true -Protected
                     $basePython = Get-KACArtifact $venv.BaseImagePath $false -Protected
                     if ($launcher.VersionInfo.ProductVersion -cne $venv.Version -or
@@ -283,12 +294,14 @@ try {
             } else {
                 $listeners | Where-Object LocalPort -eq 443
             }
+            $script:phase = if ($component -eq 'api') { 'identidad-api' } else { 'identidad-caddy' }
             $ownership = Test-KADProcessOwnership -Listeners @($ownedListeners) -Record $child -Process $livingProcess -ExpectedImagePath $expectedImage @ownershipArgs
             Test-KAC ($ownership.IsSafe) ('Propiedad de proceso y listeners '+ $component + ' confirmada')
             if ($ownership.IsSafe -and $ownership.UsesVenvRedirector) {
                 $script:passed.Add('FastAPI: redireccionador de Python validado')
             }
         }
+        $script:phase = 'estabilidad-procesos'
         foreach ($observedId in $observed.Keys) {
             Test-KAC (Test-KACSameProcess $observed[$observedId] (Get-KACProcess $observedId)) 'Identidad de proceso estable durante la inspeccion'
         }
@@ -296,6 +309,7 @@ try {
         $firstKeys = @($listeners | ForEach-Object { '{0}|{1}|{2}' -f $_.LocalPort,$_.LocalAddress,$_.OwningProcess } | Sort-Object)
         $latestKeys = @($latest | ForEach-Object { '{0}|{1}|{2}' -f $_.LocalPort,$_.LocalAddress,$_.OwningProcess } | Sort-Object)
         Test-KAC (($firstKeys -join ',') -ceq ($latestKeys -join ',')) 'Listeners estables durante la inspeccion'
+        $script:phase = 'staging-deshabilitado'
         $staging = Join-Path $programData 'VehiculoIoT-Admission-Staging'
         # Un paquete preinstalado NO es una autorización de arranque.
         if (Test-Path -LiteralPath $staging -PathType Container) {
@@ -312,7 +326,18 @@ try {
     }
 }
 catch {
+    # Do not print exception messages: they may contain confidential host paths.
+    $safeReasons = @{
+        'KAC_ACL_PROPIETARIO' = 'propietario no autorizado'
+        'KAC_ACL_ESCRITURA_HEREDADA' = 'permiso de escritura heredado fuera de la lista de confianza'
+        'KAC_ACL_ESCRITURA_EXPLICITA' = 'permiso de escritura explicito fuera de la lista de confianza'
+        'KAC_ARTEFACTO_TIPO_O_REPARSE' = 'tipo de archivo o redireccion inesperado'
+    }
+    $key = [string]$_.Exception.Message
+    $reason = if ($safeReasons.ContainsKey($key)) { $safeReasons[$key] }
+        else { 'comprobacion incompleta (detalle reservado)' }
     $script:failures.Add('Preflight incompleto; no iniciar ni modificar servicios')
+    $script:failures.Add(('Categoria segura: {0}; {1}' -f $script:phase, $reason))
 }
 foreach ($line in $script:passed) { Write-Output ('[K-AC] OK: ' + $line) }
 foreach ($line in $script:failures) { Write-Output ('[K-AC] NO-GO: ' + $line) }
