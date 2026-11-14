@@ -19,7 +19,26 @@ Comando permitido **ahora, solo para una copia local de la rama experimental**, 
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ".\deploy\staging\kw\kac_ec2_preflight_READONLY.ps1" -Mode Repository
 ```
 
-El comando `-Mode Server` se reserva para una futura ventana autorizada de inspección, nunca para la preparación offline. La validación de GitHub Actions sobre un Windows sin instalación reproduce el caso **NO-GO**.
+En una ventana de inspección autorizada, prepara una **copia separada de auditoría** de la rama experimental en una carpeta de acceso administrativo. Verifica que el HEAD sea el commit revisado y que la copia esté limpia. Ejecuta primero el modo Repository desde esa copia. En Windows PowerShell 5.1 elevado, usa la raíz de la instalación estable y su directorio de estado real. Estas son las rutas de ejemplo de la guía de EC2.
+
+~~~powershell
+$audit = 'C:\Auditoria\vehiculo-iot-preflight'
+$legacy = 'C:\vehiculo_iot_api_dev'
+$state = Join-Path $env:ProgramData 'VehiculoIoT'
+$preflight = Join-Path $audit 'deploy\staging\kw\kac_ec2_preflight_READONLY.ps1'
+
+git -C $audit rev-parse HEAD
+git -C $audit status --short
+# Después de verificar el SHA y la copia limpia
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $preflight -Mode Repository
+if ($LASTEXITCODE -ne 0) { throw 'NO-GO en la copia de auditoría' }
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $preflight -Mode Server -LegacyProjectRoot $legacy -LegacyStateDirectory $state
+if ($LASTEXITCODE -ne 0) { throw 'NO-GO en la inspección de la instalación estable' }
+~~~
+
+El modo Server coteja las rutas de la instalación estable con el registro protegido y la configuración de las tareas. Para FastAPI exige exactamente un listener en IPv4 loopback, valida el supervisor y el proceso registrado y admite un hijo directo del lanzador virtual si coinciden la cronología, el Python base y su versión declarada en el venv, los argumentos completos de Uvicorn y los permisos de los archivos. En ese caso aparece «FastAPI: redireccionador de Python validado». Todos los listeners de Caddy deben pertenecer al PID registrado y 9444 debe estar libre. El script vuelve a comprobar los PID y listeners durante la inspección.
+
+La salida 0 acredita la inspección observada. La salida 2 indica NO-GO. Conserva la instalación original, su configuración y sus tareas durante todo el procedimiento. La validación de GitHub Actions incluye casos sintéticos para Windows sin instalación y para una auditoría de Server desde una copia separada.
 
 ### Componente 2: HTTPS con candidato, caída y reversión
 

@@ -5,7 +5,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Repository','Server')][string]$Mode = 'Repository',
-    [string]$LegacyStateDirectory
+    [string]$LegacyStateDirectory,
+    [string]$LegacyProjectRoot
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -31,7 +32,7 @@ function HasUnsafeWrite-KAC([string]$Path) {
         [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
         [Security.AccessControl.FileSystemRights]::TakeOwnership
     $everyone = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')
-    $acl = Get-Acl -LiteralPath $Path
+    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
     $rules = @($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
     foreach ($r in $rules) {
         if ($r.AccessControlType -eq 'Allow' -and
@@ -39,6 +40,88 @@ function HasUnsafeWrite-KAC([string]$Path) {
             (($r.FileSystemRights -band $mask) -ne 0)) { return $true }
     }
     return $false
+}
+
+function Get-KACLocalPath([string]$Path) {
+    if ($Path -notmatch '^[A-Za-z]:\\' -or $Path.Substring(2) -match '[:*\?"<>\|\x00-\x1f]') {
+        throw 'Se espera una ruta absoluta de un volumen local.'
+    }
+    return [IO.Path]::GetFullPath($Path).TrimEnd('\')
+}
+
+function Get-KACArtifact([string]$Path, [bool]$Directory, [switch]$Protected, [switch]$Ancestor) {
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($item.PSIsContainer -ne $Directory -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Artefacto legacy de tipo inesperado o redirigido.'
+    }
+    if ($Protected -or $Ancestor) {
+        # SYSTEM, Administrators and TrustedInstaller can replace these artifacts.
+        $trusted = @('S-1-5-18', 'S-1-5-32-544',
+            'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+        $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        $write = [Security.AccessControl.FileSystemRights]::Delete -bor
+            [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+            [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+            [Security.AccessControl.FileSystemRights]::TakeOwnership -bor 0x10000000 # GENERIC_ALL
+        if ($Protected) {
+            $write = $write -bor [Security.AccessControl.FileSystemRights]::Write -bor 0x40000000 # GENERIC_WRITE
+        }
+        if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin $trusted) {
+            throw 'Propietario inesperado de un artefacto protegido.'
+        }
+        foreach ($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
+            if ($rule.AccessControlType -eq 'Allow' -and
+                $rule.IdentityReference.Value -notin $trusted -and
+                -not ($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -and
+                ($rule.FileSystemRights -band $write)) {
+                throw 'Escritura no autorizada sobre un artefacto protegido.'
+            }
+        }
+    }
+    return $item
+}
+
+function Assert-KACLocalParents([string]$Path) {
+    $parent = [IO.Path]::GetDirectoryName($Path)
+    while ($parent) {
+        # A parent may allow creation of unrelated entries, but cannot allow
+        # ordinary users to replace the protected path beneath it.
+        $null = Get-KACArtifact $parent $true -Ancestor
+        $parent = [IO.Path]::GetDirectoryName($parent)
+    }
+}
+
+function Get-KACProcess([int]$ProcessId) {
+    if ($ProcessId -le 0) { throw 'Identificador de proceso invalido.' }
+    $matches = @(Get-CimInstance Win32_Process -Filter ('ProcessId = {0}' -f $ProcessId) -ErrorAction Stop)
+    if ($matches.Count -ne 1 -or $matches[0].ProcessId -ne $ProcessId) {
+        throw 'El proceso registrado no tiene una identidad viva unica.'
+    }
+    return $matches[0]
+}
+
+function Read-KACObservedProcess([hashtable]$Observed, [int]$ProcessId) {
+    if ($Observed.ContainsKey($ProcessId)) {
+        throw 'El mismo PID aparece en mas de un rol de proceso.'
+    }
+    $process = Get-KACProcess $ProcessId
+    $Observed[$ProcessId] = $process
+    return $process
+}
+
+function Test-KACSameProcess($Before, $After) {
+    return $Before.ProcessId -eq $After.ProcessId -and
+        $Before.ParentProcessId -eq $After.ParentProcessId -and
+        $Before.CreationDate -eq $After.CreationDate -and
+        $Before.ExecutablePath -eq $After.ExecutablePath -and
+        $Before.CommandLine -ceq $After.CommandLine
+}
+
+function Get-KACListeners {
+    # A single full query distinguishes an unoccupied port from a provider failure.
+    Get-NetTCPConnection -State Listen -ErrorAction Stop |
+        Where-Object { $_.LocalPort -in @(443, 8000, 9444) }
 }
 
 try {
@@ -68,7 +151,9 @@ try {
         if ([string]::IsNullOrWhiteSpace($LegacyStateDirectory)) {
             $LegacyStateDirectory = Join-Path $programData 'VehiculoIoT'
         }
-        $installed = [IO.Path]::GetFullPath($LegacyStateDirectory).TrimEnd('\')
+        $installed = Get-KACLocalPath $LegacyStateDirectory
+        $legacyRoot = if ([string]::IsNullOrWhiteSpace($LegacyProjectRoot)) { $root }
+            else { Get-KACLocalPath $LegacyProjectRoot }
         $stateInsideProgramData = $installed.StartsWith(($programData + '\'),
             [StringComparison]::OrdinalIgnoreCase)
         Test-KAC ($stateInsideProgramData) 'Estado legacy dentro de ProgramData'
@@ -81,22 +166,28 @@ try {
 
         $configurationPath = Join-Path $installed 'deployment.json'
         $currentCaddyPath = Join-Path $installed 'Caddyfile'
+        $null = Get-KACArtifact $installed $true -Protected
+        Assert-KACLocalParents $configurationPath
+        $null = Get-KACArtifact $configurationPath $false -Protected
+        $null = Get-KACArtifact $currentCaddyPath $false
         $cfg = (Read-KAC $configurationPath) | ConvertFrom-Json
         $persistent = Normalize-KAC (Read-KAC $currentCaddyPath)
-        # El Caddyfile REAL puede diferir de la plantilla; no reemplazarlo.
-        $expectedPython = Join-Path $root '.venv\Scripts\python.exe'
+        # The audit checkout supplies templates, never the identity of installed binaries.
+        $expectedPython = Join-Path $legacyRoot '.venv\Scripts\python.exe'
         $expectedCaddy = Join-Path $installed 'bin\caddy.exe'
-        Test-KAC (($cfg.schema_version -eq 1) -and
+        $configMatches = ($cfg.schema_version -eq 1) -and
             ($cfg.state_directory -eq $installed) -and
-            ($cfg.project_root -eq $root) -and
+            ($cfg.project_root -eq $legacyRoot) -and
             ($cfg.caddyfile_path -eq $currentCaddyPath) -and
             ($cfg.python_path -eq $expectedPython) -and
-            ($cfg.caddy_path -eq $expectedCaddy)) 'deployment.json corresponde al checkout, binarios y estado real'
+            ($cfg.caddy_path -eq $expectedCaddy)
+        Test-KAC $configMatches 'deployment.json corresponde a la instalacion legacy, binarios y estado real'
+        if (-not $configMatches) { throw 'Configuracion legacy discrepante.' }
         Test-KAC (-not (HasUnsafeWrite-KAC $installed)) 'Directorio de estado legacy no editable por usuarios comunes'
         Test-KAC ($persistent.Contains('reverse_proxy 127.0.0.1:8000') -and
             (-not $persistent.Contains('127.0.0.1:9444'))) 'Caddy persistente conserva la ruta anterior antes de cambios'
         Test-KAC (-not (HasUnsafeWrite-KAC $currentCaddyPath)) 'Caddy persistente no editable por usuarios comunes'
-        foreach ($path in @($root, (Join-Path $root 'app'), $cfg.python_path, $cfg.caddy_path)) {
+        foreach ($path in @($legacyRoot, (Join-Path $legacyRoot 'app'), $expectedPython, $expectedCaddy)) {
             Test-KAC ((Test-Path -LiteralPath $path) -and (-not (HasUnsafeWrite-KAC $path))) 'Codigo/Python no modificable por usuarios comunes'
         }
         # No confundir plantilla y Caddy activo. La revisión verifica
@@ -104,54 +195,107 @@ try {
         $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $scriptNames = @('api','caddy')
         $taskNames = @('VehiculoIoT-FastAPI','VehiculoIoT-Caddy')
+        $apiTaskArguments = $null
         for($i=0;$i -lt 2;$i++) {
             $task = Get-ScheduledTask -TaskPath '\' -TaskName $taskNames[$i] -ErrorAction SilentlyContinue
             if($null -eq $task) {
                 $script:failures.Add('No se encontró tarea legacy esperada')
                 continue
             }
-            $runScript = Join-Path $root ('deploy\windows\run_' + $scriptNames[$i] + '.ps1')
+            $runScript = Join-Path $legacyRoot ('deploy\windows\run_' + $scriptNames[$i] + '.ps1')
             $arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -StateDirectory "{1}"' -f $runScript, $installed
             Test-KAC (@($task.Actions).Count -eq 1 -and
                 $task.Actions[0].Execute -eq $powershell -and
-                $task.Actions[0].Arguments -eq $arguments) 'Acción de tarea legacy coincide sin modificaciones'
+                $task.Actions[0].Arguments -eq $arguments -and
+                $task.Actions[0].WorkingDirectory -eq $legacyRoot) 'Acción de tarea legacy coincide sin modificaciones'
             Test-KAC ($task.Principal.UserId -in @('SYSTEM','NT AUTHORITY\SYSTEM','S-1-5-18')) 'Principal de tarea legacy original'
             Test-KAC ([string]$task.State -eq 'Running') 'La tarea legacy original se mantiene ejecutando'
+            $null = Get-KACArtifact $runScript $false
+            Test-KAC (-not (HasUnsafeWrite-KAC $runScript)) 'Lanzador legacy no editable por usuarios comunes'
+            if ($i -eq 0) { $apiTaskArguments = $arguments }
         }
         # Preflight ANTES del staging: sin 8000 no hay continuidad legacy;
         # con CUALQUIER 9444 activo no se debe asumir un estado limpio.
         # La política es una función pura, probada en Windows CI con fixtures.
         . (Join-Path $PSScriptRoot 'kad_listener_policy.ps1')
-        $legacyListeners = @(Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue)
-        $sidecarListeners = @(Get-NetTCPConnection -LocalPort 9444 -State Listen -ErrorAction SilentlyContinue)
+        $listeners = @(Get-KACListeners)
+        $legacyListeners = @($listeners | Where-Object LocalPort -eq 8000)
+        $sidecarListeners = @($listeners | Where-Object LocalPort -eq 9444)
         $portVerdict = Test-KADPortPolicy -LegacyListeners $legacyListeners -SidecarListeners $sidecarListeners
         Test-KAC ($portVerdict.LegacyPresent) 'Backend original 8000 tiene listener'
         Test-KAC ($portVerdict.LegacyLoopbackOnly) 'Todos los listeners legacy 8000 usan loopback'
         Test-KAC ($portVerdict.SidecarAbsent) 'Puerto staging 9444 desocupado antes de instalar'
+        $expectedApiListener = $legacyListeners.Count -eq 1 -and $legacyListeners[0].LocalAddress -ceq '127.0.0.1'
+        Test-KAC $expectedApiListener 'FastAPI tiene un unico listener en 127.0.0.1:8000'
         # K-AD: un puerto abierto no prueba identidad del servidor. Las tareas
         # originales registran PID + fecha de creación + imagen del proceso hijo
         # en ProgramData privado. El preflight solo lee y coteja ese registro
         # con el proceso Windows vivo y el PID dueño de cada socket.
         # NO se imprimen PID, rutas, tokens ni registros del host.
         . (Join-Path $PSScriptRoot 'kad_process_policy.ps1')
+        $runDirectory = Join-Path $installed 'run'
+        $null = Get-KACArtifact $runDirectory $true -Protected
+        $observed = @{}
         foreach ($component in @('api', 'caddy')) {
             $processRecordPath = Join-Path $installed ('run\' + $component + '.json')
+            $null = Get-KACArtifact $processRecordPath $false -Protected
             $record = (Read-KAC $processRecordPath) | ConvertFrom-Json
             $child = $record.child
             $expectedImage = if ($component -eq 'api') { $expectedPython } else { $expectedCaddy }
             $processIdToInspect = [int]$child.process_id
-            $livingProcess = $null
-            if ($processIdToInspect -gt 0) {
-                $livingProcess = Get-CimInstance Win32_Process -Filter ('ProcessId = {0}' -f $processIdToInspect) -ErrorAction SilentlyContinue
-            }
+            $livingProcess = Read-KACObservedProcess $observed $processIdToInspect
+            $ownershipArgs = @{}
             $ownedListeners = if ($component -eq 'api') {
+                # Recorded PowerShell -> venv redirector -> base Python.
+                $ownershipArgs.AllowPythonVenvRedirector = $true
+                $ownershipArgs.SupervisorRecord = $record.supervisor
+                $supervisorId = [int]$record.supervisor.process_id
+                $ownershipArgs.SupervisorProcess = Read-KACObservedProcess $observed $supervisorId
+                $ownershipArgs.ExpectedSupervisorImagePath = $powershell
+                $ownershipArgs.ExpectedSupervisorArguments = $apiTaskArguments
+                if ($expectedApiListener -and $legacyListeners[0].OwningProcess -ne $processIdToInspect) {
+                    $listenerId = [int]$legacyListeners[0].OwningProcess
+                    $ownershipArgs.ListenerProcess = Read-KACObservedProcess $observed $listenerId
+                    $venvDirectory = Join-Path $legacyRoot '.venv'
+                    Assert-KACLocalParents $expectedPython
+                    $null = Get-KACArtifact $venvDirectory $true -Protected
+                    $null = Get-KACArtifact (Join-Path $venvDirectory 'Scripts') $true -Protected
+                    $launcher = Get-KACArtifact $expectedPython $false -Protected
+                    $venvConfig = Join-Path $venvDirectory 'pyvenv.cfg'
+                    $metadataFile = Get-KACArtifact $venvConfig $false -Protected
+                    if ($metadataFile.Length -lt 1 -or $metadataFile.Length -gt 8192) {
+                        throw 'Tamano invalido de pyvenv.cfg.'
+                    }
+                    $ownershipArgs.VenvConfigLines = @(Get-Content -LiteralPath $venvConfig -Encoding UTF8 -ErrorAction Stop)
+                    $venv = Get-KADVenvMetadata -VenvConfigLines $ownershipArgs.VenvConfigLines -ExpectedImagePath $expectedPython
+                    if ($null -eq $venv -or $ownershipArgs.ListenerProcess.ExecutablePath -ne $venv.BaseImagePath) {
+                        throw 'El runtime del listener no coincide con pyvenv.cfg.'
+                    }
+                    Assert-KACLocalParents $venv.BaseImagePath
+                    $null = Get-KACArtifact ([IO.Path]::GetDirectoryName($venv.BaseImagePath)) $true -Protected
+                    $basePython = Get-KACArtifact $venv.BaseImagePath $false -Protected
+                    if ($launcher.VersionInfo.ProductVersion -cne $venv.Version -or
+                        $basePython.VersionInfo.ProductVersion -cne $venv.Version) {
+                        throw 'Version de Python incompatible con pyvenv.cfg.'
+                    }
+                }
                 $legacyListeners
             } else {
-                @(Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue)
+                $listeners | Where-Object LocalPort -eq 443
             }
-            $ownership = Test-KADProcessOwnership -Listeners $ownedListeners -Record $child -Process $livingProcess -ExpectedImagePath $expectedImage
+            $ownership = Test-KADProcessOwnership -Listeners @($ownedListeners) -Record $child -Process $livingProcess -ExpectedImagePath $expectedImage @ownershipArgs
             Test-KAC ($ownership.IsSafe) ('Propiedad de proceso y listeners '+ $component + ' confirmada')
+            if ($ownership.IsSafe -and $ownership.UsesVenvRedirector) {
+                $script:passed.Add('FastAPI: redireccionador de Python validado')
+            }
         }
+        foreach ($observedId in $observed.Keys) {
+            Test-KAC (Test-KACSameProcess $observed[$observedId] (Get-KACProcess $observedId)) 'Identidad de proceso estable durante la inspeccion'
+        }
+        $latest = @(Get-KACListeners)
+        $firstKeys = @($listeners | ForEach-Object { '{0}|{1}|{2}' -f $_.LocalPort,$_.LocalAddress,$_.OwningProcess } | Sort-Object)
+        $latestKeys = @($latest | ForEach-Object { '{0}|{1}|{2}' -f $_.LocalPort,$_.LocalAddress,$_.OwningProcess } | Sort-Object)
+        Test-KAC (($firstKeys -join ',') -ceq ($latestKeys -join ',')) 'Listeners estables durante la inspeccion'
         $staging = Join-Path $programData 'VehiculoIoT-Admission-Staging'
         # Un paquete preinstalado NO es una autorización de arranque.
         if (Test-Path -LiteralPath $staging -PathType Container) {

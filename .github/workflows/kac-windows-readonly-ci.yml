@@ -31,6 +31,11 @@ jobs:
         run: |
           .\tests\kad_process_policy_ci.ps1
           if ($LASTEXITCODE -ne 0) { throw 'K-AD: identidad de procesos no aprobada' }
+      - name: K-AC preflight Server con lectura del host simulada
+        shell: powershell
+        run: |
+          .\tests\kac_server_preflight_ci.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-AC: preflight Server simulado no aprobado' }
       - name: K-AF permisos ACL delete-child sin tocar el host
         shell: powershell
         run: |

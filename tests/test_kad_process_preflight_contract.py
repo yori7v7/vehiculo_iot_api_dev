@@ -11,6 +11,7 @@ PREFLIGHT = ROOT / "deploy/staging/kw/kac_ec2_preflight_READONLY.ps1"
 POLICY = ROOT / "deploy/staging/kw/kad_process_policy.ps1"
 WORKFLOW = ROOT / ".github/workflows/kac-windows-readonly-ci.yml"
 WIN_TEST = ROOT / "tests/kad_process_policy_ci.ps1"
+SERVER_TEST = ROOT / "tests/kac_server_preflight_ci.ps1"
 
 
 def test_kad_process_ownership_is_bound_to_windows_process_and_socket():
@@ -25,6 +26,12 @@ def test_kad_process_ownership_is_bound_to_windows_process_and_socket():
         "IdentityMatches",
         "AllListenersOwned",
         "HasListeners",
+        "AllowPythonVenvRedirector",
+        "UsesVenvRedirector",
+        "SupervisorRecord",
+        "ParentProcessId",
+        "CommandLine",
+        "VenvConfigLines",
     ):
         assert requirement in text
     assert "OrdinalIgnoreCase" in text
@@ -39,9 +46,12 @@ def test_kad_server_checks_legacy_and_https_owners_before_staging():
         "kad_process_policy.ps1",
         "Test-KADProcessOwnership",
         "Get-CimInstance Win32_Process",
-        "Get-NetTCPConnection -LocalPort 443",
-        "Get-NetTCPConnection -LocalPort 8000",
-        "Get-NetTCPConnection -LocalPort 9444",
+        "Get-NetTCPConnection -State Listen -ErrorAction Stop",
+        "LegacyProjectRoot",
+        "$ownershipArgs.AllowPythonVenvRedirector = $true",
+        "$ownershipArgs.ExpectedSupervisorArguments = $apiTaskArguments",
+        "pyvenv.cfg",
+        "Get-KADVenvMetadata",
         "Read-KAC $processRecordPath",
         "('run\\' + $component + '.json')",
         "$ownership.IsSafe",
@@ -51,6 +61,8 @@ def test_kad_server_checks_legacy_and_https_owners_before_staging():
     ):
         assert requirement in code, requirement
     assert "if (-not $stateInsideProgramData)" in code
+    assert not re.search(r"(?m)Get-NetTCPConnection[^\r\n]*SilentlyContinue", code)
+    assert not re.search(r"(?m)Get-CimInstance[^\r\n]*SilentlyContinue", code)
     # No dispatch, service mutation, file mutation, AWS, or actuator activity.
     for command in (
         "Start-ScheduledTask", "Stop-ScheduledTask", "Register-ScheduledTask",
@@ -71,3 +83,7 @@ def test_kad_identity_matrix_is_executed_by_windows_ci_only():
     assert "PID recirculado" in test_code
     assert "un listener propio y otro intruso" in test_code
     assert "sin proceso real" in test_code
+    assert "kac_server_preflight_ci.ps1" in workflow
+    case_scenarios = SERVER_TEST.read_text(encoding="utf-8")
+    for scenario in ("redirector", "wrong-project", "extra-listener", "socket-changed", "cim-changed", "linked-config"):
+        assert f"Name='{scenario}'" in case_scenarios
