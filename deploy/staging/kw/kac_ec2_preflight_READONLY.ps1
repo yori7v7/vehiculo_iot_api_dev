@@ -10,7 +10,6 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..\..')).ProviderPath
 $script:failures = New-Object 'System.Collections.Generic.List[string]'
 $script:passed = New-Object 'System.Collections.Generic.List[string]'
 # Public status contains only fixed diagnostic categories, never OS exception text.
@@ -62,6 +61,13 @@ function Get-KACArtifact([string]$Path, [bool]$Directory, [switch]$Protected, [s
         $trusted = @('S-1-5-18', 'S-1-5-32-544',
             'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
         $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        # Null/absent DACL grants unrestricted access; must never be mistaken
+        # for an empty ACE list. Inspect the raw descriptor, not only ACL rules.
+        $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new(
+            $acl.GetSecurityDescriptorBinaryForm(), 0)
+        if ($null -eq $descriptor.DiscretionaryAcl) {
+            throw 'KAC_ACL_DACL_AUSENTE'
+        }
         $write = [Security.AccessControl.FileSystemRights]::Delete -bor
             [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
             [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
@@ -128,6 +134,8 @@ function Get-KACListeners {
 }
 
 try {
+    # Resolve within the sanitized error boundary to avoid leaking OS details.
+    $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..\..') -ErrorAction Stop).ProviderPath
     $originalPath = Join-Path $root 'deploy\windows\Caddyfile'
     $candidatePath = Join-Path $root 'deploy\staging\kw\Caddyfile.candidate_NOT_DEPLOY'
     $legacyInstallPath = Join-Path $root 'deploy\windows\install.ps1'
@@ -333,6 +341,7 @@ catch {
         'KAC_ACL_ESCRITURA_EXPLICITA' = 'permiso de escritura explicito fuera de la lista de confianza'
         'KAC_ARTEFACTO_TIPO_O_REPARSE' = 'tipo de archivo o redireccion inesperado'
     }
+    $safeReasons['KAC_ACL_DACL_AUSENTE'] = 'DACL ausente o nula'
     $key = [string]$_.Exception.Message
     $reason = if ($safeReasons.ContainsKey($key)) { $safeReasons[$key] }
         else { 'comprobacion incompleta (detalle reservado)' }
