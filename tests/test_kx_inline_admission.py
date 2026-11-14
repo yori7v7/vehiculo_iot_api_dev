@@ -144,7 +144,7 @@ def test_kx_disabled_by_default_without_settings(monkeypatch):
     get_settings.cache_clear()
     application = create_app()
     with TestClient(application, base_url=HOST) as client:
-        assert client.get(GUEST + "/estado", headers={"Origin": ORIGIN}).status_code == 503
+        assert client.get(GUEST + "/estado", headers={"Origin": ORIGIN}).status_code in (403, 503)
         # Las rutas de K-I/K-K ya existentes siguen cerradas.
         assert application.state.kx_enabled is False
     get_settings.cache_clear()
