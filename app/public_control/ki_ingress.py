@@ -38,8 +38,9 @@ class GuestIngressLab:
                     browser_secret=browser_secret,
                     client_identity=client_identity,
                 )
-            except AdmissionDenied:
-                raise HTTPException(409, "Solicitud no disponible o reintento invalido") from None
+            except AdmissionDenied as error:
+                code = 429 if str(error) == "Demasiadas solicitudes pendientes." else 409
+                raise HTTPException(code, "Solicitud no disponible o reintento invalido") from None
         return {**row, "simulado": True, "control_fisico": False, "canDrive": False}
 
     async def status(self, browser_secret: str) -> dict:
