@@ -7,6 +7,7 @@ movimientos físicos. KC real local, despacho sustituido completamente.
 from __future__ import annotations
 
 import asyncio
+from fastapi import HTTPException
 import servidor_55kc as kc
 from app.public_control.single_link_admission_lab import (
     SingleLinkAdmissionLab as CanonicalAdmissionGate,
@@ -72,17 +73,19 @@ async def run():
 
         controller.release.set()
         result, stopped = await asyncio.wait_for(
-            asyncio.gather(move, revoke), timeout=2.0
+            asyncio.gather(move, revoke, return_exceptions=True), timeout=2.0
         )
-        assert result["aceptada"] is True
+        # La orden pudo atravesar el despacho antes de la revocacion.
+        # NO se permite reportarla como exitosa tras invalidar el ticket.
+        assert isinstance(result, HTTPException) and result.status_code == 409
         assert stopped["parada_fisica_verificada"] is False
         assert controller.commands == [
             "STOP_VIRTUAL", "MOVIMIENTO_ENTRO", "MOVIMIENTO_SALIO",
             "STOP_VIRTUAL", "STOP_VIRTUAL"
         ]
         assert controller.gate.visitor_status(SECRET)["estado"] == "revocado_o_caducado"
-        print("3/3 Al liberar el despacho se envían STOP virtuales: OK")
-        print("RESULTADO: LOGICA CONFIRMADA; STOP NO PREEMPTIVO; NO-GO CONTROL FISICO")
+        print("3/3 Movimiento ya revocado NO regresa exito; STOP virtual posterior: OK")
+        print("RESULTADO: SIN FALSO EXITO; STOP NO PREEMPTIVO; NO-GO CONTROL FISICO")
     finally:
         controller.release.set()
 
