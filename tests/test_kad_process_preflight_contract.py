@@ -85,5 +85,16 @@ def test_kad_identity_matrix_is_executed_by_windows_ci_only():
     assert "sin proceso real" in test_code
     assert "kac_server_preflight_ci.ps1" in workflow
     case_scenarios = SERVER_TEST.read_text(encoding="utf-8")
-    for scenario in ("redirector", "wrong-project", "extra-listener", "socket-changed", "cim-changed", "linked-config"):
+    for scenario in (
+        "redirector", "wrong-project", "extra-listener", "socket-changed",
+        "cim-changed", "linked-config", "untrusted-venv-user-inherited",
+        "untrusted-parent-user-explicit", "untrusted-base-user-inherited",
+        "null-dacl", "missing-dacl", "user-read-only", "user-denied-only",
+    ):
         assert f"Name='{scenario}'" in case_scenarios
+
+    # Fail closed even when a nullable ACL would otherwise report no unsafe ACEs.
+    assert "KAC_ACL_DACL_AUSENTE" in code
+    assert "GetSecurityDescriptorBinaryForm" in code
+    assert "Categoria segura" in code
+
