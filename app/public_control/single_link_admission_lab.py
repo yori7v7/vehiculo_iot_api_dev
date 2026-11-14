@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from hmac import compare_digest
 from math import isfinite
+import re
 from secrets import token_urlsafe
 from time import monotonic
 from typing import Callable, Literal
@@ -22,6 +23,9 @@ class AdmissionDenied(Exception):
     pass
 
 
+_CLIENT_TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\\Z", re.ASCII)
+
+
 @dataclass
 class BrowserTicket:
     request_id: str
@@ -30,6 +34,8 @@ class BrowserTicket:
     expires_at: float
     status: Literal["waiting", "approved", "rejected"] = "waiting"
     guest_token: str | None = None
+    idempotency_hash: bytes | None = None
+    client_identity_hash: bytes | None = None
 
 
 class SingleLinkAdmissionLab:
@@ -103,6 +109,60 @@ class SingleLinkAdmissionLab:
                                                    display_code, now + self._pending_seconds)
         return {"request_id": request_id, "browser_secret": browser_secret,
                 "display_code": display_code, "estado": "esperando_autorizacion"}
+
+    def arrive_idempotent(
+        self, *, idempotency_key: str, browser_secret: str, client_identity: str,
+    ) -> dict:
+        """K-I/K-T LAB: browser-owned retry pair uses the SAME KC gate and lock.
+
+        Not persistent across restart, not a public production API. Replays
+        only recover the original browser secret; they never issue a drive
+        token. A changed secret/identity, expired ticket or reused secret fails
+        closed rather than creating a different authorization on retry.
+        """
+        if (type(idempotency_key) is not str or
+                _CLIENT_TOKEN.fullmatch(idempotency_key) is None or
+                type(browser_secret) is not str or
+                _CLIENT_TOKEN.fullmatch(browser_secret) is None or
+                idempotency_key == browser_secret or
+                type(client_identity) is not str or not 1 <= len(client_identity) <= 256):
+            raise AdmissionDenied("Par de reintento invalido.")
+        now = self._time()
+        self._cleanup(now)
+        key_hash = self._hash(idempotency_key)
+        secret_hash = self._hash(browser_secret)
+        client_hash = self._hash(client_identity)
+        for ticket in self._requests.values():
+            if ticket.idempotency_hash is not None and compare_digest(
+                    ticket.idempotency_hash, key_hash):
+                if (ticket.client_identity_hash is None or
+                        not compare_digest(ticket.client_identity_hash, client_hash) or
+                        not compare_digest(ticket.secret_hash, secret_hash) or
+                        ticket.status != "waiting" or now >= ticket.expires_at):
+                    raise AdmissionDenied("Reintento no vigente o no autorizado.")
+                return {
+                    "request_id": ticket.request_id,
+                    "browser_secret": browser_secret,
+                    "display_code": ticket.display_code,
+                    "estado": "esperando_autorizacion",
+                    "idempotent_replay": True,
+                }
+            if compare_digest(ticket.secret_hash, secret_hash):
+                raise AdmissionDenied("Sesion del navegador ya utilizada.")
+        waiting = sum(t.status == "waiting" for t in self._requests.values())
+        if waiting >= self._max_pending:
+            raise AdmissionDenied("Demasiadas solicitudes pendientes.")
+        request_id = str(uuid4())
+        display_code = request_id.split("-")[0].upper()
+        self._requests[request_id] = BrowserTicket(
+            request_id, secret_hash, display_code, now + self._pending_seconds,
+            idempotency_hash=key_hash, client_identity_hash=client_hash,
+        )
+        return {
+            "request_id": request_id, "browser_secret": browser_secret,
+            "display_code": display_code, "estado": "esperando_autorizacion",
+            "idempotent_replay": False,
+        }
 
     def _ticket(self, browser_secret: str) -> BrowserTicket:
         if type(browser_secret) is not str or not 32 <= len(browser_secret) <= 128:
