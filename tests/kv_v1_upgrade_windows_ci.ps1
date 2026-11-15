@@ -91,6 +91,26 @@ Test-Fixture 'preflight no intenta escribir HOME automatico de solo lectura' {
     Assert-Fixture ($assignedHome.Count -eq 0) 'HOME es variable automatica de solo lectura'
 }
 
+# La tarea K-V real expone VehIoT_KXSvc sin prefijo. El helper debe
+# resolver la cuenta corta al SID real, no aceptar un nombre por parecido.
+$fixtureIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+try {
+    $fixtureName = ($fixtureIdentity.Name -split '\\')[-1]
+    $fixtureSid = $fixtureIdentity.User.Value
+    Test-Fixture 'tarea admite nombre corto SI Windows confirma SID exacto' {
+        Assert-Fixture (Test-KVUpgradeTaskPrincipal $fixtureName $fixtureName $fixtureSid) 'short name SID'
+    }
+    Test-Fixture 'tarea rechaza nombre corto con SID distinto' {
+        Assert-Fixture (-not (Test-KVUpgradeTaskPrincipal $fixtureName $fixtureName 'S-1-5-18')) 'different SID'
+    }
+    Test-Fixture 'tarea admite el SID fijado directamente' {
+        Assert-Fixture (Test-KVUpgradeTaskPrincipal $fixtureSid $fixtureName $fixtureSid) 'exact SID'
+    }
+    Test-Fixture 'tarea rechaza otra identidad aunque Windows la resuelva' {
+        Assert-Fixture (-not (Test-KVUpgradeTaskPrincipal 'NT AUTHORITY\SYSTEM' $fixtureName $fixtureSid)) 'unexpected name'
+    }
+} finally { $fixtureIdentity.Dispose() }
+
 function Reset-Fixture {
     $date = [datetime]::UtcNow.AddMinutes(-1)
     $command = '"' + $ctx.Python + '" -B -I "' + $ctx.Launcher + '" '
