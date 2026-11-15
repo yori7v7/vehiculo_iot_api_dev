@@ -55,3 +55,45 @@ de firewall como parte de estos tests.
   necesita nueva autenticación. Reinicio K-V invalida sesiones previas.
 - La solución de SAN `dNSName` numérica de 55-H es compatibilidad de
   laboratorio y no sustituye identidad DNS válida para producción.
+
+
+## Pasarela real WSS 55-I: cerrada a toda API HTTP
+
+`scripts/servidor_55i_kv_kx_esp_lab.py` es un experimento de **dispositivo real,
+salidas siempre en cero** que no se ejecuta automáticamente. Fue diseñado
+para usar **únicamente** la identidad TLS/HMAC privada 55-H ya verificada.
+
+- **Interfaz única:** se enlaza solo a la IP privada del hotspot registrada
+  en `private/settings.json` (laboratorio probado: 172.22.82.209:8443).
+- **Cliente único:** exige la IP 172.22.82.5 y Host exacto.
+- **Red:** el wrapper ASGI `WssOnlyFromESP` contesta **HTTP 404 a TODAS
+  las solicitudes**, incluso en el segmento del hotspot. Solo enruta el
+  WebSocket `/ws/dispositivos-lab/1/contrato` desde el ESP autenticado.
+- **Autoridad K-V:** el cliente de solicitud, aprobación y revocación está
+  *dentro del mismo proceso Python* mediante `httpx.ASGITransport`; no
+  hay ruta admin, API REST ni control de navegador expuesto al hotspot.
+  Las pruebas crean secretos temporales **independientes** de producción
+  y SQLite local efímero fuera del repositorio.
+- **Secuencia de demostración:** STOP inicial autenticado, solicitud
+  de invitado virtual, aprobación K-V, código 9 por K-X con ACKs HMAC,
+  STOP 0, revocación y denegación de orden posterior.
+- **Fallo cerrado:** si cambia la IP, falta la clave local de 32 bytes,
+  el ESP no autentica o los ACK no se correlacionan, no se declara GO.
+- **Firewall:** el módulo nunca modifica reglas; se requiere excepción
+  de entrada estrictamente temporal por IP/puerto como en LAB 55-H.
+- **Condiciones físicas:** **BATERÍA DEL RC DESCONECTADA**, ESP por USB,
+  firmware 55-H solo diagnóstico, AWS/RDS apagados.
+
+**No ejecutar todavía en producción ni configurar un proxy hacia este
+servicio.** Primero aprobar todas las pruebas offline 55-I y auditar que
+el firewall bloquea todo salvo el ESP. El comando del módulo es:
+
+```powershell
+& ".\\.venv\\Scripts\\python.exe" -m scripts.servidor_55i_kv_kx_esp_lab
+```
+
+El comando solo corresponde a una **ventana de laboratorio supervisada**,
+nunca a un servicio Windows permanente. Los HTTP 404 del dispositivo
+son intencionados: la interfaz HTTP no participa de la prueba.
+La conexión directa del frontend GitHub Pages y una parada física
+medida **siguen fuera del alcance**.
