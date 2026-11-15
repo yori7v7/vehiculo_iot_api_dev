@@ -134,3 +134,10 @@ Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
 - Ambos casos integrados PASS: falla del ejecutor y recuperacion con fake servicio SYSTEM saludable; commit saludable sin falso rollback. Tareas LAB limpias.
 - APROBADO EN EC2 (2026-11-15): `kx_integrated_operator_LAB_ONLY.ps1 -Mode EC2CopyLab` con recuperacion tras crash y commit OK; servicio ficticio, lock NTFS, watchdog SYSTEM y ausencia de tareas residuales PASS; Caddy real 443 intacto. No repetir.
 - NO-GO_PUBLICACION sigue vigente; este par no tiene ruta de intervencion productiva 443.
+
+## 2026-11-15: inventario integrado corregido aprobado en EC2
+
+- Evidencia del operador: kx_release_integrated_inventory_readonly.ps1 revision ec809956ec1a8405f91771de4430e87ba61bdf77 finalizo con RESULTADO: K-X INVENTARIO INTEGRADO READ-ONLY APROBADO.
+- Confirmado por salida: evidencia del laboratorio integrado en EC2; sin tareas temporales; Caddy SYSTEM y FastAPI/K-V intactos; reintentos de tarea Caddy 999/PT1M; ninguna escritura/restart de tareas, Caddy, red, AWS, RDS o motores.
+- La falla previa del inventario (PropertyNotFoundException en TASK_AND_PROCESS) quedo superada al ejecutar la revision defensiva. No inferir de ello un cambio de estado productivo.
+- Estado actual: GO_LAB_EC2 / GO_INVENTARIO_READONLY; sigue NO-GO_PUBLICACION hasta tener paquete de ejecutor/recuperador productivos realmente implementado, comprobado y ventana de corte deliberada.
