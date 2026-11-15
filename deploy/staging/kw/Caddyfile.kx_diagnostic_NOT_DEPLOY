@@ -1,0 +1,58 @@
+# K-X: PROPUESTA NO INSTALAR. NO sustituir el Caddyfile instalado.
+# El puerto 9444 ejecutaria UN SOLO app.main con admision K-X + WSS,
+# bajo identidad Windows dedicada y clave privada verificada.
+# Es una revision de RUTEO, no una habilitacion de hardware.
+# La bateria RC debe permanecer desconectada y firmware GPIO inhibido.
+#
+# El backend original 127.0.0.1:8000 permanece vivo SOLO PARA LECTURA.
+# API legacy escrita = 503 en el borde; WebSocket legacy = 403.
+# Esto INTERRUMPIRIA el control remoto antiguo durante el ensayo K-X.
+# No usar CDN/ALB delante de Caddy sin nueva auditoria del cliente real.
+#
+# Advertencia: solo desplegar despues de probar parseo Caddy, proxy TLS,
+# autenticacion WSS, revocacion y retorno al Caddyfile original.
+
+100-30-4-62.nip.io {
+    @kx_contract {
+        path /ws/kx-diagnostico/1 /publico/vehiculos/1/solicitudes /publico/vehiculos/1/solicitudes/* /admin/vehiculos/1/control-publico/solicitudes /admin/vehiculos/1/control-publico/solicitudes/*
+    }
+    @legacy_websockets {
+        path /ws /ws/*
+    }
+    @legacy_write {
+        method POST PUT PATCH DELETE
+    }
+    @legacy_read {
+        method GET HEAD OPTIONS
+    }
+
+    # route conserva literalmente el orden: K-X ANTES del bloqueo /ws/*,
+    # y bloquea escrituras legacy antes de permitir solo lectura.
+    route {
+        handle @kx_contract {
+            reverse_proxy 127.0.0.1:9444 {
+                header_up Host 100-30-4-62.nip.io
+                # Reemplazar (no anexar) XFF y esquema de un cliente externo.
+                header_up X-Forwarded-For {remote_host}
+                header_up X-Forwarded-Proto https
+                header_up -X-Forwarded-Host
+                header_up -Forwarded
+                header_up -X-Real-IP
+                header_up -Via
+            }
+        }
+
+        handle @legacy_websockets {
+            respond "WebSocket legacy cerrado durante K-X" 403
+        }
+        handle @legacy_write {
+            respond "Escrituras legacy cerradas durante K-X" 503
+        }
+        handle @legacy_read {
+            reverse_proxy 127.0.0.1:8000
+        }
+        handle {
+            respond "Metodo no autorizado" 405
+        }
+    }
+}
