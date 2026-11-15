@@ -12,7 +12,7 @@ $script:Step='BEGIN'
 $script:Success=$false
 $script:RecoveryArmed=$false
 $script:LockHandle=$null
-$script:Home='C:\ProgramData\VehiculoIoT-KX-Installer\kx_https_cutover_bundle_v2_NOT_ARMED'
+$script:BundleRoot='C:\ProgramData\VehiculoIoT-KX-Installer\kx_https_cutover_bundle_v2_NOT_ARMED'
 $script:Task='VehiculoIoT-Caddy'
 $script:Caddy='C:\ProgramData\VehiculoIoT\Caddyfile'
 $script:Launcher='C:\vehiculo_iot_api_dev\deploy\windows\run_caddy.ps1'
@@ -30,10 +30,10 @@ function KX-File([string]$p,[string]$hash) {
 }
 function KX-Package {
  $script:Step='PACKAGE'
- KX-Assert ([string]::Equals([IO.Path]::GetFullPath($Bundle).TrimEnd('\'),$script:Home,[StringComparison]::OrdinalIgnoreCase)) 'Known package path'
- KX-Assert ([string]::Equals([IO.Path]::GetFullPath($PSScriptRoot),$script:Home,[StringComparison]::OrdinalIgnoreCase)) 'Controller lives inside the private bundle'
- KX-Assert ((Get-Acl -LiteralPath $script:Home).AreAccessRulesProtected) 'Bundle must have protected ACL'
- $pkg=Get-Content -LiteralPath (Join-Path $script:Home 'package.json') -Raw -ErrorAction Stop|ConvertFrom-Json
+ KX-Assert ([string]::Equals([IO.Path]::GetFullPath($Bundle).TrimEnd('\'),$script:BundleRoot,[StringComparison]::OrdinalIgnoreCase)) 'Known package path'
+ KX-Assert ([string]::Equals([IO.Path]::GetFullPath($PSScriptRoot),$script:BundleRoot,[StringComparison]::OrdinalIgnoreCase)) 'Controller lives inside the private bundle'
+ KX-Assert ((Get-Acl -LiteralPath $script:BundleRoot).AreAccessRulesProtected) 'Bundle must have protected ACL'
+ $pkg=Get-Content -LiteralPath (Join-Path $script:BundleRoot 'package.json') -Raw -ErrorAction Stop|ConvertFrom-Json
  KX-Assert ($pkg.schema_version -eq 1 -and $pkg.mode -ceq 'prod_cutover_bundle_prepared_not_armed_v2') 'Known prepared bundle'
  $pairs=@{
   caddy_original='Caddyfile.original'
@@ -44,7 +44,7 @@ function KX-Package {
   recoverer='kx_prod_recoverer_v2_LOCKED.ps1'
   task_xml='VehiculoIoT-Caddy.original.task.xml'
  }
- foreach($k in $pairs.Keys){KX-File (Join-Path $script:Home $pairs[$k]) ([string]$pkg.hashes.$k)}
+ foreach($k in $pairs.Keys){KX-File (Join-Path $script:BundleRoot $pairs[$k]) ([string]$pkg.hashes.$k)}
  return $pkg
 }
 function KX-CurrentTask {
@@ -183,17 +183,17 @@ function KX-HealthCandidate($pkg){
   KX-Assert ($kv.Count -eq 1 -and $kv[0].LocalAddress -ceq '127.0.0.1') 'K-V remains loopback'
 }
 function KX-ExclusiveLock {
- $p=Join-Path $script:Home 'transaction.lock'
+ $p=Join-Path $script:BundleRoot 'transaction.lock'
  for($i=0;$i -lt 200;$i++){
   try{return [IO.File]::Open($p,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}
   catch [IO.IOException]{Start-Sleep -Milliseconds 100}
  }
  throw 'NO-GO: Exclusive cross-session lock timeout'
 }
-function KX-State {return Get-Content -LiteralPath (Join-Path $script:Home 'transaction.json') -Raw|ConvertFrom-Json}
+function KX-State {return Get-Content -LiteralPath (Join-Path $script:BundleRoot 'transaction.json') -Raw|ConvertFrom-Json}
 function KX-SetState($s,[string]$next){
  $s.phase=$next
- $p=Join-Path $script:Home 'transaction.json'
+ $p=Join-Path $script:BundleRoot 'transaction.json'
  # Unique staging name survives an executor crash without blocking independent recovery.
  $tmp=$p+'.next.'+[guid]::NewGuid().ToString('N')
  try{
@@ -209,15 +209,15 @@ function KX-ArmWatchdog($state,$pkg) {
  $taskName='VehiculoIoT-KX-PROD-Recovery-'+$state.transaction_id
  KX-Assert ($taskName -match '^VehiculoIoT-KX-PROD-Recovery-[a-f0-9]{32}$') 'Watchdog task identity'
  KX-Assert ($null -eq (Get-ScheduledTask -TaskPath '\' -TaskName $taskName -ErrorAction SilentlyContinue)) 'No duplicate watchdog task'
- $scriptPath=Join-Path $script:Home 'kx_prod_recoverer_v2_LOCKED.ps1'
+ $scriptPath=Join-Path $script:BundleRoot 'kx_prod_recoverer_v2_LOCKED.ps1'
  KX-File $scriptPath ([string]$pkg.hashes.recoverer)
  # A real cutover must never be paired with a locked, nonfunctional independent recoverer.
  $recovererText=[IO.File]::ReadAllText($scriptPath)
  KX-Assert ($recovererText.Contains('$script:EnableProductionRecovery=$true') -and
   -not $recovererText.Contains('$script:EnableProductionRecovery=$false')) 'Only a separately approved, enabled SYSTEM recoverer may be armed'
  $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
- $args='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$scriptPath+'" -Action Recover -Bundle "'+$script:Home+'"'
- $action=New-ScheduledTaskAction -Execute $exe -Argument $args
+ $watchdogArgs='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$scriptPath+'" -Action Recover -Bundle "'+$script:BundleRoot+'"'
+ $action=New-ScheduledTaskAction -Execute $exe -Argument $watchdogArgs
  $principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
  $one=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(6)
  $boot=New-ScheduledTaskTrigger -AtStartup
@@ -254,7 +254,7 @@ function KX-ReplaceCandidate([string]$src,[string]$target,[string]$expectedOld,[
  KX-File $src $expectedNew
  KX-File $target $expectedOld
  $tmp=$target+'.kxnext.'+[guid]::NewGuid().ToString('N')
- $bkp=Join-Path $script:Home ('before_patch_'+$name+'.bak')
+ $bkp=Join-Path $script:BundleRoot ('before_patch_'+$name+'.bak')
  KX-Assert (-not(Test-Path -LiteralPath $tmp) -and -not(Test-Path -LiteralPath $bkp)) 'Patch temps are unused'
  [IO.File]::Copy($src,$tmp,$false)
  KX-File $tmp $expectedNew
@@ -278,10 +278,10 @@ function KX-ExecuteTransaction($pkg) {
   KX-StopTrackedCaddy
   $state=KX-State
   KX-SetState $state 'QUIESCING'
-  KX-ReplaceCandidate (Join-Path $script:Home 'Caddyfile.candidate.NOT_ACTIVE') $script:Caddy ([string]$pkg.hashes.caddy_original) ([string]$pkg.hashes.caddy_candidate) 'Caddy'
+  KX-ReplaceCandidate (Join-Path $script:BundleRoot 'Caddyfile.candidate.NOT_ACTIVE') $script:Caddy ([string]$pkg.hashes.caddy_original) ([string]$pkg.hashes.caddy_candidate) 'Caddy'
   $state=KX-State
   KX-SetState $state 'PATCHING'
-  KX-ReplaceCandidate (Join-Path $script:Home 'run_caddy.candidate.NOT_ACTIVE.ps1') $script:Launcher ([string]$pkg.hashes.launcher_original) ([string]$pkg.hashes.launcher_candidate) 'Launcher'
+  KX-ReplaceCandidate (Join-Path $script:BundleRoot 'run_caddy.candidate.NOT_ACTIVE.ps1') $script:Launcher ([string]$pkg.hashes.launcher_original) ([string]$pkg.hashes.launcher_candidate) 'Launcher'
   $state=KX-State
   KX-SetState $state 'STARTING'
   $null=KX-CurrentTask
@@ -302,7 +302,7 @@ function KX-ExecuteTransaction($pkg) {
 }
 try {
  KX-Assert ($PSVersionTable.PSVersion.Major -eq 5) 'PowerShell 5'
- KX-Assert ([string]::Equals([IO.Path]::GetFullPath($Bundle).TrimEnd('\'),$script:Home,[StringComparison]::OrdinalIgnoreCase)) 'Fixed release path'
+ KX-Assert ([string]::Equals([IO.Path]::GetFullPath($Bundle).TrimEnd('\'),$script:BundleRoot,[StringComparison]::OrdinalIgnoreCase)) 'Fixed release path'
  if($Action -ceq 'Cutover' -and -not $script:EnableProductionCutover){throw 'NO-GO: PRODUCTION_CUTOVER_LOCKED_PENDING_RELEASE_REVIEW'}
  $pkg=KX-Package
  if($Action -ceq 'Review'){
