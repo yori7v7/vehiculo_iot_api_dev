@@ -18,6 +18,7 @@ on:
       - scripts/kx_https_publication_readiness_inventory.ps1
       - scripts/kx_caddy_launcher_autosave_readonly.ps1
       - scripts/kx_caddy_launcher_acl_diagnosis_readonly.ps1
+      - scripts/kx_caddy_xdg_autosave_readonly.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -516,3 +517,38 @@ jobs:
           }
           if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME assignment"}
           Write-Host "PASS: read-only launcher ACL diagnosis syntax and security contract"
+      - name: Validate exact XDG autosave and launcher delegation audit as read only
+        shell: powershell
+        run: |
+          $file = "scripts/kx_caddy_xdg_autosave_readonly.ps1"
+          $tok = $null
+          $errs = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tok, [ref]$errs)
+          if (@($errs).Count -ne 0) {
+            $errs | ForEach-Object { Write-Host $_.Message }
+            throw "K-X Caddy XDG audit fails PowerShell 5.1 parse"
+          }
+          $src = Get-Content $file -Raw
+          foreach($marker in @("caddy-config\caddy",
+             "autosave.json","Set-VehicleCaddyEnvironment",
+             "Invoke-VehicleProcess","XDG_CONFIG_HOME",
+             "XDG_DATA_HOME","ReadData","WriteData",
+             "GetAccessRules", "Autosave no encontrado en ruta XDG",
+             "X-Admission-Proxy-Token","Get-FileHash",
+             "Get-NetTCPConnection","Get-ScheduledTask",
+             "AUTOSAVE JSON / VALORES / TOKENS: NO MOSTRADOS",
+             "K-V PUBLICO: NO ACTIVADO","CONTROL FISICO: OFF")) {
+              if(-not $src.Contains($marker)) {throw "XDG audit missing protection: $marker"}
+          }
+          $commands = @($ast.FindAll({
+             param($node)
+             $node -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object {$_.GetCommandName()})
+          foreach($forbidden in @("Set-Acl","icacls.exe",
+              "Set-ScheduledTask","Start-ScheduledTask","Stop-ScheduledTask",
+              "Start-Process","Stop-Process","Restart-Service",
+              "Restart-Computer","Invoke-WebRequest","Set-Content",
+              "Out-File","Remove-Item","New-Item","Set-Item")) {
+             if($commands -contains $forbidden) {throw "XDG audit mutating command: $forbidden"}
+          }
+          Write-Host "PASS: redirected Caddy autosave, original delegation, and read-only ACL audit"
