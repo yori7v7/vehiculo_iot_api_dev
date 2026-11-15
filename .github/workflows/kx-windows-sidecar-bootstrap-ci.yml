@@ -1,0 +1,48 @@
+name: K-X Windows service bootstrap static validation
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_install_virtual_sidecar_loopback.ps1
+      - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  syntax:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Windows PowerShell 5.1 and compile C-sharp interop
+        shell: powershell
+        run: |
+          $file = "scripts/kx_install_virtual_sidecar_loopback.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+          if (@($errors).Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "PowerShell syntax invalid"
+          }
+          $content = Get-Content $file -Raw
+          $pattern = '(?s)Add-Type -Language CSharp -TypeDefinition @''\s+?(.*?)\s+''@'
+          $match = [regex]::Match($content, $pattern)
+          if (-not $match.Success) { throw "C-sharp heredoc missing" }
+          Add-Type -TypeDefinition $match.Groups[1].Value -Language CSharp -ErrorAction Stop
+          Write-Host "PASS: PS5.1 AST and C-sharp"
+      - name: Compile embedded Python and inspect safety contract
+        shell: powershell
+        run: |
+          $content = Get-Content scripts/kx_install_virtual_sidecar_loopback.ps1 -Raw
+          $pattern = '(?s)\$py=@''\s+?(.*?)\s+''@'
+          $match = [regex]::Match($content, $pattern)
+          if (-not $match.Success) { throw "Launcher heredoc missing" }
+          $launcher = Join-Path $env:RUNNER_TEMP "kx_virtual_launcher.py"
+          [IO.File]::WriteAllText($launcher, $match.Groups[1].Value, [Text.Encoding]::UTF8)
+          & python -B -m py_compile $launcher
+          if ($LASTEXITCODE -ne 0) { throw "Python syntax invalid" }
+          foreach ($required in @("127.0.0.1", "9444", "create_kv_virtual_app", "virtual_loopback_only", "proxy_headers=False")) {
+            if (-not $match.Groups[1].Value.Contains($required)) { throw "Required safety marker missing" }
+          }
+          Write-Host "PASS: Python syntax and virtual-only contract"
