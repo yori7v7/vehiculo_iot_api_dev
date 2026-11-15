@@ -31,6 +31,7 @@ on:
       - scripts/kx_simulate_caddy_launcher_and_rollback_offline.ps1
       - scripts/kx_public_https_go_nogo_preflight_readonly.ps1
       - scripts/kx_system_real_proxy_proof_dryrun_once.ps1
+      - scripts/kx_system_real_caddy_local_lab_once.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -1162,3 +1163,61 @@ jobs:
              throw "Dry-run worker does not establish/clear environment or child return"
           }
           Write-Host "PASS: real SYSTEM temporary-task dry-run PS5.1 syntax, embedded workers, fail-closed cleanup"
+      - name: Validate single-use local Caddy as SYSTEM and safe parent cleanup
+        shell: powershell
+        run: |
+          $path="scripts/kx_system_real_caddy_local_lab_once.ps1"
+          $tokens=$null; $errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+             $errors|ForEach-Object {Write-Host $_.Message}
+             throw "SYSTEM real Caddy local orchestrator not PowerShell 5.1 compatible"
+          }
+          $src=Get-Content $path -Raw
+          foreach($needle in @(
+             "kx_system_caddy_local_once_worker",
+             "kx_system_caddy_local_once_lab",
+             "kx_system_caddy_local_once_result.json",
+             "kx_runtime_proxy_proof_local_lab.ps1",
+             "system_proof_dryrun_result.json",
+             "b71c4086c2bcb260a10b4f8f525ab374a0c397a7",
+             'Check ($base.Contains($needle))',
+             'Get-ScheduledTaskInfo',
+             'New-ScheduledTaskAction',
+             'New-ScheduledTaskPrincipal',
+             'Register-ScheduledTask',
+             'Start-ScheduledTask',
+             'Stop-ScheduledTask',
+             'Unregister-ScheduledTask',
+             'GetOwnerSid',
+             'StopOnlyOurLabCaddy',
+             'Get-FileHash',
+             'GitBlob $source',
+             'S-1-5-18',
+             'http://127.0.0.1:9481',
+             ' persist_config off',
+             '{env.KX_STAGING_PROXY_PROOF}',
+             'GET SYSTEM ',
+             'NO-GO ENSAYO CADDY REAL SYSTEM',
+             'CADDY SYSTEM REAL LOOPBACK APROBADO',
+             'HTTPS PUBLICO 443: INTACTO',
+             'CONTROL FISICO: OFF'
+          )){
+            if(-not $src.Contains($needle)){
+              throw "Missing SYSTEM Caddy local safety contract: $needle"
+            }
+          }
+          $commands=@($ast.FindAll({
+              param($n)
+              $n -is [System.Management.Automation.Language.CommandAst]
+          },$true)|ForEach-Object{$_.GetCommandName()})
+          foreach($forbidden in @(
+             "Set-ScheduledTask","Disable-ScheduledTask","Enable-ScheduledTask",
+             "Restart-Service","Stop-Service","Restart-Computer",
+             "New-NetFirewallRule","Set-NetFirewallRule",
+             "Set-Acl","curl.exe","Invoke-WebRequest","Invoke-RestMethod"
+          )){
+            if($commands -contains $forbidden){throw "SYSTEM local lab uses forbidden production action: $forbidden"}
+          }
+          if($src -match '(?im)^\s*\$pid\s*='){throw "PowerShell reserved PID assignment"}
+          Write-Host "PASS: SYSTEM Caddy 9481 only, pinned lab source, proper task cleanup, PS5.1 parser"
