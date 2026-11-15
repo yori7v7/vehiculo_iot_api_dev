@@ -115,5 +115,13 @@ Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
 
 - Nuevo script `scripts/kx_watchdog_auto_trigger_mirror_lab.ps1`, codigo independiente del ensayo anterior, usa Task Scheduler `-Once` configurado *antes* de iniciar el Worker ficticio, sin llamadas a `Start-ScheduledTask`.
 - GitHub Actions Windows PowerShell 5.1: PASS run 43694395316, commit `f848df549d67b00a3cf4571e86eef280e74019fa`. Una sola prueba nueva: FAIL_AFTER_SECOND, recuperacion automatica de 2 archivos espejo tras matar el Worker, tarea temporal SYSTEM eliminada.
-- PENDIENTE: repetir `-Mode EC2CopyLab` en la ruta nueva de laboratorio `kx_watchdog_task_trigger_lab_v1` con hashes productivos verificados. No afecta la tarea VehiculoIoT-Caddy, HTTPS 443, ni motores.
+- APROBADO EN EC2 (evidencia de consola del operador, 2026-11-15): `kx_watchdog_auto_trigger_mirror_lab.ps1 -Mode EC2CopyLab` sobre `kx_watchdog_task_trigger_lab_v1`. Resultado completo PASS: trigger automatico en SYSTEM antes del fallo, recuperacion tras segundo archivo, limpieza de tareas LAB y tareas originales/HTTPS 443/control fisico sin cambios.
 - Esta validacion NO equivale a tolerancia a reinicio Windows/RDP ni rollback operativo del servidor. NO-GO_PUBLICACION sigue vigente.
+
+
+## Cierre de la etapa de laboratorios aislados (2026-11-15)
+
+- Se cierran ensayos repetitivos de rollback doble, identidad de supervisor, procesos separados, tareas SYSTEM y disparos automaticos: todos PASS en su alcance aislado EC2; **no certifican publicacion ni rollback de servicio**.
+- Documento integrado: docs/kx_https_cutover_transaction_contract_v1_DRAFT_NO_EXECUTE.md (no ejecutable). Especifica estados durables, bloqueo entre sesiones, task SYSTEM prearmada, bloqueo de reintentos 999/PT1M, reversibilidad de los dos archivos, health checks reales y criterios de autorizacion.
+- Siguiente trabajo de ingenieria: desarrollar un unico par integrado de ejecutor/recuperador y verificarlo conjuntamente sobre servicio ficticio. No enviar al operador la misma coleccion de ensayos aislados.
+- **NO-GO_PUBLICACION**. Sin autorizacion para parar Caddy, tocar tareas originales ni habilitar hardware.
