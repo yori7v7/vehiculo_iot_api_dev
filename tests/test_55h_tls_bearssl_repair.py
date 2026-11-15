@@ -85,7 +85,7 @@ def test_repair_migrates_old_identity_preserves_secrets(tmp_path, monkeypatch):
     assert (private / "device-key.bin").read_bytes() == hmac_before
     assert (private / "settings.json").read_bytes() == settings_before
     after = header_path.read_text(encoding="ascii")
-    assert "CI-SOLO-DIAGNOSTICO-123" in after  # CI fixture AP only
+    assert "CI-LAB-HOTSPOT-123" in after  # clave ficticia en prueba
     assert after.split("LAB55H_DEVICE_KEY[32] = ")[1].split(";")[0] == (
         header_before.split("LAB55H_DEVICE_KEY[32] = ")[1].split(";")[0])
     crt = x509.load_pem_x509_certificate((private / "server.pem").read_bytes())
