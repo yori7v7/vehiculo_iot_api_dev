@@ -75,6 +75,22 @@ Test-Fixture 'LOCAL SERVICE rechaza otra identidad' {
     Assert-Fixture (-not (Test-KVUpgradeStagingLocalServiceRead ($base + '\code') $trustedReader 'S-1-5-20' $rx)) 'foreign SID'
 }
 
+Test-Fixture 'preflight no intenta escribir HOME automatico de solo lectura' {
+    $tokens = $null
+    $parseErrors = $null
+    $helperPath = Join-Path $PSScriptRoot '..\scripts\kv_v1_upgrade_windows.ps1'
+    $ast = [Management.Automation.Language.Parser]::ParseFile(
+        $helperPath, [ref]$tokens, [ref]$parseErrors)
+    Assert-Fixture (@($parseErrors).Count -eq 0) 'PowerShell 5.1 AST sin errores'
+    $assignedHome = @($ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+        $node.Left.VariablePath.UserPath -ieq 'HOME'
+    }, $true))
+    Assert-Fixture ($assignedHome.Count -eq 0) 'HOME es variable automatica de solo lectura'
+}
+
 function Reset-Fixture {
     $date = [datetime]::UtcNow.AddMinutes(-1)
     $command = '"' + $ctx.Python + '" -B -I "' + $ctx.Launcher + '" '
