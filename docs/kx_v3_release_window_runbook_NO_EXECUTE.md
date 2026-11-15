@@ -56,3 +56,19 @@ GO_CI_V3_SOLAMENTE / **NO-GO_PUBLICACION** hasta que stage + Review V3 terminen 
 - Paquete V3 instalado bajo `C:\ProgramData\VehiculoIoT-KX-Installer\kx_https_cutover_bundle_v3_RELEASE_READY`; V1 y V2 quedan separados e intactos.
 - Siguiente hito: una unica ventana HTTPS real con comprobacion de preflight en vivo, autorizacion explicita de comando y recovery independiente bajo SYSTEM. Si hay NO-GO no relanzar ni reiniciar manualmente hasta inspeccionar estado y tareas.
 - Estado `GO_STAGE_AND_REVIEW_V3_EC2 / NO-GO_443_UNTIL_EXECUTION`.
+
+## 2026-11-15: NO-GO al invocar primer cutover V3 (preflight), NO PUBLICADO
+
+El operador intento el comando de cutover V3. El preflight de HTTPS primero recibio HTTP 404 / Not Found, y el controlador reporto:
+
+- \`=== NO-GO K-X CONTROLLER / ORIGINAL_PUBLIC_GET ===\`
+- \`TIPO: RuntimeException\`
+- La comprobacion posterior de \`COMMITTED_VERIFIED\` lanzo NO-GO.
+
+La pantalla tambien imprimio \`RESULTADO: K-X HTTPS CUTOVER CONFIRMADO\` al final, pero **ese texto NO acredita exito**: la sesion PowerShell interactiva continuo ejecutando manualmente las siguientes lineas despues de excepciones. No se registro \`K-X CUTOVER COMMITTED\`. Corregir procedimiento para imprimir banner final solo dentro de una unica ejecucion transaccional correctamente protegida.
+
+**Causa del preflight, confirmada por codigo fuente:** \`app/routers/health.py\` registra la salud sin base de datos mediante GET \`/\`, la ruta \`/health/database\` consulta RDS y \`/openapi.json\` es el esquema OpenAPI. **GET \`/health\` no es una ruta registrada.** V3 \`KX-HealthOriginal\` y V3 \`KX-RequireLegacyHealth\` exigian erróneamente GET \`/health\` 200. El 404 es consistente con ese fallo de contrato, no demuestra por si mismo falla de Caddy ni de FastAPI. No cambiar backend para satisfacer el test; usar \`/\` y \`/openapi.json\` en el proximo codigo revisado, verificar esquema real en EC2.
+
+**Limite de estado:** V3 llama \`KX-HealthOriginal\` antes de \`KX-ArmWatchdog\` y de sustituir archivos. Por secuencia, se espera \`PREPARED\` y originales intactos, pero debe verificarse en EC2 con solo lectura ANTES de cualquier siguiente accion. No dar por ejecutado rollback ni por terminado commit. No relanzar V3 actual. V1/V2/V3 no deben editarse ni borrarse.
+
+**Gate:** NO-GO_PUBLICACION hasta diagnostico de \`transaction.json\`, hashes live, Caddy task, ausencia watchdog y GET \`/\` + \`/openapi.json\` por HTTPS. Solo entonces preparar nueva version inmutable con pruebas CI y sin falsa bandera de exito.
