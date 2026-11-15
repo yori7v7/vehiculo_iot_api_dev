@@ -133,17 +133,17 @@ function StartFake($s){
  Enable-ScheduledTask -TaskPath '\' -TaskName $name -ErrorAction Stop|Out-Null
  Start-ScheduledTask -TaskPath '\' -TaskName $name -ErrorAction Stop
 }
-function Swap([string]$input,[string]$dest,[string]$backup,[string]$h){
+function Swap([string]$source,[string]$dest,[string]$backup,[string]$h){
  $prefix=$CaseDir.TrimEnd('\')+'\'
- foreach($p in @($input,$dest,$backup)){
+ foreach($p in @($source,$dest,$backup)){
   Check ([IO.Path]::GetFullPath($p).StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) 'Swap confined to LAB'
  }
- Confirm $input $h 'Swap source'
+ Confirm $source $h 'Swap source'
  Check (Test-Path -LiteralPath $dest -PathType Leaf) 'Mirror destination exists'
  Check (-not(Test-Path -LiteralPath $backup)) 'Swap backup available'
  $incoming=$dest+'.incoming'
  Check (-not(Test-Path -LiteralPath $incoming)) 'Incoming available'
- [IO.File]::Copy($input,$incoming,$false)
+ [IO.File]::Copy($source,$incoming,$false)
  Confirm $incoming $h 'Incoming verified'
  [IO.File]::Replace($incoming,$dest,$backup)
  Confirm $dest $h 'Swapped mirror'
