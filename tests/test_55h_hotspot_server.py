@@ -1,6 +1,7 @@
 """Pruebas del servidor 55-H hotspot: TLS/HMAC virtual, sin ESP ni AWS."""
 from __future__ import annotations
 
+import asyncio
 from hashlib import sha256
 import hmac
 import json
@@ -14,10 +15,10 @@ from app.device_channel.authenticated_lab import (
     DeviceSession, TX_CONTEXT, decoded, device_auth_reply, encoded,
     verify_server_auth,
 )
-from app.device_channel.command_wire import CommandWire, DeviceAck
+from app.device_channel.command_wire import AckFence, CommandWire, DeviceAck, DeviceOrder, WireProtocolError
 from scripts import preparar_55h_hotspot_seguro as generator
 from scripts.servidor_55h_hotspot_seguro import (
-    WSS_PATH, create_55h_hotspot_lab_app, read_private_identity,
+    WSS_PATH, create_55h_hotspot_lab_app, read_private_identity, send_virtual,
 )
 
 IP = "172.22.82.209"
@@ -128,3 +129,34 @@ def test_physical_flag_and_wrong_key_file_rejected(private):
     (private / "device-key.bin").write_bytes(b"bad")
     with pytest.raises(ValueError, match="NO-GO"):
         read_private_identity(private)
+
+
+def test_ack_rejection_reports_only_code_and_phase():
+    """Diagnostico del rechazo sin abrir actuadores, ni mostrar HMAC/paquetes."""
+    from uuid import uuid4
+
+    session = DeviceSession(
+        1, encoded(b"S" * 16), encoded(b"B" * 16), encoded(b"N" * 16),
+        b"C" * 32, b"T" * 32, b"binding-only-for-test",
+    )
+    wire = CommandWire(session)
+    fence = AckFence(wire)
+    now = int(time.time() * 1000)
+    order = DeviceOrder(1, session.session_id, str(uuid4()), 1, 1, 1,
+                        now - 100, now + 900, 250, 9)
+
+    class RejectionWS:
+        async def send_json(self, frame):
+            assert frame["tipo"] == "orden_dispositivo_v1"
+
+        async def receive_text(self):
+            rejection = DeviceAck(
+                1, session.session_id, order.operation_id, 1, 1, 1,
+                int(time.time() * 1000), 3, False,
+            )
+            return json.dumps(wire.sign_ack(rejection))
+
+    with pytest.raises(WireProtocolError, match="codigo 9.*fase rechazada"):
+        asyncio.run(send_virtual(RejectionWS(), fence, order))
+    assert fence.poisoned is False
+    assert fence.pending is None
