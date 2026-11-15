@@ -14,13 +14,15 @@ def test_candidate_transforms_only_reachable_routes_to_loopback():
     source = CANDIDATE.read_text(encoding="utf-8")
     modified = testapp.loopback_config(source, 19080, 18080)
     assert modified.startswith("{\n    admin off\n    auto_https off\n}")
-    assert "http://127.0.0.1:19080 {" in modified
+    assert "http://:19080 {\n    bind 127.0.0.1" in modified
     assert "reverse_proxy 127.0.0.1:18080" in modified
     assert "reverse_proxy 127.0.0.1:9444" in modified
     assert "handle @legacy_upgrade" in modified
     assert "header_up X-Forwarded-Proto https" in modified
     assert "reverse_proxy 127.0.0.1:8000" not in modified
     assert "0.0.0.0:19080" not in modified
+    assert "bind 0.0.0.0" not in modified
+    assert "http://127.0.0.1:19080" not in modified
 
 
 @pytest.mark.parametrize("to_remove", [
@@ -62,3 +64,13 @@ def test_run_is_blocked_outside_windows(tmp_path, capsys):
     ])
     assert response == 2
     assert "NO-GO" in capsys.readouterr().out
+
+
+def test_public_host_is_accepted_by_loopback_caddy_site():
+    """La etiqueta de sitio no debe filtrar Host: nip.io antes de llegar a K-X."""
+    source = CANDIDATE.read_text(encoding="utf-8")
+    config = testapp.loopback_config(source, 19080, 18080)
+    assert "http://:19080 {\n    bind 127.0.0.1" in config
+    assert "header_up Host 100-30-4-62.nip.io" in config
+    assert "header_up X-Forwarded-Proto https" in config
+    assert config.count("bind 127.0.0.1") == 1
