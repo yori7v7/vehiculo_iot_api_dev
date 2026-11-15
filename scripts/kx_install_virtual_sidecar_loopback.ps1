@@ -129,17 +129,26 @@ public static class KXDedicatedRightsV1 {
   $createdWork=$true
   & icacls.exe $work /inheritance:r | Out-Null
   Assert ($LASTEXITCODE -eq 0) "Herencia deshabilitada"
-  & icacls.exe $work /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*"+$sid+":(OI)(CI)M") | Out-Null
+  & icacls.exe $work /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*"+$sid+":(OI)(CI)RX") | Out-Null
   Assert ($LASTEXITCODE -eq 0) "ACL exclusiva de estado"
   & icacls.exe $work /setowner '*S-1-5-32-544' | Out-Null
   Assert ($LASTEXITCODE -eq 0) "Propietario seguro de carpeta"
   Assert-ACL $work $sid
+  $dataDir=Join-Path $work "data"
+  New-Item -ItemType Directory -Path $dataDir -ErrorAction Stop | Out-Null
+  & icacls.exe $dataDir /inheritance:r | Out-Null
+  Assert ($LASTEXITCODE -eq 0) "Datos SQLite sin herencia"
+  & icacls.exe $dataDir /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ("*"+$sid+":(OI)(CI)M") | Out-Null
+  Assert ($LASTEXITCODE -eq 0) "SQLite unico directorio modificable"
+  & icacls.exe $dataDir /setowner '*S-1-5-32-544' | Out-Null
+  Assert ($LASTEXITCODE -eq 0) "Propietario de datos seguro"
+  Assert-ACL $dataDir $sid
   $adminKey=New-RandomProof
   $proxyKey=New-RandomProof
   Assert ($adminKey -ne $proxyKey) "Secretos distintos"
   $config=[ordered]@{
     schema_version=1;mode="virtual_loopback_only";bind_host="127.0.0.1";bind_port=9444
-    database_path=(Join-Path $work "admission.sqlite")
+    database_path=(Join-Path $dataDir "admission.sqlite")
     admin_proof=$adminKey;proxy_proof=$proxyKey
   }
   ($config|ConvertTo-Json -Depth 3)|Set-Content -LiteralPath $configFile -Encoding UTF8 -ErrorAction Stop
@@ -155,12 +164,14 @@ from pathlib import Path
 if os.name != "nt":
     raise SystemExit(2)
 HOME=Path(r"C:\ProgramData\VehiculoIoT-KX-State\service")
+DATA=HOME/"data"
 CONFIG=HOME/"config.json"
 CODE=Path(r"C:\ProgramData\VehiculoIoT-KX-Staging\code")
 sys.path.insert(0,str(CODE))
 from app.public_control.local_files import check_private
 try:
     check_private(HOME,directory=True)
+    check_private(DATA,directory=True)
     check_private(CONFIG)
     if CONFIG.stat().st_size > 4096: raise ValueError("size")
     data=json.loads(CONFIG.read_text(encoding="utf-8-sig"))
@@ -168,7 +179,7 @@ try:
     if (type(data["schema_version"]) is not int or data["schema_version"]!=1 or
         data["mode"]!="virtual_loopback_only" or data["bind_host"]!="127.0.0.1" or
         type(data["bind_port"]) is not int or data["bind_port"]!=9444 or
-        Path(data["database_path"])!=HOME/"admission.sqlite"): raise ValueError("target")
+        Path(data["database_path"])!=DATA/"admission.sqlite"): raise ValueError("target")
     for secret in (data["admin_proof"],data["proxy_proof"]):
         if not isinstance(secret,str) or re.fullmatch(r"[A-Za-z0-9_-]{64}",secret) is None: raise ValueError("secret")
     if data["admin_proof"]==data["proxy_proof"]: raise ValueError("same secret")
