@@ -123,6 +123,14 @@ class KRTicketLedger:
         with self._fence.transaction(self._epoch) as db:
             for statement in _SCHEMA:
                 db.execute(statement)
+            # Migración aditiva compatible con el journal K-V v1: ningún turno
+            # anterior se reanuda al reiniciar; todos se revocan por época.
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(kr_ticket)")}
+            if "approval_mode" not in columns:
+                db.execute(
+                    "ALTER TABLE kr_ticket ADD COLUMN approval_mode TEXT NOT NULL "
+                    "DEFAULT 'timed' CHECK(approval_mode IN ('timed','supervised'))"
+                )
             meta = db.execute("SELECT * FROM kr_meta WHERE id = 1").fetchone()
             if meta is None:
                 db.execute(
@@ -453,15 +461,31 @@ class KRTicketLedger:
     def supervise(self, admin_proof: str) -> dict:
         self._admin(admin_proof)
 
-        def run(_db, now, _salt):
+        def run(db, now, _salt):
+            # El modo indefinido usa una concesión deslizante de 15 segundos.
+            # Renovar SOLO tickets aún válidos, en la transacción protegida
+            # por K-Q. Un latido tardío NUNCA resucita un turno revocado.
+            db.execute(
+                "UPDATE kr_ticket SET virtual_until=? "
+                "WHERE epoch=? AND state='approved_virtual' "
+                "AND approval_mode='supervised' AND virtual_until>?",
+                (now + 15, self._epoch, now),
+            )
             return now
         self._supervisor_at = self._run(run)
         return {"supervision_virtual": True, "simulado": True, "control_fisico": False}
 
-    def approve_virtual(self, admin_proof: str, request_id: str, *, seconds: int = 120) -> dict:
+    def approve_virtual(self, admin_proof: str, request_id: str, *,
+                        seconds: int | None = 120, mode: str = "timed") -> dict:
         self._admin(admin_proof)
-        if type(seconds) is not int or not 1 <= seconds <= 120:
-            raise KRTicketDenied("Duracion virtual no permitida")
+        if mode == "timed":
+            if type(seconds) is not int or not 1 <= seconds <= 1200:
+                raise KRTicketDenied("Duracion virtual no permitida")
+        elif mode == "supervised":
+            if seconds is not None:
+                raise KRTicketDenied("El turno supervisado no admite segundos")
+        else:
+            raise KRTicketDenied("Modo virtual no permitido")
         try:
             UUID(request_id)
         except (TypeError, ValueError, AttributeError):
@@ -484,10 +508,14 @@ class KRTicketLedger:
                 (self._epoch,),
             ).fetchone():
                 return KRTicketDenied("Ya existe un turno virtual")
+            # Temporales: vencimiento absoluto (hasta 20 min), siempre con
+            # supervisión activa. Indefinido: solo una concesión renovable
+            # de 15 s, sin fecha final predeterminada.
+            until = now + seconds if mode == "timed" else now + 15
             db.execute(
-                "UPDATE kr_ticket SET state='approved_virtual', virtual_until=? "
-                "WHERE request_id=? AND epoch=? AND state='waiting'",
-                (min(now + seconds, now + 120), request_id, self._epoch),
+                "UPDATE kr_ticket SET state='approved_virtual', virtual_until=?, "
+                "approval_mode=? WHERE request_id=? AND epoch=? AND state='waiting'",
+                (until, mode, request_id, self._epoch),
             )
             return {"aprobada_virtual": True, "simulado": True,
                     "control_fisico": False, "canDrive": False}
