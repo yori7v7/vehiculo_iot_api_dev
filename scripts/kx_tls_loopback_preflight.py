@@ -202,7 +202,7 @@ def tls_caddy_candidate(text: str, port: int, fake_legacy_port: int,
                 or "bind 0.0.0.0" in stripped
                 or "reverse_proxy 0.0.0.0" in stripped):
             raise RuntimeError("Directiva de red no aislada")
-    return "{\n    admin off\n}\n\n" + updated
+    return "{\n    admin off\n    auto_https off\n}\n\n" + updated
 
 
 def https_request(port: int, context: ssl.SSLContext, method: str,
