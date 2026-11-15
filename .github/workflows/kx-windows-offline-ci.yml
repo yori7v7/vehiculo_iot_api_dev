@@ -33,6 +33,20 @@ jobs:
           }
           Write-Output 'K-X staging syntax: OK, no installation'
 
+      - name: Analizar preflight identidad y runtime K-X en PowerShell 5.1 (sin ejecutar)
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            '.\\scripts\\kx_identity_runtime_readonly.ps1',
+            [ref]$tokens, [ref]$errors
+          )
+          if (@($errors).Count -ne 0) {
+            throw 'K-X runtime-readonly PowerShell 5.1 parsing failed'
+          }
+          Write-Output 'K-X runtime-readonly syntax: OK, no users or services touched'
+
       - name: Validar audit Windows PowerShell 5.1 y falla segura
         shell: powershell
         run: |
