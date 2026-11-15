@@ -186,7 +186,7 @@ function Worker{
  $action=New-ScheduledTaskAction -Execute $exe -Argument $args
  $principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
  $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -MultipleInstances IgnoreNew -StartWhenAvailable
- $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(55)
+ $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(35)
  Check ($null -eq (Get-ScheduledTask -TaskPath '\' -TaskName $watchName -ErrorAction SilentlyContinue)) 'No stale watchdog'
  Register-ScheduledTask -TaskPath '\' -TaskName $watchName -Action $action -Principal $principal -Settings $settings -Trigger $trigger -ErrorAction Stop|Out-Null
  $null=AssertLabTask $watchName 'Recovery' 'recoverer'
