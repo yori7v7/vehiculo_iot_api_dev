@@ -66,7 +66,16 @@ jobs:
              $raw.Contains('C:\ProgramData\VehiculoIoT\Caddyfile')) {
             throw 'NO-GO: Unnecessary secret or Caddy access'
           }
-          Write-Host 'PASS: staging only PS5.1 parser, forbidden-operation AST and trust guards'
+          # El instalador K-X permite un tercer SID: la cuenta dedicada
+          # VehIoT_KXSvc. No aceptar SIDs desconocidos ni alterar ACLs.
+          if(-not $raw.Contains('Get-LocalUser -Name $install.dedicated_user') -or
+             -not $raw.Contains('$dedicated.SID.Value -ceq [string]$install.dedicated_sid') -or
+             -not $raw.Contains("Assert-Private 'C:\ProgramData\VehiculoIoT-KX-State' @([string]$install.dedicated_sid)") -or
+             -not $raw.Contains('Assert-Private $state @([string]$install.dedicated_sid)') -or
+             -not $raw.Contains('$allowed -ccontains [string]$rule.IdentityReference.Value')) {
+            throw 'NO-GO: SID dedicado no verificado por manifiesto y cuenta local'
+          }
+          Write-Host 'PASS: staging only PS5.1 parser, forbidden-operation AST, exact SID and trust guards'
 
       - name: Validar hash Git exacto de los dos fuentes K-V en el commit
         shell: powershell
