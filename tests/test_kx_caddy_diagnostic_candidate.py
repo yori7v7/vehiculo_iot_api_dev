@@ -23,7 +23,7 @@ def match_path(path: str, rule: str) -> bool:
     return path.startswith(rule[:-1]) if rule.endswith("*") else path == rule
 
 
-def modeled_policy(method: str, path: str) -> str:
+def modeled_policy(method: str, path: str, *, upgrade: bool = False) -> str:
     """Modelo de prioridades para detectar regresiones de rutas Caddy."""
     if any(match_path(path, x) for x in (
         WSS_PATH, KX_BASE, KX_BASE + "/*", ADMIN_BASE, ADMIN_BASE + "/*"
@@ -31,6 +31,8 @@ def modeled_policy(method: str, path: str) -> str:
         return "kx-9444"
     if match_path(path, "/ws") or match_path(path, "/ws/*"):
         return "deny-ws"
+    if upgrade:
+        return "deny-upgrade"
     if method in {"POST", "PUT", "PATCH", "DELETE"}:
         return "deny-write"
     if method in {"GET", "HEAD", "OPTIONS"}:
@@ -57,6 +59,7 @@ def test_caddy_first_kx_then_deny_ws_then_deny_writes_then_legacy_read():
     order = [
         data.index("handle @kx_contract {"),
         data.index("handle @legacy_websockets {"),
+        data.index("handle @legacy_upgrade {"),
         data.index("handle @legacy_write {"),
         data.index("handle @legacy_read {"),
         data.index("handle {"),
@@ -116,3 +119,13 @@ def test_kx_guest_admin_and_signed_wss_pass_only_to_9444():
     assert modeled_policy("HEAD", "/docs") == "legacy-read-8000"
     assert modeled_policy("OPTIONS", "/estado/1") == "legacy-read-8000"
     assert modeled_policy("TRACE", "/docs") == "deny-other"
+
+
+def test_encoded_or_rewritten_legacy_upgrade_is_denied_before_readonly():
+    data = directives(PROPOSED.read_text(encoding="utf-8"))
+    assert "header Upgrade *" in data
+    assert "handle @legacy_upgrade {" in data
+    assert "respond \"Upgrade legacy cerrado durante K-X\" 403" in data
+    assert modeled_policy("GET", "/vehiculos/1", upgrade=True) == "deny-upgrade"
+    assert modeled_policy("GET", "/ws%2Fvehiculos%2F1", upgrade=True) == "deny-upgrade"
+    assert modeled_policy("GET", WSS_PATH, upgrade=True) == "kx-9444"
