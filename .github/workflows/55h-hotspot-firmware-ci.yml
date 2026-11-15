@@ -16,6 +16,8 @@ on:
       - 'tests/test_55i_hotspot_bridge.py'
       - 'scripts/servidor_55i_kv_kx_esp_lab.py'
       - 'tests/test_55i_network_guard.py'
+      - 'scripts/servidor_55j_reconexion_esp_lab.py'
+      - 'tests/test_55j_network_cut.py'
       - 'scripts/servidor_55h_hotspot_seguro.py'
       - '.github/workflows/55h-hotspot-firmware-ci.yml'
   workflow_dispatch:
@@ -37,7 +39,7 @@ jobs:
       - name: Dependencies only for local test fixture
         run: python -m pip install -r requirements-dev.txt
       - name: Never enable 74HC595 / assert HMAC and hotspot isolation
-        run: python -m pytest -q tests/test_55h_hotspot_firmware_safety.py tests/test_55h_hotspot_server.py tests/test_55h_tls_bearssl_repair.py tests/test_kv_kx_virtual_bridge_lab.py tests/test_55i_hotspot_bridge.py tests/test_55i_network_guard.py
+        run: python -m pytest -q tests/test_55h_hotspot_firmware_safety.py tests/test_55h_hotspot_server.py tests/test_55h_tls_bearssl_repair.py tests/test_kv_kx_virtual_bridge_lab.py tests/test_55i_hotspot_bridge.py tests/test_55i_network_guard.py tests/test_55j_network_cut.py
 
   compile-esp8266:
     runs-on: ubuntu-latest
