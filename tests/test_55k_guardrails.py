@@ -1,4 +1,4 @@
-﻿"""55-K: contratos estaticos de seguridad, sin hardware."""
+"""55-K: contratos estaticos de seguridad, sin hardware."""
 
 import re
 import unittest
@@ -96,6 +96,54 @@ class TestContrato55K(unittest.TestCase):
                 "case {}:".format(code),
                 self.legacy
             )
+
+
+    def test_06_integracion_wss_sombra(self):
+        s = self.safe
+        self.assertIn('#include "Controlador55KInhibido.h"', s)
+        self.assertIn("Controlador55KInhibido sombra55K;", s)
+
+        order = s.split(
+            "void order(JsonDocument& doc) {", 1
+        )[1].split("void event(", 1)[0]
+
+        self.assertLess(
+            order.index("if (!valid) {"),
+            order.index("grua.registrarSombra55K(code, duration)")
+        )
+
+        self.assertLess(
+            order.index("grua.registrarSombra55K(code, duration)"),
+            order.index("grua.registrarDireccionVirtual(code);")
+        )
+
+        self.assertIn(
+            "grua.actualizarSombra55K();",
+            s
+        )
+
+    def test_07_paradas_convergentes(self):
+        s = self.safe
+        stop = s.split(
+            "void paradaSeguridadSilenciosa() {", 1
+        )[1].split("void paradaSeguridad() {", 1)[0]
+
+        self.assertIn("sombra55K.detener();", stop)
+        self.assertIn("enviarCero();", stop)
+        self.assertIn(
+            "void paradaSeguridad() {\n"
+            "    paradaSeguridadSilenciosa();",
+            s
+        )
+
+        for token in (
+            "grua.paradaSeguridad();",
+            "grua.paradaSeguridadSilenciosa();",
+            "if (code == 0)",
+            "WStype_DISCONNECTED",
+            "WiFi.status() != WL_CONNECTED",
+        ):
+            self.assertIn(token, s)
 
 
 if __name__ == "__main__":

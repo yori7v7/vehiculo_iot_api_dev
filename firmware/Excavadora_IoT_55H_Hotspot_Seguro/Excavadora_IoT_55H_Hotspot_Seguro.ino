@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include <bearssl/bearssl.h>
 #include "config_55h_local.h"
+#include "Controlador55KInhibido.h"
 
 #ifndef LAB55H_CONFIG_VALID
 #error "Crear config_55h_local.h privado antes de compilar."
@@ -29,6 +30,7 @@ static const time_t EPOCH_MIN_VALIDO = 1735689600;
 
 // SIN API DE MOVIMIENTO FISICO: UNICA ESCRITURA POSIBLE ES CERO.
 class GruaRC {
+  Controlador55KInhibido sombra55K;
   uint8_t ultimaMascaraVirtual = 0;
   void enviarCero() {
     digitalWrite(LATCH_PIN, LOW);
@@ -62,6 +64,12 @@ public:
     enviarCero();
     Serial.println(F("[55-H] 74HC595 SOLO CERO; PC817 inhibidos."));
   }
+  bool registrarSombra55K(uint8_t codigo, uint16_t duracionMs) {
+    return sombra55K.registrar(codigo, duracionMs, millis());
+  }
+  void actualizarSombra55K() {
+    sombra55K.actualizar(millis());
+  }
   void registrarDireccionVirtual(uint8_t codigo) {
     ultimaMascaraVirtual = mascaraVirtual(codigo);
     enviarCero();
@@ -69,6 +77,7 @@ public:
                   unsigned(codigo), unsigned(ultimaMascaraVirtual));
   }
   void paradaSeguridadSilenciosa() {
+    sombra55K.detener();
     ultimaMascaraVirtual = 0;
     enviarCero();
   }
@@ -276,6 +285,7 @@ private:
   // del loop: un paquete recibido tarde no conserva una orden virtual vieja.
   // No es watchdog hardware y NUNCA habilita el 74HC595.
   void caducarPendienteVirtual() {
+    grua.actualizarSombra55K();
     if (!pending || (int32_t)(millis() - activeUntil) < 0) return;
     pending = false;
     grua.paradaSeguridadSilenciosa();
@@ -447,6 +457,10 @@ private:
       ack(raw, 2);
       Serial.println(F("[55-H] DETENER 0 HMAC: OK, neutro virtual"));
     } else {
+      if (!grua.registrarSombra55K(code, duration)) {
+        failClosed(F("55-K: orden virtual rechazada"));
+        return;
+      }
       grua.registrarDireccionVirtual(code); // No energiza PC817
       ack(raw, 1);
       memcpy(pendingPacket, raw, 68);
