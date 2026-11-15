@@ -112,15 +112,15 @@ try {
 }
 '@
 
-    Set-Content -LiteralPath $candidatePath -Value $candidate -Encoding UTF8 -ErrorAction Stop
+    [IO.File]::WriteAllText($candidatePath, $candidate, ([Text.UTF8Encoding]::new($false)))
     Assert-KX (Test-Path -LiteralPath $candidatePath -PathType Leaf) "Candidato offline escrito"
 
     # Caddy adapt solo parsea y serializa. No inicia servidor ni carga la config activa.
     Write-Host ""
     Write-Host "=== CADDY ADAPT EN ARCHIVO AISLADO ===" -ForegroundColor Cyan
 
-    $args = '--config "' + $candidatePath + '" --adapter caddyfile'
-    $proc = Start-Process -FilePath $caddyExe -ArgumentList ("adapt " + $args) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $adaptedPath -RedirectStandardError $errorPath -ErrorAction Stop
+    $adaptArguments = '--config "' + $candidatePath + '" --adapter caddyfile'
+    $proc = Start-Process -FilePath $caddyExe -ArgumentList ("adapt " + $adaptArguments) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $adaptedPath -RedirectStandardError $errorPath -ErrorAction Stop
     Assert-KX ($proc.ExitCode -eq 0) "Caddy adapt acepto sintaxis offline"
     Assert-KX (Test-Path -LiteralPath $adaptedPath -PathType Leaf) "JSON de candidato generado"
 
