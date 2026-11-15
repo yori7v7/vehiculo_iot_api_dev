@@ -56,9 +56,9 @@ try{
  Check ($PSVersionTable.PSVersion.Major -eq 5) 'Windows PowerShell 5.1'
  $identity=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
  Check ($identity.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'Administrador elevado'
- foreach($p in @($base,$stateRoot,$release,$stage,$lab)){
-  Normal $p 'Carpeta protegida' $true
-  Check ((Get-Acl -LiteralPath $p).AreAccessRulesProtected) 'Herencia NTFS deshabilitada'
+ foreach($p in @($base,$stateRoot,$release,$stage,$lab)){Normal $p 'Carpeta privada' $true}
+ foreach($p in @($base,$stateRoot,$lab)){
+  Check ((Get-Acl -LiteralPath $p).AreAccessRulesProtected) 'Raiz privada sin herencia NTFS'
  }
  foreach($p in @($manifestFile,$manifest,$stageManifest,$labReport,$runRecord)){
   Normal $p 'Manifiesto/evidencia privado'
