@@ -138,4 +138,17 @@ jobs:
             throw "Windows startup trigger object differs from expected shape"
           }
           Write-Host "PASS: Windows provides enabled BootTrigger contract"
+          if ($source.Contains('Principal.UserId.EndsWith')) {
+            throw "Principal check must not rely on display name"
+          }
+          if (-not $source.Contains('SID real del principal coincide')) {
+            throw "Expected SID-based identity comparison"
+          }
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $fromName = ([Security.Principal.NTAccount]::new($identity.Name)).Translate(
+            [Security.Principal.SecurityIdentifier]
+          ).Value
+          $fromSid = ([Security.Principal.SecurityIdentifier]::new($identity.User.Value)).Value
+          if ($fromName -ne $fromSid) { throw "SID name translation mismatch" }
+          Write-Host "PASS: SID name and string identity resolution"
           Write-Host "PASS: auto-start PowerShell syntax, guarded preconditions, no reboot"
