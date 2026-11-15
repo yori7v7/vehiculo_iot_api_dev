@@ -133,8 +133,6 @@ else:
 sys.exit(0 if count == 0 else 3)
 '@
  [IO.File]::WriteAllText($tempPy,$pythonCode,([Text.UTF8Encoding]::new($false)))
- & $python -B -m py_compile $tempPy
- Assert-KX ($LASTEXITCODE -eq 0) "Comprobador Python valido"
  & $python -B $tempPy ([string]$config.database_path)
  Assert-KX ($LASTEXITCODE -eq 0) "Sin tickets ni autorizaciones pendientes"
 
