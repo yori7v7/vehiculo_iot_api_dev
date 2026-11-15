@@ -53,7 +53,10 @@ def prepare(host: str, ap_password: str, *, ci_fixture: bool = False) -> Path:
         .public_key(server_key.public_key()).serial_number(x509.random_serial_number())
         .not_valid_before(now - timedelta(days=1)).not_valid_after(now + timedelta(days=7))
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ip)]), critical=False)
+        # Doble SAN exclusivamente en LAB 55-H: iPAddress para clientes RFC
+        # y dNSName como cadena IP para compatibilidad BearSSL ESP8266 3.1.2.
+        # RFC 9525 no permite usar una IP como dNSName; NO usar en produccion.
+        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ip), x509.DNSName(str(ip))]), critical=False)
         .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
         .sign(ca_key, hashes.SHA256()))
     ca_pem = ca.public_bytes(serialization.Encoding.PEM)
