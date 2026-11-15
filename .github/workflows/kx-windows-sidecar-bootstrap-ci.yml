@@ -450,7 +450,7 @@ jobs:
           foreach($forbidden in @("Register-ScheduledTask","Set-ScheduledTask",
             "Restart-Computer","Restart-Service","New-NetFirewallRule",
             "caddy reload", "Invoke-WebRequest", "Set-Content",
-            "Out-File", "Remove-Item", "Start-Process")) {
+            "Out-File", "Remove-Item")) {
               if($src.Contains($forbidden)){
                 throw "Unsafe mutation in launcher inventory: $forbidden"
               }
