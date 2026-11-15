@@ -1,0 +1,183 @@
+name: K-V V1 candidate staging PS5.1 (no AWS, no cutover)
+
+on:
+  push:
+    branches:
+      - feature/kv-v1-upgrade-staging-only
+  pull_request:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ps5-safety:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Leer exactamente el commit del PR
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Python para los fixtures SQLite
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Analizar PowerShell 5.1 sin ejecutar scripts de producción
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = '.\scripts\kv_v1_upgrade_candidate_stage_only.ps1'
+          $tok = $null; $errors = $null
+          $ast = [Management.Automation.Language.Parser]::ParseFile(
+            $source, [ref]$tok, [ref]$errors
+          )
+          if(@($errors).Count -ne 0) {
+            foreach($issue in @($errors)) {
+              Write-Host ('PARSER: ' + $issue.ToString())
+            }
+            throw 'NO-GO: PowerShell 5.1 syntax error'
+          }
+          $commands=@($ast.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object { $_.GetCommandName() })
+          $forbidden = @(
+            'Stop-ScheduledTask','Start-ScheduledTask','Disable-ScheduledTask',
+            'Enable-ScheduledTask','Unregister-ScheduledTask','Register-ScheduledTask',
+            'Set-ScheduledTask','Restart-Service','Stop-Service','Start-Service',
+            'taskkill.exe','Remove-Item','Copy-Item','Move-Item',
+            'Set-NetFirewallRule','New-NetFirewallRule','Set-Item'
+          )
+          foreach($name in $forbidden) {
+            if($commands -contains $name) {
+              throw ('NO-GO: Forbidden operation in staging-only script: ' + $name)
+            }
+          }
+          $raw=[IO.File]::ReadAllText((Resolve-Path $source))
+          if(-not $raw.Contains('[switch]$ProbeOnly') -or
+             -not $raw.Contains('candidate_staged_offline_not_installed') -or
+             -not $raw.Contains('Invoke-WebRequest') -or
+             -not $raw.Contains('Assert-Private $stage') -or
+             -not $raw.Contains('GitBlobSha1 $target') -or
+             -not $raw.Contains('COMMITTED_VERIFIED') -or
+             -not $raw.Contains('OriginalSHA256')) {
+            throw 'NO-GO: Missing staging-only guard'
+          }
+          if($raw.Contains('config.admin_proof') -or
+             $raw.Contains('config.proxy_proof') -or
+             $raw.Contains('Get-Content $config') -or
+             $raw.Contains('C:\ProgramData\VehiculoIoT\Caddyfile')) {
+            throw 'NO-GO: Unnecessary secret or Caddy access'
+          }
+          # El instalador K-X permite un tercer SID: la cuenta dedicada
+          # VehIoT_KXSvc. No aceptar SIDs desconocidos ni alterar ACLs.
+          if(-not $raw.Contains('Get-LocalUser -Name ([string]$install.dedicated_user)') -or
+             -not $raw.Contains('$dedicated.SID.Value -ceq [string]$install.dedicated_sid') -or
+             -not $raw.Contains('Assert-Private $state @([string]$install.dedicated_sid)') -or
+             -not $raw.Contains('Assert-Private $state @([string]$install.dedicated_sid)') -or
+             -not $raw.Contains('$allowed -ccontains [string]$rule.IdentityReference.Value')) {
+            throw 'NO-GO: SID dedicado no verificado por manifiesto y cuenta local'
+          }
+          # LocalService solo en la raiz, nunca en service/.
+          if(-not $raw.Contains('S-1-5-19') -or
+             -not $raw.Contains('$localService.Count -eq 1') -or
+             -not $raw.Contains('$localService[0].FileSystemRights -eq $rights') -or
+             -not $raw.Contains('$localService[0].IsInherited') -or
+             -not $raw.Contains('Assert-Private $state @([string]$install.dedicated_sid)') -or
+             -not $raw.Contains("GetOwner([Security.Principal.SecurityIdentifier]).Value -ceq 'S-1-5-32-544'")) {
+            throw 'NO-GO: LocalService no limitado a ACL original de raiz'
+          }
+          Write-Host 'PASS: staging-only PS5.1, SID dedicado y LocalService exacto solo en raiz'
+
+      - name: Validar hash Git exacto de los dos fuentes K-V en el commit
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = @{
+            'app/public_control/kv_virtual_staging.py' = 'dc42f5992b6a14bc17adb27f36a032491d884d56'
+            'app/public_control/kr_ticket_ledger.py' = 'e8f1b143faea73851abdebfd6c874efa2b72f96e'
+          }
+          foreach($name in $expected.Keys) {
+            $blob = (& git hash-object -- $name).Trim()
+            if($LASTEXITCODE -ne 0 -or $blob -cne $expected[$name]) {
+              throw ('NO-GO: Git blob mismatch ' + $name)
+            }
+          }
+          Write-Host 'PASS: exact K-V candidate Git blobs match pinned install script'
+
+      - name: Verificar que no existen comandos de despliegue automatico en el manifest
+        shell: powershell
+        run: |
+          $text=Get-Content '.\docs\kv_v1_upgrading_durations_RUNBOOK_NOT_LIVE.md' -Raw -Encoding UTF8
+          if(-not $text.Contains('NO CUTOVER') -or
+             -not $text.Contains('No copiar el archivo mientras K-V')) {
+             throw 'NO-GO: unsafe rollback or backup runbook'
+          }
+          Write-Host 'PASS: live EC2 upgrade requires independent maintenance window'
+
+      - name: Ensayar rollback de dos archivos y SQLite en Windows CI aislado
+        shell: powershell
+        env:
+          KV_V1_LAB_ONLY: file-fixtures-faults
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = '.\tests\kv_v1_recovery_filelab_ci.ps1'
+          $tokens = $null; $errors = $null
+          $ast = [Management.Automation.Language.Parser]::ParseFile(
+            $path, [ref]$tokens, [ref]$errors
+          )
+          if(@($errors).Count -ne 0) {
+            foreach($issue in @($errors)) { Write-Host ('PARSE: ' + $issue.ToString()) }
+            throw 'NO-GO: recovery lab script has PowerShell syntax errors'
+          }
+          $text = [IO.File]::ReadAllText((Resolve-Path $path))
+          if(-not $text.Contains("KV_V1_LAB_ONLY -cne 'file-fixtures-faults'") -or
+             -not $text.Contains('$env:RUNNER_TEMP') -or
+             $text.Contains('Stop-ScheduledTask') -or
+             $text.Contains('Start-ScheduledTask') -or
+             $text.Contains('C:\ProgramData\VehiculoIoT')) {
+            throw 'NO-GO: recovery lab is not confined to CI fixtures'
+          }
+          & $path
+          if(-not $?) { throw 'NO-GO: rollback fault lab failed' }
+
+      - name: Analizar el controlador y probar la transacción con archivos ficticios
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach($file in @(
+            'scripts/kv_v1_upgrade_controller.ps1',
+            'scripts/kv_v1_upgrade_recover.ps1',
+            'scripts/kv_v1_upgrade_transaction.ps1',
+            'scripts/kv_v1_upgrade_windows.ps1'
+          )) {
+            $tokens = $null; $errors = $null
+            $null = [Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file), [ref]$tokens, [ref]$errors
+            )
+            if (@($errors).Count -ne 0) { throw ("PowerShell 5.1 parser rejected " + $file) }
+          }
+          .\tests\kv_v1_upgrade_transaction_ci.ps1
+          .\tests\kv_v1_upgrade_windows_ci.ps1
+          foreach($file in @('kv_v1_upgrade_controller.ps1', 'kv_v1_upgrade_recover.ps1')) {
+            $arguments = @('-NoProfile','-NonInteractive','-File',(Join-Path (Resolve-Path scripts) $file))
+            if ($file -eq 'kv_v1_upgrade_controller.ps1') { $arguments += @('-Mode','Apply') }
+            & powershell.exe @arguments
+            if ($LASTEXITCODE -ne 2) { throw 'Missing maintenance gate.' }
+          }
+          exit 0
+
+      - name: SQLite real y contrato FastAPI virtual aislado
+        shell: powershell
+        run: |
+          python -m pip install -r requirements-dev.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest tests/test_kv_v1_upgrade_sqlite.py tests/test_kv_supervised_durations.py tests/test_kv_virtual_staging.py tests/test_kr_ticket_ledger.py -q
+
