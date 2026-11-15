@@ -264,6 +264,21 @@ function Assert-KVUpgradeStablePair($Context, [ValidateSet('Original','Candidate
     }
 }
 
+function Test-KVUpgradeTaskPrincipal([string]$Principal, [string]$UserName, [string]$DedicatedSid) {
+    # Task Scheduler may store a local principal without COMPUTERNAME\ prefix.
+    # Accept only the pinned name forms and resolve the actual SID on Windows.
+    if ($Principal -ceq $DedicatedSid) { return $true }
+    if ($Principal -ine $UserName -and
+        $Principal -ine ($env:COMPUTERNAME + '\' + $UserName)) { return $false }
+    try {
+        $resolved = [Security.Principal.NTAccount]::new($Principal).Translate(
+            [Security.Principal.SecurityIdentifier]).Value
+        return ($resolved -ceq $DedicatedSid)
+    } catch {
+        return $false
+    }
+}
+
 function Get-KVUpgradeTask($Context) {
     $task = Get-ScheduledTask -TaskPath '\' -TaskName $Context.TaskName -ErrorAction Stop
     $principal = [string]$task.Principal.UserId
@@ -272,7 +287,7 @@ function Get-KVUpgradeTask($Context) {
         $task.Actions[0].Execute -ieq $Context.Python -and
         $task.Actions[0].Arguments -ceq $expectedArgs -and
         [string]::IsNullOrWhiteSpace([string]$task.Actions[0].WorkingDirectory) -and
-        ($principal -ceq $Context.DedicatedSid -or $principal -ieq ($env:COMPUTERNAME + '\' + $Context.UserName)) -and
+        (Test-KVUpgradeTaskPrincipal $principal $Context.UserName $Context.DedicatedSid) -and
         $task.Principal.LogonType -eq 'Password' -and $task.Principal.RunLevel -eq 'Limited' -and
         @($task.Triggers | Where-Object { $null -ne $_ }).Count -eq 0 -and
         $task.Settings.MultipleInstances -eq 'IgnoreNew') 'TASK_IDENTITY'
