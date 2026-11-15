@@ -1,0 +1,88 @@
+name: K-X real HTTPS cutover package STAGED LOCKED Windows PowerShell 5.1
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_prod_bundle_stage_only.ps1
+      - scripts/kx_prod_cutover_controller_LOCKED.ps1
+      - scripts/kx_prod_recoverer_LOCKED.ps1
+      - .github/workflows/kx-prod-cutover-locked-package-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-locked-real-package:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout experimental branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: PowerShell 5.1 parse / lockdown contract / offline staging safety
+        shell: powershell
+        run: |
+          $names=@(
+            'kx_prod_bundle_stage_only.ps1',
+            'kx_prod_cutover_controller_LOCKED.ps1',
+            'kx_prod_recoverer_LOCKED.ps1'
+          )
+          foreach($name in $names){
+            $path=Join-Path .\scripts $name
+            $tokens=$null;$errors=$null
+            $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+            if(@($errors).Count -ne 0){
+              $errors|ForEach-Object {Write-Host ('PARSE: '+$_.Message)}
+              throw ('K-X Windows PowerShell 5.1 syntax NO-GO: '+$name)
+            }
+            $text=Get-Content -LiteralPath $path -Raw
+            if(-not $text.Contains('kx_https_cutover_bundle_v1_NOT_ARMED')){
+              throw ('K-X fixed private staging directory missing: '+$name)
+            }
+            if($text.Contains('Invoke-Expression') -or $text.Contains('Set-NetFirewallRule') -or $text.Contains('Invoke-WebRequest -Headers')){
+              throw ('K-X unsafe command in '+$name)
+            }
+          }
+          $stage=Get-Content -LiteralPath .\scripts\kx_prod_bundle_stage_only.ps1 -Raw
+          $controller=Get-Content -LiteralPath .\scripts\kx_prod_cutover_controller_LOCKED.ps1 -Raw
+          $recovery=Get-Content -LiteralPath .\scripts\kx_prod_recoverer_LOCKED.ps1 -Raw
+          $stokens=$null;$serrors=$null
+          $stageAst=[Management.Automation.Language.Parser]::ParseFile(
+            '.\scripts\kx_prod_bundle_stage_only.ps1',[ref]$stokens,[ref]$serrors)
+          $calls=@($stageAst.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst]
+          },$true)|ForEach-Object {$_.GetCommandName()})
+          foreach($forbidden in @(
+            'Stop-ScheduledTask','Start-ScheduledTask','Register-ScheduledTask',
+            'Disable-ScheduledTask','Enable-ScheduledTask','Set-ScheduledTask',
+            'Unregister-ScheduledTask','Stop-Process','Restart-Service',
+            'Stop-Service','Start-Service','Set-Acl','Stop-VehicleDeployment',
+            'Start-VehicleDeployment'
+          )){
+            if($calls -contains $forbidden){throw ('Stage-only operation forbidden: '+$forbidden)}
+          }
+          if(-not $controller.Contains('$script:EnableProductionCutover=$false')){
+            throw 'Controller production mutation lock not present'
+          }
+          if(-not $recovery.Contains('$script:EnableProductionRecovery=$false')){
+            throw 'Recoverer production mutation lock not present'
+          }
+          if(-not $controller.Contains('PRODUCTION_CUTOVER_LOCKED_PENDING_RELEASE_REVIEW')){
+            throw 'Controller must reject real cutover'
+          }
+          if(-not $recovery.Contains('PRODUCTION_RECOVERY_LOCKED_PENDING_RELEASE_REVIEW')){
+            throw 'Recoverer must reject real rollback'
+          }
+          if(-not $stage.Contains('CONTROLLER') -and
+             -not $stage.Contains('Controlador') ){
+            throw 'Staging report missing clear controller state'
+          }
+          if(-not $stage.Contains('COPIAS ORIGINALES/CANDIDATAS: PROTEGIDAS Y VERIFICADAS')){
+            throw 'Staging success contract missing'
+          }
+          Write-Host 'K-X PS5.1 syntax PASS: 3 scripts'
+          Write-Host 'K-X mutation gates LOCKED: confirmed'
+          Write-Host 'K-X private bundle staging AST: no production task control verbs'
+          Write-Host 'K-X LIVE CADDY: not touched by this CI'
