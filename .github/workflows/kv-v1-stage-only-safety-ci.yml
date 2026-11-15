@@ -32,6 +32,9 @@ jobs:
             $source, [ref]$tok, [ref]$errors
           )
           if(@($errors).Count -ne 0) {
+            foreach($issue in @($errors)) {
+              Write-Host ('PARSER: ' + $issue.ToString())
+            }
             throw 'NO-GO: PowerShell 5.1 syntax error'
           }
           $commands=@($ast.FindAll({
