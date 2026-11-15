@@ -102,7 +102,7 @@ function AssertLabTask([string]$name,[string]$prefix,[string]$role){
  $t=Get-ScheduledTask -TaskPath '\' -TaskName $name -ErrorAction Stop
  Check ($t.Principal.UserId -match '^(SYSTEM|S-1-5-18|NT AUTHORITY\\SYSTEM)$') 'Lab task SYSTEM'
  Check (@($t.Actions).Count -eq 1) 'Single lab task action'
- Check (([string]$t.Actions[0].Arguments).Contains((Join-Path $labRoot 'kx_integrated_'+$role+'.ps1'))) 'Lab task script path'
+ Check (([string]$t.Actions[0].Arguments).Contains((Join-Path $labRoot (('kx_integrated_{0}.ps1' -f $role))))) 'Lab task script path'
  return $t
 }
 function StopFake($s){
@@ -317,9 +317,9 @@ function RunIntegratedCase([string]$name,[string]$inputs){
     $t=Get-ScheduledTask -TaskPath '\' -TaskName ([string]$s.watchdog_task) -ErrorAction Stop
     if($t.State -eq 'Running'){Stop-ScheduledTask -TaskPath '\' -TaskName ([string]$s.watchdog_task) -ErrorAction Stop}
     Unregister-ScheduledTask -TaskPath '\' -TaskName ([string]$s.watchdog_task) -Confirm:$false -ErrorAction Stop
-   }catch{$cleanupOk=$false}
+   }catch{$cleanupOk=$false;if($Mode -ceq 'FixtureCI'){Write-Host ('CI watchdog cleanup: '+$_.Exception.Message)}}
   }
-  if($registered){
+  if($registered -or $null -ne (Get-ScheduledTask -TaskPath '\' -TaskName ([string]$s.service_task) -ErrorAction SilentlyContinue)){
    try{
     $t=Get-ScheduledTask -TaskPath '\' -TaskName ([string]$s.service_task) -ErrorAction Stop
     $t|Disable-ScheduledTask -ErrorAction Stop|Out-Null
@@ -327,7 +327,7 @@ function RunIntegratedCase([string]$name,[string]$inputs){
      Stop-ScheduledTask -TaskPath '\' -TaskName ([string]$s.service_task) -ErrorAction Stop
     }
     Unregister-ScheduledTask -TaskPath '\' -TaskName ([string]$s.service_task) -Confirm:$false -ErrorAction Stop
-   }catch{$cleanupOk=$false}
+   }catch{$cleanupOk=$false;if($Mode -ceq 'FixtureCI'){Write-Host ('CI service cleanup: '+$_.Exception.Message)}}
   }
   if($null -ne (Get-ScheduledTask -TaskPath '\' -TaskName ([string]$s.service_task) -ErrorAction SilentlyContinue) -or
      $null -ne (Get-ScheduledTask -TaskPath '\' -TaskName ([string]$s.watchdog_task) -ErrorAction SilentlyContinue)){
