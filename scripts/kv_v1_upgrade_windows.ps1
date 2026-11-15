@@ -184,9 +184,9 @@ function Get-KVUpgradeContext {
         Assert-KVUpgradeAcl $path -Reader $ctx.DedicatedSid
     }
     $venvCfg = @(Get-Content -LiteralPath $venvConfig -Encoding UTF8 -ErrorAction Stop)
-    $home = @($venvCfg | Where-Object { $_ -match '^home\s*=' })
+    $venvHomeEntries = @($venvCfg | Where-Object { $_ -match '^home\s*=' })
     $sitePackages = @($venvCfg | Where-Object { $_ -match '^include-system-site-packages\s*=' })
-    Require-KVWindows ($home.Count -eq 1 -and ($home[0] -replace '^home\s*=\s*') -ieq
+    Require-KVWindows ($venvHomeEntries.Count -eq 1 -and ($venvHomeEntries[0] -replace '^home\s*=\s*') -ieq
         [IO.Path]::GetDirectoryName($ctx.BasePython) -and $sitePackages.Count -eq 1 -and
         $sitePackages[0] -cmatch '^include-system-site-packages\s*=\s*false$') 'PYTHON_VENV'
     # In recovery, the current pair may contain one old and one new file.
