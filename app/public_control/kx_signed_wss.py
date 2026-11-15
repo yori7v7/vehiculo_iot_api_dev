@@ -1,7 +1,7 @@
 """K-X: WSS de DIAGNÓSTICO conectado al mismo FastAPI y a los turnos K-R.
 
-Sólo se activa si un test INYECTA explícitamente KXDiagnosticWSSHub en
-app.state.kx_diag_hub. NO hay variable de producción para habilitarlo,
+Cerrado por defecto. Puede habilitarse con configuración EXPLÍCITA y una
+clave privada binaria de 32 bytes fuera de Git, o por inyección en pruebas.
 NO hay GPIO ni liberación de motores. Reutiliza la autenticación 55-H y el
 contrato CommandWire; los ACK acreditan solamente neutral VIRTUAL.
 """
@@ -166,6 +166,13 @@ class KXDiagnosticWSSHub:
                 if self._ws is not None:
                     await self._drop(self._ws)
                 return False
+
+    async def shutdown(self) -> None:
+        """Cerrar el canal al detener FastAPI; ESP debe neutralizar localmente."""
+        self.interlock()
+        async with self._lock:
+            if self._ws is not None:
+                await self._drop(self._ws)
 
     async def serve(self, ws: WebSocket) -> None:
         if (ws.headers.get("host") != HOST or ws.headers.get("origin") is not None
