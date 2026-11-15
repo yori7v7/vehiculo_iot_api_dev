@@ -20,6 +20,7 @@ on:
       - scripts/kx_caddy_launcher_acl_diagnosis_readonly.ps1
       - scripts/kx_caddy_xdg_autosave_readonly.ps1
       - scripts/kx_runtime_proxy_proof_local_lab.ps1
+      - scripts/kx_caddy_stale_autosave_secret_exposure_readonly.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -597,3 +598,43 @@ jobs:
           if($adapters.Count -lt 1){throw "Missing strict placeholder replacement guard"}
           if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved PowerShell HOME assignment"}
           Write-Host "PASS: Caddy runtime env placeholder probe, PS5.1 syntax and secret-persistence guards"
+      - name: Validate stale Caddy autosave secret exposure diagnosis (read-only)
+        shell: powershell
+        run: |
+          $file = "scripts/kx_caddy_stale_autosave_secret_exposure_readonly.ps1"
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)
+          if (@($errors).Count -ne 0) {
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "K-X stale autosave security diagnosis invalid under PS5.1"
+          }
+          $src = Get-Content $file -Raw
+          foreach($required in @("AppData", "LOCALAPPDATA", "autosave.json",
+             "X-Admission-Proxy-Token", "proxy_proof", "GetAccessRules",
+             "ACE", "ReadData", "WriteData", "Get-NetTCPConnection",
+             "Get-ScheduledTask", "AUTOSAVES CON TOKEN REAL",
+             "CONTENCION LOCAL + ROTACION DE PROXY_PROOF",
+             "TOKEN NO MOSTRADO", "NO REPETIR, NO BORRAR AUTOSAVES",
+             "API KEY ORIGINAL Y ADMIN_PROOF: NO MODIFICADOS",
+             "CONTROL FISICO: OFF")) {
+            if(-not $src.Contains($required)) {
+              throw "Stale autosave audit missing security marker: $required"
+            }
+          }
+          $commands = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object {$_.GetCommandName()})
+          foreach($forbidden in @("Set-Acl", "icacls.exe", "Set-ScheduledTask",
+             "Register-ScheduledTask", "Start-ScheduledTask", "Stop-ScheduledTask",
+             "Restart-Computer", "Restart-Service", "Start-Process",
+             "Stop-Process", "Invoke-WebRequest", "Remove-Item",
+             "Set-Content", "Out-File", "New-Item", "Copy-Item",
+             "Move-Item", "Set-Item")) {
+            if($commands -contains $forbidden){
+              throw "Mutation forbidden in stale-autosave diagnosis: $forbidden"
+            }
+          }
+          if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME assignment"}
+          Write-Host "PASS: stale Caddy autosave read-only security audit with no secret output"
