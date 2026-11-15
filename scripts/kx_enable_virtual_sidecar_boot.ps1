@@ -169,6 +169,22 @@ catch {
     if ($_.FullyQualifiedErrorId) {
         Write-Host ("ERROR ID: " + $_.FullyQualifiedErrorId) -ForegroundColor Yellow
     }
+    # Incluso si Set-ScheduledTask devuelve error, verificar si hubo cambio parcial.
+    try {
+        $current = Get-ScheduledTask -TaskPath "\" -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($null -ne $current) {
+            $boot = @($current.Triggers | Where-Object {
+                $null -ne $_ -and [string]$_.CimClass.CimClassName -like '*BootTrigger' -and $_.Enabled -eq $true
+            })
+            if ($boot.Count -gt 0) {
+                $changed = $true
+                Write-Host "ALERTA: Trigger detectado aun cuando el cmdlet fallo; contencion obligatoria" -ForegroundColor Yellow
+            }
+        }
+    }
+    catch {
+        Write-Host "NO-GO: No se pudo auditar el trigger tras el error" -ForegroundColor Red
+    }
 }
 finally {
     if (-not $success) {
