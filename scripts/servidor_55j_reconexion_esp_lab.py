@@ -168,6 +168,10 @@ async def main_async():
                 gate, host=host, port=LAB_PORT, workers=1,
                 proxy_headers=False, access_log=False, log_level="warning",
                 ws="wsproto", lifespan="on",
+                # Uvicorn sin limite espera websockets hasta que vence
+                # el timeout externo y Windows deja SQLite.lock abierto.
+                # Cancelar tareas residuales antes del cierre lifespan.
+                timeout_graceful_shutdown=5,
                 ssl_certfile=str(PRIVATE_DIR / "server.pem"),
                 ssl_keyfile=str(PRIVATE_DIR / "server-key.pem"),
             )
@@ -192,14 +196,23 @@ async def main_async():
                 print("[55-J] ESP autenticado inicialmente: OK", flush=True)
                 await run_reconnection_demo(app, gate)
             finally:
+                # Antes del shutdown se rechazan nuevos reintentos WSS:
+                # el ESP 55-H intenta reconectar automaticamente.
+                gate.allow_wss = False
                 server.should_exit = True
-                await asyncio.wait_for(task, timeout=15)
+                # El cierre con timeout propio Uvicorn debe finalizar
+                # lifespan (ledger.close/fence.close) ANTES de que se
+                # elimine el directorio temporal de Windows.
+                await asyncio.wait_for(task, timeout=25)
     finally:
         for name, before in old_vars.items():
             if before is None:
                 os.environ.pop(name, None)
             else:
                 os.environ[name] = before
+    # Este mensaje se imprime SOLO tras borrar SQLite temporal.
+    print("[55-J] CIERRE LIMPIO: Uvicorn detenido y SQLite temporal liberado",
+          flush=True)
 
 
 def main():
