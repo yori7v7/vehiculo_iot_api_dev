@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     public_virtual_admission_enabled: ExplicitBool = False
     public_virtual_admission_sqlite_path: Path | None = None
 
+    # K-X: WSS de diagnostico autenticado, DESACTIVADO por defecto.
+    # Solo usa clave binaria local fuera del repositorio. Nunca motores.
+    kx_diagnostic_wss_enabled: ExplicitBool = False
+    kx_diagnostic_wss_key_path: Path | None = None
+
     # Canal WSS aislado para pruebas con dispositivo virtual, jamás físico.
     device_lab_enabled: ExplicitBool = False
     device_lab_vehicle_id: SimulatedVehicleId = 1
@@ -91,6 +96,25 @@ class Settings(BaseSettings):
                 decoded(self.device_lab_key.get_secret_value(), NONCE_LEN)
             except ValueError as e:
                 raise ValueError("Configura una clave privada de laboratorio de 32 bytes en Base64url.") from e
+        # La ruta de la clave se valida tambien aunque WSS este apagado,
+        # para rechazar configuraciones engañosas o dentro del repositorio.
+        device_path = self.kx_diagnostic_wss_key_path
+        if device_path is not None and (
+            not device_path.is_absolute()
+            or device_path.resolve().is_relative_to(PROJECT_ROOT.resolve())
+        ):
+            raise ValueError("La clave K-X debe estar en ruta absoluta fuera del repositorio.")
+        if self.kx_diagnostic_wss_enabled and (
+            not self.public_virtual_admission_enabled
+            or self.device_lab_enabled
+            or self.control_publico_enabled
+            or self.app_env != "production"
+            or device_path is None
+        ):
+            raise ValueError(
+                "El WSS K-X exige admision virtual en produccion y archivo "
+                "privado de dispositivo; nunca habilita motores."
+            )
         if self.public_virtual_admission_enabled:
             admission = self.public_virtual_admission_sqlite_path
             if (self.app_env != "production" or self.control_publico_enabled
