@@ -85,7 +85,7 @@ Se agregaron scripts/kx_dual_file_rollback_fault_lab.ps1 y .github/workflows/kx-
 - GitHub Actions Windows PowerShell 5.1: PASS, run 43692746158, commit ac3d8647c7bf27516b1d02294c24e6b63ef95486.
 - Se ensayaron solo fixtures: fallo tras primer reemplazo, fallo tras segundo reemplazo y recuperacion planificada de ambos.
 - Cada ensayo recupero los dos hashes originales. No hubo intervencion en EC2, servicios, tareas, puertos, RDS ni control fisico.
-- PENDIENTE: ejecutar EC2CopyLab sobre espejos de archivos respaldados y protegidos en EC2, sin modificar rutas productivas.
+- APROBADO EN EC2 (evidencia de consola del operador, 2026-11-15): EC2CopyLab completo sobre espejos NTFS con backups/candidatos reales. PASS para FAIL_AFTER_FIRST, FAIL_AFTER_SECOND y PLANNED_ROLLBACK; ambos hashes originales restaurados en los tres casos, hashes productivos Caddyfile y lanzador intactos, control fisico OFF. El informe privado se guarda en kx_dual_rollback_fault_lab_v1/dual_rollback_report.json. La ejecucion del servicio real sigue SIN probar.
 - NO IMPLEMENTADO: watchdog independiente, rollback tras cierre abrupto del operador, coordinacion de reintentos y recuperacion real del HTTPS 443.
 
 Este avance NO cambia NO-GO_PUBLICACION ni autoriza el cutover.
