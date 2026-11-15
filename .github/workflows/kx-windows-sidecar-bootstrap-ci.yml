@@ -12,6 +12,7 @@ on:
       - scripts/kx_caddy_offline_candidate.ps1
       - scripts/kx_caddy_loopback_header_route_lab.ps1
       - scripts/kx_caddy_release_preflight_readonly_http.ps1
+      - scripts/kx_caddy_restore_copy_rehearsal.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -276,3 +277,35 @@ jobs:
           }
           if($source -match '(?im)^\s*\$home\s*=') { throw "Reserved PowerShell HOME assignment" }
           Write-Host "PASS: preflight PowerShell AST and no-publication guards"
+      - name: Parse safe Caddy recovery-copy rehearsal in Windows PowerShell
+        shell: powershell
+        run: |
+          $file = "scripts/kx_caddy_restore_copy_rehearsal.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+          if (@($errors).Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "Copy-only restore rehearsal does not parse under PowerShell 5.1"
+          }
+          $source = Get-Content $file -Raw
+          foreach ($required in @("Caddyfile.original.copy",
+              "Caddyfile.restored.copy", "Caddyfile.kx.offline",
+              "OFFLINE_INVALID_TOKEN_NOT_FOR_DEPLOYMENT",
+              "Get-FileHash", "Start-Process", "adapt --config",
+              "actual_service_rollback_tested", "new_public_routes_enabled",
+              "physical_control_enabled", "CADDY ADAPT SOBRE COPIA: PASS",
+              "Get-ScheduledTask", "icacls.exe")) {
+            if (-not $source.Contains($required)) {
+              throw "Offline drill missing safety contract: $required"
+            }
+          }
+          foreach ($forbidden in @("Register-ScheduledTask",
+               "Set-ScheduledTask", "Restart-Computer", "Restart-Service",
+               "New-NetFirewallRule", "caddy reload", "Invoke-WebRequest")) {
+            if ($source.Contains($forbidden)) {
+              throw "Offline rehearsal contains forbidden mutation: $forbidden"
+            }
+          }
+          if($source -match '(?im)^\s*\$home\s*=') { throw "PowerShell HOME reserved variable" }
+          Write-Host "PASS: no-reload, copy-only rollback rehearsal script parses and preserves safety contracts"
