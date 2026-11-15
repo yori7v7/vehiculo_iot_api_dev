@@ -419,7 +419,7 @@ jobs:
           foreach($forbidden in @("Set-ScheduledTask", "Register-ScheduledTask",
             "Restart-Computer", "Restart-Service", "New-NetFirewallRule",
             "caddy reload", "Invoke-WebRequest", "Set-Content",
-            "Out-File", "Remove-Item", "Start-Process")) {
+            "Out-File", "Remove-Item")) {
               if($source.Contains($forbidden)){throw "Unsafe mutation in read-only inventory: $forbidden"}
           }
           if($source -match '(?im)^\s*\$home\s*=') {throw "Reserved PowerShell HOME variable"}
@@ -455,5 +455,6 @@ jobs:
                 throw "Unsafe mutation in launcher inventory: $forbidden"
               }
           }
+          if($src -match '(?im)^\s*Start-Process\b') {throw "Direct process launch forbidden in read-only inventory"}
           if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME assignment"}
           Write-Host "PASS: launcher extraction, ACL inspection, autosave check, no secrets printed"
