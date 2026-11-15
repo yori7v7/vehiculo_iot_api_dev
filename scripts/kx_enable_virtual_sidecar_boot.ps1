@@ -226,12 +226,10 @@ finally {
     Write-Host "=== FIN K-X AUTOARRANQUE ===" -ForegroundColor Cyan
 }
 ) {
-        $principalSid = (New-Object Security.Principal.SecurityIdentifier($registeredPrincipal)).Value
+        $principalSid = ([Security.Principal.SecurityIdentifier]::new($registeredPrincipal)).Value
     }
     else {
-        $principalSid = (
-            New-Object Security.Principal.NTAccount($registeredPrincipal)
-        ).Translate([Security.Principal.SecurityIdentifier]).Value
+        $principalSid = ([Security.Principal.NTAccount]::new($registeredPrincipal)).Translate([Security.Principal.SecurityIdentifier]).Value
     }
     Assert-KX ($principalSid -eq $manifest.dedicated_sid) "SID real del principal coincide"
     $beforeUserId = [string]$task.Principal.UserId
