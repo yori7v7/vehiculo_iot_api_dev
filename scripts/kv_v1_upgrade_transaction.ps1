@@ -21,6 +21,29 @@ function Write-KVNewFile([string]$Path, [byte[]]$Bytes) {
     finally { $file.Dispose() }
 }
 
+function Move-KVVerifiedFile([string]$Source, [string]$Destination, [switch]$Replace) {
+    $parent = [IO.Path]::GetDirectoryName($Source)
+    Assert-KVTransaction ($parent -ieq [IO.Path]::GetDirectoryName($Destination) -and
+        ([IO.DriveInfo]::new([IO.Path]::GetPathRoot($Source))).DriveFormat -ceq 'NTFS') 'La publicacion requiere el mismo directorio NTFS.'
+    if (-not ('KVUpgradeNativeRename' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class KVUpgradeNativeRename
+{
+    [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", ExactSpelling = true,
+        CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool Move(string source, string destination, uint flags);
+}
+'@ -ErrorAction Stop
+    }
+    # Same-directory rename carries the prepared security descriptor without
+    # the ACL merge performed by File.Replace. No copy or deferred rename.
+    $flags = if ($Replace) { 0x09 } else { 0x08 }
+    Assert-KVTransaction ([KVUpgradeNativeRename]::Move($Source,$Destination,$flags)) 'Windows rechazo la publicacion del archivo preparado.'
+}
+
 function Enter-KVTransaction($Context, [switch]$Create) {
     if ($Create -and -not (Test-Path -LiteralPath $Context.BackupRoot)) {
         $acl = [Security.AccessControl.DirectorySecurity]::new()
@@ -60,9 +83,9 @@ function Set-KVTransactionPhase($Context, $State, [string]$Phase) {
         Assert-KVUpgradePrivatePath $next
         if (Test-Path -LiteralPath $path) {
             Assert-KVUpgradePrivatePath $path
-            [IO.File]::Replace($next, $path, [NullString]::Value, $false)
+            Move-KVVerifiedFile $next $path -Replace
         } else {
-            [IO.File]::Move($next, $path)
+            Move-KVVerifiedFile $next $path
         }
         $State.phase = $Phase
         Write-Host ('K-V V1: ' + $Phase)
@@ -145,10 +168,10 @@ function Set-KVTransactionPair($Context, $State, [ValidateSet('Original','Candid
             if ($targetExists) {
                 Assert-KVTransaction ($before -cin @($file.OriginalHash,$file.CandidateHash) -and
                     (Get-KVFileHash $target) -ceq $before -and (Get-KVCodeAcl $target) -ceq $expectedAcl) 'El destino cambio durante la preparacion.'
-                [IO.File]::Replace($next, $target, [NullString]::Value, $false)
+                Move-KVVerifiedFile $next $target -Replace
             } else {
                 Assert-KVTransaction ($Version -eq 'Original') 'No se recrea un destino ausente al instalar.'
-                [IO.File]::Move($next, $target)
+                Move-KVVerifiedFile $next $target
             }
             Assert-KVTransaction ((Get-KVCodeAcl $target) -ceq $expectedAcl) 'La ACL original cambio.'
         }

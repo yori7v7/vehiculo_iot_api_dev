@@ -151,6 +151,14 @@ try {
     $script:fault = 'unsafe-rollback'
     Check ((Test-Rejected { Invoke-KVRecovery $ctx }) -and -not $script:kvRunning) 'incompatible current DB keeps recovery stopped'
     $ctx = New-KVFixture ''
+    $originalSource = Join-Path $ctx.Live $ctx.Files[0].Name
+    $sourceAcl = Get-Acl -LiteralPath $originalSource
+    $sourceAcl.SetAccessRuleProtection($true, $true)
+    Set-Acl -LiteralPath $originalSource -AclObject $sourceAcl
+    $baselineAcl = Get-KVCodeAcl $originalSource
+    Check ((Invoke-KVUpgrade $ctx) -eq 0 -and (Get-KVCodeAcl $originalSource) -ceq $baselineAcl -and
+        (Get-Acl -LiteralPath $originalSource).AreAccessRulesProtected) 'rename preserves the exact protected source descriptor'
+    $ctx = New-KVFixture ''
     [void](Invoke-KVUpgrade $ctx)
     Stop-KVUpgradeService $ctx
     [IO.File]::Delete((Join-Path $ctx.Live $ctx.Files[0].Name))
