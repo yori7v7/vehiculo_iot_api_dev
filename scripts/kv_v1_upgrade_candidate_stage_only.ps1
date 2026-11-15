@@ -149,4 +149,5 @@ catch {
     # Sin borrar evidencia ni tocar produccion. Staging incompleto queda
     # aislado y NO debe instalarse.
     Write-Host ('NO-GO: ' + $_.Exception.Message) -ForegroundColor Red
+    throw
 }
