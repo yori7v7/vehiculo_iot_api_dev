@@ -24,6 +24,7 @@ on:
       - scripts/kx_rotate_virtual_proxy_proof_remove_stale_autosave.ps1
       - scripts/kx_file_replace_dummy_acl_diagnostic.ps1
       - scripts/kx_file_replace_matrix_dummy.ps1
+      - scripts/kx_rotate_virtual_proxy_proof_explicit_backup_v2.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -769,3 +770,76 @@ jobs:
           }
           if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME"}
           Write-Host "PASS: five dummy Replace cases with no product config/task changes, PS5.1 syntax verified"
+      - name: Windows PS5.1 parse and smoke test K-X credential rotation with explicit NTFS backup
+        shell: powershell
+        run: |
+          $path = "scripts/kx_rotate_virtual_proxy_proof_explicit_backup_v2.ps1"
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "Rotation v2 not PowerShell 5.1 compatible"
+          }
+          $src=Get-Content $path -Raw
+          foreach($marker in @(
+            '[IO.File]::Replace($staged,$configPath,$rollbackBackup)',
+            'Remove-Item -LiteralPath $rollbackBackup -Force',
+            'old_ntfs_backup_deleted_before_restart',
+            'explicit_ntfs_backup_used',
+            'CONFIG YA NO ES ORIGINAL: SE DETENDRA K-V',
+            'Config real sin cambios antes del STOP',
+            'No hay solicitudes ni turnos virtuales activos',
+            'Get-FileHash', 'Get-NetTCPConnection', 'GetOwnerSid',
+            'CheckACL $rollbackBackup',
+            'Respaldo contiene exactamente configuracion antigua',
+            'Respaldo con token antiguo retirado antes de reiniciar K-V',
+            'TOKEN_ANTIGUO_REVOCADO', 'TOKEN_NUEVO_AUTORIZADO',
+            'AUTOSAVE PERFIL ADMIN: RETIRADO',
+            'ADMIN_PROOF / API KEY ACADEMICA: INTACTAS',
+            'CONTROL FISICO: OFF')) {
+             if(-not $src.Contains($marker)) {
+               throw "Rotation v2 missing safety contract: $marker"
+             }
+          }
+          if($src.Contains('[IO.File]::Replace($staged,$configPath,$null)')) {
+            throw "Null-backup File.Replace reintroduced"
+          }
+          $commands = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object { $_.GetCommandName() })
+          foreach($forbidden in @("Set-ScheduledTask", "Register-ScheduledTask",
+             "Unregister-ScheduledTask", "Restart-Service", "Restart-Computer",
+             "New-NetFirewallRule", "Invoke-WebRequest", "Stop-Process", "Set-Acl")) {
+             if($commands -contains $forbidden){
+                throw "Forbidden rotation action: $forbidden"
+             }
+          }
+          if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME"}
+          $pyMatch = [regex]::Match($src, '(?s)\$pyCode=@''\s+?(.*?)\s+''@')
+          if(-not $pyMatch.Success){throw "Missing SQLite read-only preflight"}
+          $pyFile=Join-Path $env:RUNNER_TEMP "kx_rotation_v2_ticket_ro.py"
+          [IO.File]::WriteAllText($pyFile,$pyMatch.Groups[1].Value,[Text.Encoding]::UTF8)
+          & python -B -m py_compile $pyFile
+          if($LASTEXITCODE -ne 0){throw "Embedded SQLite read-only precheck invalid"}
+          # Disposable NTFS smoke only: never run the production rotation here.
+          $sandbox=Join-Path $env:RUNNER_TEMP "kx-ntfs-v2-smoke"
+          if(Test-Path $sandbox){throw "Temporary smoke directory already exists"}
+          [IO.Directory]::CreateDirectory($sandbox)|Out-Null
+          try{
+             $old=Join-Path $sandbox "old.json"
+             $new=Join-Path $sandbox "new.json"
+             $backup=Join-Path $sandbox "old-backup.json"
+             [IO.File]::WriteAllText($old,"OLD_DUMMY")
+             [IO.File]::WriteAllText($new,"NEW_DUMMY")
+             [IO.File]::Replace($new,$old,$backup)
+             if([IO.File]::ReadAllText($old) -cne "NEW_DUMMY" -or
+                [IO.File]::ReadAllText($backup) -cne "OLD_DUMMY" -or
+                (Test-Path $new)){throw "Explicit NTFS backup smoke failed"}
+             Remove-Item -LiteralPath $backup -Force -ErrorAction Stop
+             if(Test-Path $backup){throw "Old dummy backup not removed"}
+          }finally{
+             Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host "PASS: rotation v2 PS5.1 syntax, no null backup, Python read-only preflight, explicit NTFS smoke"
