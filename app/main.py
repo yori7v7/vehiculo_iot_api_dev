@@ -90,7 +90,7 @@ def create_app() -> FastAPI:
     # K-X: virtual, in-process, sin despacho fisico ni servicio adicional.
     application.state.kx_enabled = settings.public_virtual_admission_enabled
     application.state.kx_ledger = None
-    # No existe activación por ENV: solo pruebas inyectan un HUB virtual.
+    # K-X WSS apagado por defecto; solo opt-in validado o inyeccion en tests.
     application.state.kx_diag_hub = None
     application.state.kx_admin_proof = None
     application.state.kf_wss_controller = None
