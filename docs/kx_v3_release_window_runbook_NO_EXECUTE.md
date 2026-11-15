@@ -91,3 +91,18 @@ V4 preserva V1/V2/V3 y cambia SOLO las rutas de salud equivocadas en un nuevo co
 Windows PowerShell 5.1 GitHub Actions run 43702057983: PASS en commit d3fa200c09b908e1fa268105c5ade62aabe47851 con 45 aserciones. Parser, contrato de fuentes FastAPI, staging sin mutar, acciones peligrosas denegadas en CI, restauracion ficticia y commit idempotente probados.
 
 NO-GO_PUBLICACION sigue vigente: V4 aun no se ha instalado ni revisado en EC2. Siguiente paso es stage-only + Review de V4 con salida atomica. No relanzar V3 ni tocar Caddy antes de concluir.
+
+## 2026-11-15: V4 STAGED y REVIEW aprobados en EC2
+
+El operador reporto estas salidas completas del staging V4 y la revision de los dos scripts de release:
+- RESULTADO: CANDIDATO V4 PREPARADO, SIN ACTIVAR HTTPS
+- COPIAS ORIGINALES/CANDIDATAS: PROTEGIDAS Y VERIFICADAS
+- CONTROLADOR Y RECUPERADOR: V4 PREPARADOS; NO INVOCADOS
+- HTTPS 443: SIN RESTART NI CAMBIOS; tareas productivas intactas; sin watchdog registrado
+- K-X CONTROLLER REVIEW: READY, HTTPS CUTOVER LOCKED
+- K-X RECOVERER: REVIEW READY, LIVE RECOVERY LOCKED
+- RESULTADO: K-X V4 PREPARADA Y REVISADA; controlador/recoverer Review PASS; transaction PREPARED; watchdog NO ARMADO
+
+Estado: GO_PREPARACION_V4_EN_EC2. NO declarar publicado K-V aun. El proximo hito es una sola ejecucion explicita de -Action Cutover -AuthorizeRealCutover en una ventana con usuario presente, bloque atomico que NO imprima PASS tras errores. El codigo V4 usado en el staging CI-green d3fa200c09b908e1fa268105c5ade62aabe47851; archivo controlador blob f79bdb467e0f05a86aed6a5e25b6e88caa7e9a17 y recuperador blob 0bbdc10158be2d8193d2f670437a6e482b9e49d3. NO repetir V3.
+
+La ejecucion real puede interrumpir HTTPS. El watchdog SYSTEM y su arranque bajo estado PREPARED se verifican antes del cierre, pero su recuperacion bajo condiciones de caida de Windows/RDP real no se considera certificada. Ante cualquier NO-GO no relanzar, inspeccionar transaccion y tareas solo lectura.
