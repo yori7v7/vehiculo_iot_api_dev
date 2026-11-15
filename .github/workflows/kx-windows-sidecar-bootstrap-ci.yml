@@ -133,4 +133,9 @@ jobs:
           if ($source -match '(?im)^\s*(Restart-Computer|Stop-Computer|Set-NetFirewallRule|New-NetFirewallRule)\b') {
             throw "Unsafe side effect in auto-start validator"
           }
+          $boot = New-ScheduledTaskTrigger -AtStartup
+          if ($boot.CimClass.CimClassName -notlike '*BootTrigger' -or $boot.Enabled -ne $true) {
+            throw "Windows startup trigger object differs from expected shape"
+          }
+          Write-Host "PASS: Windows provides enabled BootTrigger contract"
           Write-Host "PASS: auto-start PowerShell syntax, guarded preconditions, no reboot"
