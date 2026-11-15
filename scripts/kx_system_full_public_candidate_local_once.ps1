@@ -181,8 +181,8 @@ try{
  Check ($base.Contains("Fallback legacy FastAPI responde 200 desde el candidato") -and
   $base.Contains("Un solo bloque global de Caddy release reconocido")) "Worker prueba candidato completo sin bloque admin duplicado"
 
- $workerCode=$base.Replace($oldLab,'$lab = Join-Path $root "kx_system_caddy_local_once_lab"')
- $workerCode=$workerCode.Replace($oldReport,'$reportPath = Join-Path $root "kx_system_caddy_local_once_result.json"')
+ $workerCode=$base.Replace($oldLab,'$lab = Join-Path $root "kx_full_candidate_system_once_lab"')
+ $workerCode=$workerCode.Replace($oldReport,'$reportPath = Join-Path $root "kx_full_candidate_system_once_result.json"')
  $workerCode=$workerCode.Replace($oldGuard,$oldGuard+[Environment]::NewLine+
   '  Check ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ceq "S-1-5-18") "Ejecutando Caddy lab realmente como SYSTEM"')
  Check (-not $workerCode.Contains($oldLab) -and
