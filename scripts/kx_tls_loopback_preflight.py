@@ -123,6 +123,16 @@ def create_local_ca(directory: Path) -> Path:
         .not_valid_before(now - timedelta(minutes=5))
         .not_valid_after(now + timedelta(hours=8))
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        # OpenSSL 3.5 / Python 3.14 VERIFY_X509_STRICT exige extensiones
+        # RFC 5280 completas, no basta con CA+BasicConstraints.
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(root_key.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(root_key.public_key()),
+            critical=False,
+        )
         .add_extension(
             x509.KeyUsage(digital_signature=False, content_commitment=False,
                           key_encipherment=False, data_encipherment=False,
@@ -143,6 +153,14 @@ def create_local_ca(directory: Path) -> Path:
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .add_extension(
             x509.SubjectAlternativeName([x509.DNSName(DOMAIN)]), critical=False
+        )
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(leaf_key.public_key()),
+            critical=False,
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(root_key.public_key()),
+            critical=False,
         )
         .add_extension(
             x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
