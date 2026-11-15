@@ -78,3 +78,10 @@ Estado GO_INTEGRACION_EC2 / NO-GO_PUBLICACION. Los ensayos aislados y el end-to-
 - Confirmado por salida: evidencia del laboratorio integrado en EC2; sin tareas temporales; Caddy SYSTEM y FastAPI/K-V intactos; reintentos de tarea Caddy 999/PT1M; ninguna escritura/restart de tareas, Caddy, red, AWS, RDS o motores.
 - La falla previa del inventario (PropertyNotFoundException en TASK_AND_PROCESS) quedo superada al ejecutar la revision defensiva. No inferir de ello un cambio de estado productivo.
 - Estado actual: GO_LAB_EC2 / GO_INVENTARIO_READONLY; sigue NO-GO_PUBLICACION hasta tener paquete de ejecutor/recuperador productivos realmente implementado, comprobado y ventana de corte deliberada.
+
+## Resultado de auditoria corregida del servidor (2026-11-15)
+
+- El operador confirmo PASS de kx_release_integrated_inventory_readonly.ps1 revision ec809956ec1a8405f91771de4430e87ba61bdf77.
+- Evidencia en EC2: laboratorio integrado sin tareas temporales, Caddy/launcher original y tareas FastAPI/K-V sin cambios, reintentos Caddy 999/PT1M, procesos SYSTEM y loopback comprobados; ninguna accion mutadora.
+- El NO-GO previo por PropertyNotFoundException en TASK_AND_PROCESS era una falla de compatibilidad del script auditado. No se publico K-V ni se modifico HTTPS.
+- Ahora se prepara un paquete protegido fuera del servicio para el cutover real y su recuperador, que se mantendra desactivado hasta la ventana deliberada.
