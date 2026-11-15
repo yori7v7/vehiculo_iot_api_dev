@@ -78,7 +78,16 @@ jobs:
              -not $raw.Contains('$allowed -ccontains [string]$rule.IdentityReference.Value')) {
             throw 'NO-GO: SID dedicado no verificado por manifiesto y cuenta local'
           }
-          Write-Host 'PASS: staging only PS5.1 parser, forbidden-operation AST, exact SID and trust guards'
+          # LocalService solo en la raiz, nunca en service/.
+          if(-not $raw.Contains('S-1-5-19') -or
+             -not $raw.Contains('$localService.Count -eq 1') -or
+             -not $raw.Contains('$localService[0].FileSystemRights -eq $rights') -or
+             -not $raw.Contains('$localService[0].IsInherited') -or
+             -not $raw.Contains('Assert-Private $state @([string]$install.dedicated_sid)') -or
+             -not $raw.Contains("GetOwner([Security.Principal.SecurityIdentifier]).Value -ceq 'S-1-5-32-544'")) {
+            throw 'NO-GO: LocalService no limitado a ACL original de raiz'
+          }
+          Write-Host 'PASS: staging-only PS5.1, SID dedicado y LocalService exacto solo en raiz'
 
       - name: Validar hash Git exacto de los dos fuentes K-V en el commit
         shell: powershell
