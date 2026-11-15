@@ -5,6 +5,7 @@ on:
       - feature/kx-sidecar-windows-preparacion
     paths:
       - scripts/kx_install_virtual_sidecar_loopback.ps1
+      - scripts/kx_rollback_virtual_sidecar_loopback.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -46,3 +47,20 @@ jobs:
             if (-not $match.Groups[1].Value.Contains($required)) { throw "Required safety marker missing" }
           }
           Write-Host "PASS: Python syntax and virtual-only contract"
+      - name: Parse independent rollback and compile its interop
+        shell: powershell
+        run: |
+          $file = "scripts/kx_rollback_virtual_sidecar_loopback.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+          if (@($errors).Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "Rollback PowerShell syntax invalid"
+          }
+          $content = Get-Content $file -Raw
+          $pattern = '(?s)Add-Type -Language CSharp -TypeDefinition @''\s+?(.*?)\s+''@'
+          $match = [regex]::Match($content, $pattern)
+          if (-not $match.Success) { throw "Rollback interop missing" }
+          Add-Type -TypeDefinition $match.Groups[1].Value -Language CSharp -ErrorAction Stop
+          Write-Host "PASS: independent rollback syntax and C-sharp"
