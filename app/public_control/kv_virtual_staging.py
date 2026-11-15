@@ -205,7 +205,9 @@ def create_kv_virtual_app(db_path, admin_proof, proxy_proof, *, clock=None, **li
         ledger, _ = _guard(request, id_vehiculo, admin=True)
         row = _safe(lambda: ledger.snapshot(admin_proof), denial=503)
         return _answer(solicitudes=row["solicitudes"],
-                       turno_activo=row["turno_virtual_activo"])
+                       turno_activo=row["turno_virtual_activo"],
+                       duraciones_segundos=[120, 300, 600, 1200],
+                       modo_supervisado=True)
 
     @app.post(ADMIN + "/supervision")
     async def supervise(id_vehiculo: int, request: Request):
