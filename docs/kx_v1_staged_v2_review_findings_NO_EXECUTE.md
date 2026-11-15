@@ -44,3 +44,12 @@ GitHub Actions Windows PowerShell 5.1 PASS: run 43698906454, commit 4d92a856d535
 - Solo tras prueba y autorizacion de la ventana ejecutar la sustitucion real de los dos archivos. Esta transaccion nunca autoriza activar el hardware.
 
 **Decision: V1 STAGED_LOCKED PASS; V2 REVIEW_CI_PASS; REAL_CUTOVER NO-GO.**
+
+## Regresion especifica V2 y paquete nuevo (2026-11-15)
+
+- GitHub Actions Windows PowerShell 5.1 run 43699515256 PASS, commit 8ab9a3529f5261691802b3287a6f0b7c4d188c2f, **42 aserciones**. El harness importa directamente las funciones de ambos scripts V2 mediante AST y ejecuta las transiciones contra archivos temporales y mocks de tareas, procesos y HTTPS.
+- Casos PASS: temporales .next interrumpidos; registro Caddy ausente sin proceso vivo; bloqueos ante tarea Running sin identificacion, PID Caddy ajeno y propietario 443 ajeno; PREPARED intacto; COMMITTED_VERIFIED sano sin rollback y hash alterado falla cerrado; ROLLED_BACK_VERIFIED idempotente; PATCHING a mitad de dos archivos y ROLLBACK_IN_PROGRESS recuperados.
+- **Alcance limitado**: no ejecuta Task Scheduler real, ni reinicia Caddy; valida funciones de V2 con comportamiento del SO simulado. No valida reboot Windows ni caida de RDP.
+- Nuevo instalador `scripts/kx_prod_bundle_v2_stage_only.ps1` usa ruta separada `kx_https_cutover_bundle_v2_NOT_ARMED`; antes de copiar verifica que V1 este privado e inactivo. Usa hashes Git fijados de controlador y recuperador V2 y copias originales/candidatas inmutables.
+- CI de sintaxis/AST del instalador V2 PASS run 43699654646, commit ded6ea5af7b834fdd006da3c20983175e83678fa. Comprueba ausencia de mutaciones de tareas en stage-only, rutas separadas y barreras LOCKED.
+- **PENDIENTE**: ejecucion de stage-only V2 en EC2 del operador. La V1 permanece tal cual. NO-GO_PUBLICACION no cambia.
