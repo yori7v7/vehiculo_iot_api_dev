@@ -103,8 +103,12 @@ def test_supervised_revoke_is_final_and_other_guest_waits(tmp_path):
     ledger.revoke(ADMIN)
     ledger.supervise(ADMIN)
     assert ledger.status(a["browser_secret"])["estado"] == "revocado_o_caducado"
-    ledger.approve_virtual(ADMIN, b["request_id"], seconds=300)
-    assert ledger.status(b["browser_secret"])["estado"] == "autorizado_virtual"
+    assert ledger.status(b["browser_secret"])["estado"] == "revocado_o_caducado"
+    with pytest.raises(KRTicketDenied):  # Revocar cancela también las pendientes.
+        ledger.approve_virtual(ADMIN, b["request_id"], seconds=300)
+    fresh = ledger.request("C")
+    ledger.approve_virtual(ADMIN, fresh["request_id"], seconds=300)
+    assert ledger.status(fresh["browser_secret"])["estado"] == "autorizado_virtual"
     fence.close()
 
 
