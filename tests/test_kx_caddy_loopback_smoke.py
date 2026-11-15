@@ -59,3 +59,33 @@ def test_test_matrix_blocks_legacy_wss_and_writes(monkeypatch):
                for _, method, path, _ in calls)
     assert any(method == "GET" and path == "/ws%2Fvehiculos%2F1"
                for _, method, path, _ in calls)
+
+
+def test_comments_may_mention_legacy_port_without_failing_real_port_fence():
+    source = PROPOSAL.read_text(encoding="utf-8")
+    transformed = smoke._loopback_config(source, 19080, 19444, 18000)
+    # Documentacion para rollback, no una directiva ejecutable.
+    assert "# El backend original 127.0.0.1:8000" in transformed
+    assert smoke._has_real_port_in_active_directives(transformed) is False
+
+
+@pytest.mark.parametrize("port", (443, 8000, 9444))
+def test_active_reference_to_protected_port_remains_a_hard_failure(port):
+    base = smoke._loopback_config(
+        PROPOSAL.read_text(encoding="utf-8"), 19080, 19444, 18000
+    )
+    tampered = base.replace(
+        "reverse_proxy 127.0.0.1:18000",
+        "reverse_proxy 127.0.0.1:" + str(port),
+    )
+    assert smoke._has_real_port_in_active_directives(tampered) is True
+
+
+def test_comment_only_protected_ports_are_ignored():
+    text = """
+    # 127.0.0.1:443
+    # 127.0.0.1:8000
+    # 127.0.0.1:9444
+    reverse_proxy 127.0.0.1:18000
+    """
+    assert smoke._has_real_port_in_active_directives(text) is False
