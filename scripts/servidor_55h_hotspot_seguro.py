@@ -143,7 +143,7 @@ def create_55h_hotspot_lab_app(private_dir: Path = PRIVATE_DIR) -> FastAPI:
             print("[55-H] APROBADO: enlace TLS/HMAC de diagnostico; no se comprobo parada fisica")
             await ws.send_json({"tipo": "prueba_contrato_terminada",
                                 "simulado": True,
-                                "parada_fisica_verificada": False})
+                                "parada_fisica_verificada": False, "movimiento": 9, "detener": 0})
             await ws.close(code=1000)
         except (TimeoutError, LabDeviceProtocolError, WireProtocolError,
                 json.JSONDecodeError, WebSocketDisconnect) as exc:
