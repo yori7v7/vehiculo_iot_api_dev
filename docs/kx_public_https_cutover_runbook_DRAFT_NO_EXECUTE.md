@@ -141,3 +141,13 @@ Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
 - Confirmado por salida: evidencia del laboratorio integrado en EC2; sin tareas temporales; Caddy SYSTEM y FastAPI/K-V intactos; reintentos de tarea Caddy 999/PT1M; ninguna escritura/restart de tareas, Caddy, red, AWS, RDS o motores.
 - La falla previa del inventario (PropertyNotFoundException en TASK_AND_PROCESS) quedo superada al ejecutar la revision defensiva. No inferir de ello un cambio de estado productivo.
 - Estado actual: GO_LAB_EC2 / GO_INVENTARIO_READONLY; sigue NO-GO_PUBLICACION hasta tener paquete de ejecutor/recuperador productivos realmente implementado, comprobado y ventana de corte deliberada.
+
+## 2026-11-15: paquete REAL V1 preparado (sin armar) y auditoria V2
+
+- EC2: el operador confirmo PAQUETE CUTOVER REAL PREPARADO, NO ARMADO; archivos SHA256 y copias privadas verificados, tareas productivas y 443 intactos, sin watchdog registrado.
+- Version V1 instalada: C:\ProgramData\VehiculoIoT-KX-Installer\kx_https_cutover_bundle_v1_NOT_ARMED. NO modificar ni intentar habilitar. Code review encontro colision PowerShell script:Home con la variable HOME, entre otros defectos bloqueantes.
+- Version V2 solo en rama experimental: scripts/kx_prod_cutover_controller_v2_LOCKED.ps1 y scripts/kx_prod_recoverer_v2_LOCKED.ps1; guardas y fallos del V1 corregidos en fuente; no copiados al EC2.
+- CI V2 PASS de bloqueo de acciones Cutover/Recover y parser PS5.1 run 43698906454, commit 4d92a856d535a3109785985a8061655b2dd1f68a. No es prueba del rollback productivo.
+- Informe de hallazgos y gates en docs/kx_v1_staged_v2_review_findings_NO_EXECUTE.md.
+- Siguiente accion: verificar V2 en laboratorio extremo-a-extremo con fallos que no cubrio V1, ensamblar v2 en bundle nuevo y disenar/pruebar recuperacion operativa real antes de un corte deliberado. Evitar repetir pruebas ya aprobadas.
+- Estado GO_PAQUETE_V1_PRIVADO + GO_REVISION_ESTATICA_V2 / NO-GO_443.
