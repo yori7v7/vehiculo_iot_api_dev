@@ -82,6 +82,7 @@ try {
   Assert-KX ($st.mode -eq "offline_staging_only") "Staging original independiente"
   $initialHash = (Get-FileHash $caddy -Algorithm SHA256).Hash
   Assert-KX ($initialHash -eq $manifest.original_caddy_sha256) "Caddy sin modificaciones"
+  Assert-KX ((Get-FileHash (Join-Path $home "launcher.py") -Algorithm SHA256).Hash -eq $manifest.launcher_sha256) "Lanzador sin alteraciones"
   $account = Get-LocalUser -Name "VehIoT_KXSvc" -ErrorAction Stop
   $taskSid = $account.SID.Value
   Assert-KX ($taskSid -eq $manifest.dedicated_sid) "SID dedicado correcto"
@@ -101,6 +102,7 @@ try {
   Add-Type -AssemblyName System.Net.Http -ErrorAction Stop
   $handler = [Net.Http.HttpClientHandler]::new()
   $handler.UseProxy = $false
+  $handler.UseCookies = $false
   $handler.AllowAutoRedirect = $false
   $http = [Net.Http.HttpClient]::new($handler)
   $http.Timeout = [TimeSpan]::FromSeconds(5)
