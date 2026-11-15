@@ -4,6 +4,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $phase='START'
+$step='BEGIN'
 $base='C:\ProgramData\VehiculoIoT-KX-Installer'
 $stateRoot='C:\ProgramData\VehiculoIoT-KX-State\service'
 $manifestFile=Join-Path $stateRoot 'install.json'
@@ -98,39 +99,67 @@ try{
  )).Count -eq 0) 'Sin tareas residuales del laboratorio integrado'
 
  $phase='TASK_AND_PROCESS'
+ $step='TASK_STATES'
  foreach($name in @('VehiculoIoT-Caddy','VehiculoIoT-FastAPI','VehiculoIoT-Admission-Virtual')){
+  $step='TASK_STATE_'+$name
   $task=Get-ScheduledTask -TaskPath '\' -TaskName $name -ErrorAction Stop
   Check ($task.State -eq 'Running') ($name+' Running')
  }
+ $step='CADDY_ACTION'
  $caddyTask=Get-ScheduledTask -TaskPath '\' -TaskName 'VehiculoIoT-Caddy' -ErrorAction Stop
- Check (@($caddyTask.Actions).Count -eq 1 -and
-   ([string]@($caddyTask.Actions)[0].Arguments).Contains($liveLauncher)) 'Tarea Caddy usa lanzador original'
- Check ([string]$caddyTask.Principal.UserId -in @('SYSTEM','NT AUTHORITY\SYSTEM','S-1-5-18')) 'Tarea Caddy bajo SYSTEM'
+ $actions=@($caddyTask.Actions)
+ Check ($actions.Count -eq 1) 'Tarea Caddy tiene una accion'
+ $originalAction=$actions[0]
+ Check ($null -ne $originalAction) 'Accion Caddy presente'
+ Check (([string]$originalAction.Arguments).Contains($liveLauncher)) 'Tarea Caddy usa lanzador original'
+
+ $step='CADDY_PRINCIPAL'
+ $principal=$caddyTask.Principal
+ Check ($null -ne $principal) 'Principal de Caddy presente'
+ Check ((@('SYSTEM','NT AUTHORITY\SYSTEM','S-1-5-18') -contains [string]$principal.UserId)) 'Tarea Caddy bajo SYSTEM'
+
+ $step='CADDY_RETRY_XML'
  [xml]$taskXml=Export-ScheduledTask -TaskPath '\' -TaskName 'VehiculoIoT-Caddy' -ErrorAction Stop
  $ns=New-Object System.Xml.XmlNamespaceManager($taskXml.NameTable)
  $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
  $n1=$taskXml.SelectSingleNode('//t:Settings/t:RestartOnFailure/t:Count',$ns)
  $n2=$taskXml.SelectSingleNode('//t:Settings/t:RestartOnFailure/t:Interval',$ns)
- Check ($null -ne $n1 -and $null -ne $n2 -and
-   [int]$n1.InnerText -eq 999 -and $n2.InnerText -ceq 'PT1M') 'Reintentos originales 999 / 1 minuto'
+ Check ($null -ne $n1 -and $null -ne $n2) 'Nodos de reintento XML presentes'
+ Check ([int]$n1.InnerText -eq 999 -and $n2.InnerText -ceq 'PT1M') 'Reintentos originales 999 / 1 minuto'
+
+ $step='PROCESS_RECORD'
  $r=Get-Content -LiteralPath $runRecord -Raw |ConvertFrom-Json
+ Check ($null -ne $r) 'Registro de proceso presente'
  Check (MatchesRecord $r.supervisor) 'Identidad supervisor PID/fecha/ruta/SYSTEM'
  Check (MatchesRecord $r.child) 'Identidad Caddy hijo PID/fecha/ruta/SYSTEM'
- $sup=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$r.supervisor.process_id)
- $child=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$r.child.process_id)
+ $sup=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$r.supervisor.process_id) -ErrorAction Stop
+ $child=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$r.child.process_id) -ErrorAction Stop
+ Check ($null -ne $sup -and $null -ne $child) 'Supervisor y Caddy hijo presentes'
  Check ([int]$child.ParentProcessId -eq [int]$sup.ProcessId) 'Relacion supervisor-hijo exacta'
  Check ([IO.Path]::GetFileName([string]$child.ExecutablePath) -ceq 'caddy.exe') 'Imagen unica Caddy'
- $l443=Listen 443
- Check ($l443.Count -gt 0 -and
-  @($l443|Select-Object -ExpandProperty OwningProcess -Unique).Count -eq 1 -and
-  [int]$l443[0].OwningProcess -eq [int]$child.ProcessId) 'HTTPS 443 propiedad de Caddy hijo identificado'
- Check (@(Get-CimInstance Win32_Process -Filter "Name='caddy.exe'").Count -eq 1) 'Solo un proceso caddy.exe'
- $l9444=Listen 9444
- Check ($l9444.Count -eq 1 -and $l9444[0].LocalAddress -ceq '127.0.0.1') 'K-V loopback 9444'
- $l8000=Listen 8000
+
+ $step='LISTENER_443'
+ $l443=@(Listen 443)
+ Check ($l443.Count -gt 0) 'Puerto HTTPS 443 en escucha'
+ $owners443=@($l443|Select-Object -ExpandProperty OwningProcess -Unique)
+ Check ($owners443.Count -eq 1 -and
+  [int]$owners443[0] -eq [int]$child.ProcessId) 'HTTPS 443 propiedad de Caddy hijo identificado'
+ Check (@(Get-CimInstance Win32_Process -Filter "Name='caddy.exe'" -ErrorAction Stop).Count -eq 1) 'Solo un proceso caddy.exe'
+
+ $step='LISTENER_9444'
+ $l9444=@(Listen 9444)
+ Check ($l9444.Count -eq 1 -and
+  $l9444[0].LocalAddress -ceq '127.0.0.1') 'K-V loopback 9444'
+
+ $step='LISTENER_8000'
+ $l8000=@(Listen 8000)
  Check ($l8000.Count -gt 0 -and
   @($l8000|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0) 'FastAPI loopback 8000'
+
+ $step='LISTENER_9481'
  Check (@(Listen 9481).Count -eq 0) 'Puerto laboratorio 9481 libre'
+
+ $step='LISTENER_2019'
  Check (@(Listen 2019|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1')}).Count -eq 0) 'Caddy admin 2019 no publicado'
 
  $phase='CLOSING_HASH'
@@ -148,6 +177,8 @@ try{
  Write-Host ''
  Write-Host '=== RESULTADO: NO-GO INVENTARIO K-X READ-ONLY ===' -ForegroundColor Red
  Write-Host ('FASE: '+$phase) -ForegroundColor Yellow
+ Write-Host ('PASO: '+$step) -ForegroundColor Yellow
+ Write-Host ('LINEA: '+[int]$_.InvocationInfo.ScriptLineNumber) -ForegroundColor Yellow
  Write-Host ('TIPO: '+$_.Exception.GetType().Name) -ForegroundColor Yellow
  Write-Host 'No repetir ni tocar HTTPS: comprobar evidencia y tareas antes de continuar.' -ForegroundColor Yellow
 }
