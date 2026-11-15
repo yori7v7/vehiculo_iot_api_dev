@@ -396,6 +396,33 @@ class KRTicketLedger:
 
         return self._run(run)
 
+    def verify_virtual_action(self, browser_secret: str) -> bool:
+        """Comprobar en SQLite un turno virtual y supervision vigentes.
+
+        Este chequeo NO es un permiso de despacho fisico: una revocacion
+        podria ocurrir inmediatamente despues de esta transaccion. El futuro
+        despachador debe serializar autorizacion y orden con la revocacion
+        dentro de una unica autoridad, y disponer de STOP en el dispositivo.
+        """
+        digest = self._digest_secret(browser_secret)
+
+        def run(db, now, _salt):
+            row = db.execute(
+                "SELECT state, virtual_until FROM kr_ticket "
+                "WHERE epoch=? AND browser_hash=?",
+                (self._epoch, digest),
+            ).fetchone()
+            if (row is None or row["state"] != "approved_virtual"
+                    or row["virtual_until"] is None
+                    or now >= row["virtual_until"]
+                    or self._supervisor_at is None
+                    or now < self._supervisor_at
+                    or now >= self._supervisor_at + 15):
+                return KRTicketDenied("Turno virtual o supervision no vigentes")
+            return True
+
+        return self._run(run)
+
     def snapshot(self, admin_proof: str) -> dict:
         self._admin(admin_proof)
 
