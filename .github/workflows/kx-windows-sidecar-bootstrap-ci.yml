@@ -708,12 +708,16 @@ jobs:
               throw "Dummy NTFS diagnostic missing safety marker: $required"
             }
           }
+          $commands=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object { $_.GetCommandName() })
           foreach($forbidden in @("Stop-ScheduledTask","Start-ScheduledTask",
             "Register-ScheduledTask", "Set-ScheduledTask", "Stop-Process",
             "Start-Process", "Restart-Service", "Restart-Computer",
             "New-NetFirewallRule", "Invoke-WebRequest", "Copy-Item",
             "Move-Item", "icacls.exe")) {
-              if($src -match [regex]::Escape($forbidden)){
+              if($commands -contains $forbidden){
                 throw "Forbidden production mutation in dummy NTFS test: $forbidden"
               }
           }
