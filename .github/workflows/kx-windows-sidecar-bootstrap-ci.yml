@@ -33,6 +33,7 @@ on:
       - scripts/kx_system_real_proxy_proof_dryrun_once.ps1
       - scripts/kx_system_real_caddy_local_lab_once.ps1
       - scripts/kx_live_process_record_writer_dummy_regression.ps1
+      - scripts/kx_live_process_record_writer_dummy_regression_v2.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -1273,3 +1274,94 @@ jobs:
           }
           if($src -match '(?im)^\s*\$pid\s*='){throw "Reserved PowerShell PID"}
           Write-Host "PASS: PS5.1-safe isolated dummy supervisor writer test; live processes untouched"
+      - name: Validate V2 literal markers and run disposable exact supervisor writer under Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $file="scripts/kx_live_process_record_writer_dummy_regression_v2.ps1"
+          $tokens=$null;$errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $file),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -gt 0) {
+            $errors|ForEach-Object{Write-Host $_.Message}
+            throw "V2 supervisor dummy regression syntax invalid in PowerShell 5.1"
+          }
+          $src=Get-Content $file -Raw
+          foreach($needle in @(
+            "kX_dummy_process_record_probe_",
+            'Check ($functionSource.Contains(''Set-Content -LiteralPath $temporary -Encoding UTF8''))',
+            'Check ($functionSource.Contains(''[IO.File]::Move($temporary, $Path)''))',
+            '[IO.File]::Replace($third,$testFile,$backupFile)',
+            'SEGUNDA ESCRITURA ORIGINAL: ERROR',
+            'SEGUNDA ESCRITURA ORIGINAL: PASS',
+            'DIAGNOSTICO RECORD WRITER DUMMY V2 COMPLETO',
+            'TODOS los archivos dummy eliminados',
+            'common.ps1 REAL intacto',
+            'run_caddy.ps1 REAL intacto',
+            'Caddyfile REAL intacto',
+            'PUBLICACION K-V: PENDIENTE',
+            'CONTROL FISICO: OFF'
+          )) {
+            if($needle -eq "kX_dummy_process_record_probe_"){$needle="kx_dummy_process_record_probe_"}
+            if(-not $src.Contains($needle)){ throw "V2 missing marker: $needle" }
+          }
+          $cmds=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object{$_.GetCommandName()})
+          foreach($bad in @(
+            "Stop-ScheduledTask","Start-ScheduledTask","Register-ScheduledTask",
+            "Unregister-ScheduledTask","Start-Process","Stop-Process",
+            "Restart-Service","Set-Acl","Invoke-WebRequest","curl.exe"
+          )){
+             if($cmds -contains $bad){throw "V2 must not mutate production: $bad"}
+          }
+          $helperAst=[System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "deploy/windows/common.ps1"),[ref]$tokens,[ref]$errors)
+          $definitions=@($helperAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+              $node.Name -ceq "Write-VehicleProcessRecord"
+          },$true))
+          if($definitions.Count -ne 1){throw "Cannot find original process-record writer"}
+          $fnText=$definitions[0].Extent.Text
+          if(-not $fnText.Contains('Set-Content -LiteralPath $temporary -Encoding UTF8') -or
+             -not $fnText.Contains('[IO.File]::Move($temporary, $Path)')){
+             throw "V2 expected literal function markers differ"
+          }
+          . ([ScriptBlock]::Create($fnText))
+          $dir=Join-Path $env:RUNNER_TEMP ("kx-v2-dummy-record-"+[guid]::NewGuid().ToString("N"))
+          [IO.Directory]::CreateDirectory($dir) | Out-Null
+          try {
+            $dummy=Join-Path $dir "record.json"
+            $first=[ordered]@{phase="supervisor";mock_id=101}
+            $second=[ordered]@{phase="child";mock_id=102}
+            Write-VehicleProcessRecord -Path $dummy -Record $first
+            $hashBefore=(Get-FileHash $dummy -Algorithm SHA256).Hash
+            if((Get-Content $dummy -Raw|ConvertFrom-Json).phase -ne "supervisor"){
+              throw "Original function could not create dummy"
+            }
+            try {
+              Write-VehicleProcessRecord -Path $dummy -Record $second
+              if((Get-Content $dummy -Raw|ConvertFrom-Json).phase -ne "child"){
+                throw "Dummy updated to unexpected content"
+              }
+              Write-Host "INFO: original second write PASS on GitHub runner"
+            }catch{
+              if((Get-FileHash $dummy -Algorithm SHA256).Hash -ne $hashBefore){
+                throw "Original function mutated dummy unexpectedly"
+              }
+              Write-Host "INFO: original second write ERROR on GitHub runner; pre-existing file preserved"
+            }
+            $new=Join-Path $dir "explicit.new.tmp"
+            $back=Join-Path $dir "explicit.old.backup"
+            [IO.File]::WriteAllText($new,'{"phase":"fixed"}')
+            [IO.File]::Replace($new,$dummy,$back)
+            if((Get-Content $dummy -Raw|ConvertFrom-Json).phase -ne "fixed" -or
+               -not (Test-Path $back)){
+              throw "Explicit backup failed in CI sandbox"
+            }
+            Remove-Item $back -Force
+          }finally{
+            Remove-Item $dir -Recurse -Force -ErrorAction Stop
+          }
+          Write-Host "PASS: V2 parsed; original writer and explicit backup tested on dummy only"
