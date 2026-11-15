@@ -95,7 +95,18 @@ Este avance NO cambia NO-GO_PUBLICACION ni autoriza el cutover.
 - Auditoria read-only EC2 del operador: PASS. `VehiculoIoT-Caddy` tiene 999 reintentos cada 1 min, lanzador original intacto, supervisor e hijo SYSTEM identificados por PID, fecha de creacion e imagen; padre-hijo y unico listener HTTPS 443 coinciden. 9444/8000 loopback y 9481 libre. Esta evidencia NO es una prueba de stop/restart productivo.
 - Nuevo laboratorio en `scripts/kx_watchdog_process_mirror_lab.ps1` con roles Driver, Worker y Watchdog: dos procesos distintos sobre espejos privados. Mutex con posible abandono tras crash, identidad exacta del worker y respaldo con hash antes del rollback.
 - GitHub Actions Windows PowerShell 5.1: PASS run 43693583159 (tres casos: interrupcion del Worker tras primer archivo, tras segundo archivo y commit ficticio con watchdog desarmado). Ejecutado solamente en fixtures del runner, sin afectar EC2.
-- PENDIENTE: ejecutar `-Mode EC2CopyLab` contra copias verificadas del servidor y recopilar resultado; no se interrumpe Caddy productivo.
+- APROBADO EN EC2 (evidencia de consola del operador 2026-11-15): `kx_watchdog_process_mirror_lab.ps1 -Mode EC2CopyLab`, tres escenarios recuperados (primer archivo, segundo, commit ficticio sin rollback), sin intervenir HTTPS 443; no equivale a watchdog durable.
 - NO DEMOSTRADO: watchdog durable por tarea independiente, supervivencia a cierre de RDP/reinicio Windows, arbitraje de reintentos reales, recuperacion de HTTPS 443 y checks TLS tras reemplazo.
 
 Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
+
+## Nuevo ensayo: watchdog SYSTEM mediante tarea programada temporal (SIN ACTIVACION PUBLICA)
+
+- Se incorporo `scripts/kx_watchdog_task_mirror_lab.ps1` y `.github/workflows/kx-watchdog-task-mirror-ci.yml` a la rama experimental.
+- GitHub Actions Windows PS 5.1 PASS, run 43694073714, commit `1526bf7b1ae636981b6f4c67c6094459d07148ab`.
+- Pruebas CI: tarea *temporal, unica, sin trigger* bajo SYSTEM, iniciada bajo demanda; interrupcion del Worker tras el primer reemplazo y tras el segundo, y commit exitoso sin falso rollback; limpieza de tarea comprobada.
+- No se tocan tareas productivas, Caddy 443, FastAPI, K-V, RDS ni firmware. La tarea no queda armada permanentemente.
+- PENDIENTE: ejecutar `-Mode EC2CopyLab` en mirrors privados y verificar eliminacion de todas las tareas temporales.
+- SIGUE PENDIENTE: watchdog durable armado automaticamente antes del cutover, recovery ante cierre de RDP / reinicio, orquestacion segura de reintentos reales, activacion publica y rollback operativo real.
+
+**NO-GO_PUBLICACION sigue vigente.**
