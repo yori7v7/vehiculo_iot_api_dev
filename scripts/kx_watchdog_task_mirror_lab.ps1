@@ -136,7 +136,8 @@ function Watchdog {
 }
 function LaunchWorker {
  $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
- $args='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$PSCommandPath+'" -Mode '+$Mode+' -Role Worker -CaseDir "'+$CaseDir+'"'
+ $workerPath=Join-Path $root 'kx_watchdog_task_lab_worker.ps1'
+ $args='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$workerPath+'" -Mode '+$Mode+' -Role Worker -CaseDir "'+$CaseDir+'"'
  return Start-Process -FilePath $exe -ArgumentList $args -WindowStyle Hidden -PassThru -ErrorAction Stop
 }
 function Await([string]$p,[int]$maxSeconds){
