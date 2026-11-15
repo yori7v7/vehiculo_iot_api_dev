@@ -56,7 +56,12 @@ class KXDiagnosticWSSHub:
     No puede certificar parada física ni usarse como autoridad de motores.
     """
 
-    def __init__(self, device_secret: bytes):
+    def __init__(self, device_secret: bytes, *, expected_host: str = HOST):
+        # Inyectable SOLO para laboratorio LAN con peer exacto en el router.
+        # El host productivo por defecto permanece intacto.
+        if type(expected_host) is not str or not expected_host:
+            raise ValueError("Host de dispositivo invalido")
+        self._expected_host = expected_host
         self._secret = check_key(device_secret)
         self._lock = asyncio.Lock()
         self._ws: WebSocket | None = None
@@ -175,7 +180,7 @@ class KXDiagnosticWSSHub:
                 await self._drop(self._ws)
 
     async def serve(self, ws: WebSocket) -> None:
-        if (ws.headers.get("host") != HOST or ws.headers.get("origin") is not None
+        if (ws.headers.get("host") != self._expected_host or ws.headers.get("origin") is not None
                 or ws.query_params or ws.headers.get("authorization") is not None
                 or not getattr(ws.app.state, "kx_enabled", False)):
             await ws.close(code=1008)
