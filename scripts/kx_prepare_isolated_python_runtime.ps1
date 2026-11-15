@@ -143,7 +143,7 @@ Require-KX ($LASTEXITCODE -eq 0) 'Pip no pudo instalar dependencias'
 Require-KX ($LASTEXITCODE -eq 0) 'Conflictos de paquetes'
 & $venvPython -I -c "import json,sys,fastapi,uvicorn,pydantic,pydantic_settings,pymysql,ssl,sqlite3;print(json.dumps({'home':sys.base_prefix,'venv':sys.prefix}))"
 Require-KX ($LASTEXITCODE -eq 0) 'Importaciones de FastAPI/Uvicorn/MySQL fallaron'
-$newEnv = [string]$LASTEXITCODE
+# No guardar ni mostrar secretos o configuraciones del entorno original.
 # Confirmar base y venv sin depender de directorios del Administrador.
 $pyState = & $venvPython -I -c "import json,sys;print(json.dumps({'home':sys.base_prefix,'venv':sys.prefix}))"
 Require-KX ($LASTEXITCODE -eq 0) 'Venv no responde'
