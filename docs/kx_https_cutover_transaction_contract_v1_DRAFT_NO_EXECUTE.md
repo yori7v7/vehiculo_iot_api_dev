@@ -71,3 +71,10 @@ Estado GO_INTEGRACION_EC2 / NO-GO_PUBLICACION. Los ensayos aislados y el end-to-
 - Causa exacta aun NO CONFIRMADA: la salida compartida no incluye el ultimo OK del inventario ni la linea; en el codigo se detectaron expresiones no robustas para PowerShell StrictMode (consulta de Actions[0] y retorno escalar de funciones de listener).
 - Parche de script en commit ec809956ec1a8405f91771de4430e87ba61bdf77 (blob d056482c3bafb08786b0aac45ae56f8ca2c2fe3d). Refactor de propiedades task/arrays de puertos y diagnostico sanitizado PASO/LINEA/TIPO. CI PS5.1 parser y prohibicion de verbos mutadores PASS run 43697172461.
 - El parche NO ha sido ejecutado en la EC2 del operador. El resultado NO-GO sigue vigente hasta verificar inventario corregido; aun con PASS, publicacion permanece NO-GO hasta contar con recuperador productivo real, comprobaciones HTTP y autorizacion.
+
+## 2026-11-15: inventario integrado corregido aprobado en EC2
+
+- Evidencia del operador: kx_release_integrated_inventory_readonly.ps1 revision ec809956ec1a8405f91771de4430e87ba61bdf77 finalizo con RESULTADO: K-X INVENTARIO INTEGRADO READ-ONLY APROBADO.
+- Confirmado por salida: evidencia del laboratorio integrado en EC2; sin tareas temporales; Caddy SYSTEM y FastAPI/K-V intactos; reintentos de tarea Caddy 999/PT1M; ninguna escritura/restart de tareas, Caddy, red, AWS, RDS o motores.
+- La falla previa del inventario (PropertyNotFoundException en TASK_AND_PROCESS) quedo superada al ejecutar la revision defensiva. No inferir de ello un cambio de estado productivo.
+- Estado actual: GO_LAB_EC2 / GO_INVENTARIO_READONLY; sigue NO-GO_PUBLICACION hasta tener paquete de ejecutor/recuperador productivos realmente implementado, comprobado y ventana de corte deliberada.
