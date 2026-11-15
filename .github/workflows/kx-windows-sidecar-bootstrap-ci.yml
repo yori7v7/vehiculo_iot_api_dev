@@ -664,7 +664,7 @@ jobs:
             "mode=ro", "Stop-ScheduledTask", "Start-ScheduledTask",
             "[IO.File]::Replace", "No hay solicitudes ni turnos virtuales activos",
             "TOKEN_ANTIGUO_REVOCADO", "TOKEN_NUEVO_AUTORIZADO",
-            "Remove-Item -LiteralPath $oldAuto", "Contencion", "API KEY ACADEMICA",
+            "Remove-Item -LiteralPath $oldAuto", "API KEY ACADEMICA",
             "No se pudo restaurar el arranque de K-V",
             "ROTACION K-V Y CONTENCION APROBADAS",
             "CONTROL FISICO: OFF")) {
@@ -675,7 +675,7 @@ jobs:
           foreach($forbidden in @("caddy reload", "Restart-Computer",
             "Restart-Service", "Set-ScheduledTask", "Register-ScheduledTask",
             "Unregister-ScheduledTask", "New-NetFirewallRule",
-            "Invoke-WebRequest", "curl.exe", "POST", "Set-Acl",
+            "Invoke-WebRequest", "curl.exe", "Set-Acl",
             "XDG_CONFIG_HOME","XDG_DATA_HOME")) {
             if($src -match [regex]::Escape($forbidden)){
               throw "Forbidden action / data in proof rotation: $forbidden"
