@@ -10,6 +10,7 @@ import argparse
 from contextlib import ExitStack, contextmanager
 from hashlib import sha256
 import http.client
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import socket
@@ -36,11 +37,14 @@ def _free_local_port() -> int:
 
 
 def _request(port: int, method: str, path: str, headers=None) -> tuple[int, str]:
-    with http.client.HTTPConnection("127.0.0.1", port, timeout=2.0) as conn:
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2.0)
+    try:
         conn.request(method, path, headers=headers or {})
         response = conn.getresponse()
         response.read()
         return response.status, response.getheader("X-KX-Stub", "")
+    finally:
+        conn.close()
 
 
 def _handler(label: str):
@@ -176,9 +180,11 @@ def main(argv=None) -> int:
                 _loopback_config(candidate_text, public, kx_port, legacy_port),
                 encoding="utf-8",
             )
-            for real_port in ("127.0.0.1:443", "127.0.0.1:8000", "127.0.0.1:9444"):
-                if real_port in cfg.read_text(encoding="utf-8"):
-                    raise RuntimeError("Puerto real encontrado en ensayo aislado")
+            if re.search(
+                r"127\\.0\\.0\\.1:(?:443|8000|9444)(?!\\d)",
+                cfg.read_text(encoding="utf-8"),
+            ):
+                raise RuntimeError("Puerto real encontrado en ensayo aislado")
             validate = subprocess.run(
                 [str(options.caddy), "validate", "--config", str(cfg), "--adapter", "caddyfile"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=12,
