@@ -148,6 +148,24 @@ try {
   $raw.Contains("reverse_proxy 127.0.0.1:8000")) "Candidato original sigue deshabilitado"
 
  Write-Host ""
+ Write-Host "=== PRECHECK: SIN FILTRACION DEL LABORATORIO ANTERIOR ===" -ForegroundColor Cyan
+ $priorAuto=@()
+ if(-not [string]::IsNullOrEmpty($env:APPDATA)){
+  $priorAuto+=Join-Path $env:APPDATA "Caddy\autosave.json"
+ }
+ if(-not [string]::IsNullOrEmpty($env:LOCALAPPDATA)){
+  $priorAuto+=Join-Path $env:LOCALAPPDATA "Caddy\autosave.json"
+ }
+ foreach($previous in @($priorAuto | Select-Object -Unique)){
+  if(-not (Test-Path -LiteralPath $previous -PathType Leaf)){continue}
+  Check (((Get-Item -LiteralPath $previous -Force).Attributes -band
+   [IO.FileAttributes]::ReparsePoint) -eq 0) "Autosave perfil sin reparse point"
+  $previousRaw=[IO.File]::ReadAllText($previous)
+  Check (-not $previousRaw.Contains([string]$config.proxy_proof)) "Autosave anterior sin token K-V expuesto"
+  $previousRaw=$null
+ }
+ Write-Host "OK: Precheck de autosave de perfil completado (no se imprimieron rutas ni valores)"
+ Write-Host ""
  Write-Host "=== PRECHECK: SIN SOLICITUDES VIRTUALES ACTIVAS ===" -ForegroundColor Cyan
  New-Item -ItemType Directory -Path $lab -ErrorAction Stop | Out-Null
  $labCreated=$true
