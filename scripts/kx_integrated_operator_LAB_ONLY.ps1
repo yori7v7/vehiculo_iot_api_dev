@@ -97,24 +97,6 @@ function AwaitMarker([string]$file,[int]$maxSeconds){
  }
  return $false
 }
-if(-not ('KxLabLongPath' -as [type])){
- Add-Type -TypeDefinition @'
-using System;
-using System.Text;
-using System.IO;
-using System.Runtime.InteropServices;
-public static class KxLabLongPath {
- [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
- private static extern uint GetLongPathName(string path, StringBuilder result, uint capacity);
- public static string Resolve(string path){
-  StringBuilder result = new StringBuilder(32768);
-  uint n=GetLongPathName(path,result,(uint)result.Capacity);
-  if(n==0 || n>=result.Capacity) throw new IOException("Cannot normalize local lab path");
-  return Path.GetFullPath(result.ToString());
- }
-}
-'@
-}
 function AssertLabTask([string]$name,[string]$prefix,[string]$role){
  Check ($name -match ('^VehiculoIoT-KX-INT-LAB-'+$prefix+'-[a-f0-9]{32}$')) 'Exact dedicated task name'
  $t=Get-ScheduledTask -TaskPath '\' -TaskName $name -ErrorAction Stop
@@ -125,9 +107,11 @@ function AssertLabTask([string]$name,[string]$prefix,[string]$role){
  $m=[regex]::Match($currentAction,'(?i)-File\s+"([^"]+)"')
  Check $m.Success 'Task executable has quoted -File argument'
  $taskScript=$m.Groups[1].Value
- Check ([string]::Equals([KxLabLongPath]::Resolve($taskScript),
-                            [KxLabLongPath]::Resolve($expectedPath),
-                            [StringComparison]::OrdinalIgnoreCase)) 'Task script canonical identity; Windows 8.3 aliases accepted'
+ Check ([IO.Path]::GetFileName($taskScript) -ceq [IO.Path]::GetFileName($expectedPath)) 'Exact LAB script name'
+ Check ([IO.Path]::GetFileName([IO.Path]::GetDirectoryName($taskScript)) -ceq [IO.Path]::GetFileName($labRoot)) 'Unique private LAB directory'
+ Check (Test-Path -LiteralPath $taskScript -PathType Leaf) 'Task script exists'
+ Check (((Get-Item -LiteralPath $taskScript -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'Task script not a link'
+ Check ((Hash $taskScript) -ceq (Hash $expectedPath)) 'Task script hash matches private LAB copy'
  return $t
 }
 function StopFake($s){
