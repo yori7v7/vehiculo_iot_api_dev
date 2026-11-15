@@ -1,0 +1,77 @@
+name: K-X real Caddy v2 recovery review LOCKED PS5.1
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_prod_cutover_controller_v2_LOCKED.ps1
+      - scripts/kx_prod_recoverer_v2_LOCKED.ps1
+      - .github/workflows/kx-prod-cutover-v2-locked-review-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-and-negative-entrypoint:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout experimental branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse v2 and assert recovery design gates (read files only)
+        shell: powershell
+        run: |
+          $controller='.\scripts\kx_prod_cutover_controller_v2_LOCKED.ps1'
+          $recoverer='.\scripts\kx_prod_recoverer_v2_LOCKED.ps1'
+          foreach($p in @($controller,$recoverer)){
+            $tokens=$null
+            $errors=$null
+            $ast=[Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$errors)
+            if(@($errors).Count -ne 0){
+              $errors | ForEach-Object {Write-Host ('PARSE: '+$_.Message)}
+              throw ('NO-GO: PS5.1 parse '+$p)
+            }
+          }
+          $c=Get-Content -LiteralPath $controller -Raw
+          $r=Get-Content -LiteralPath $recoverer -Raw
+          if($c -notmatch [regex]::Escape('$script:EnableProductionCutover=$false')){throw 'Controller NOT LOCKED'}
+          if($r -notmatch [regex]::Escape('$script:EnableProductionRecovery=$false')){throw 'Recoverer NOT LOCKED'}
+          foreach($s in @($c,$r)){
+            if(-not $s.Contains('kx_https_cutover_bundle_v2_NOT_ARMED')){throw 'Expected isolated bundle version missing'}
+            if(-not $s.Contains("'.next.'+[guid]::NewGuid()")){throw 'Unique crash-safe state staging missing'}
+            if($s.Contains('Stop-VehicleDeployment') -or $s.Contains('Start-VehicleDeployment')){
+              throw 'Unsafe whole-deployment operation'
+            }
+          }
+          if(-not $c.Contains("Only a separately approved, enabled SYSTEM recoverer may be armed")){
+            throw 'Controller fails to verify recoverer actually enabled'
+          }
+          if(-not $c.Contains('443 owned by verified candidate SYSTEM Caddy child')){
+            throw 'Candidate listener identity verification missing'
+          }
+          if(-not $r.Contains('Idempotent terminal states must NEVER result in killing committed Caddy')){
+            throw 'Terminal-state guard absent'
+          }
+          if(-not $r.Contains('Runtime record is not a link')){
+            throw 'Crash recovery record guard absent'
+          }
+          if(-not $r.Contains('Original task+SYSTEM owner+file hash+HTTPS/TLS GET health')){
+            throw 'Post-rollback service identity or TLS validation missing'
+          }
+          Write-Host 'K-X V2: PS5.1 parse and fail-closed design requirements PASS'
+      - name: Negative entrypoints - no real cutover/recoverer can be invoked
+        shell: powershell
+        run: |
+          $before=@(Get-ScheduledTask | Where-Object {$_.TaskName -like 'VehiculoIoT-KX-PROD-Recovery-*'}).Count
+          $controller='.\scripts\kx_prod_cutover_controller_v2_LOCKED.ps1'
+          $recoverer='.\scripts\kx_prod_recoverer_v2_LOCKED.ps1'
+          & $controller -Action Cutover
+          $controllerCode=$LASTEXITCODE
+          & $recoverer -Action Recover
+          $recovererCode=$LASTEXITCODE
+          if($controllerCode -eq 0 -or $recovererCode -eq 0){throw 'NO-GO: Locked operation executed'}
+          $after=@(Get-ScheduledTask | Where-Object {$_.TaskName -like 'VehiculoIoT-KX-PROD-Recovery-*'}).Count
+          if($before -ne $after){throw 'NO-GO: ScheduledTask changed by rejected operation'}
+          Write-Host 'K-X V2: blocked Cutover and Recover entrypoints PASS'
+          Write-Host 'NO HTTPS operation attempted or authorized'
