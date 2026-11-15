@@ -104,6 +104,11 @@ foreach($name in @('VehiculoIoT-Admission-Virtual','VehiculoIoT-Admission-Stagin
 }
 $kxListener = @(Get-NetTCPConnection -LocalPort 9444 -State Listen -ErrorAction SilentlyContinue)
 Assert-KX ($kxListener.Count -eq 0) 'Puerto 9444 ocupado'
+# Verificar el arbol COMPLETO antes de crear un directorio, para impedir
+# carpetas a medio preparar si el checkout difiere del snapshot conocido.
+$files = @(Get-ChildItem -LiteralPath $appSource -Filter '*.py' -Recurse -File -ErrorAction Stop)
+Assert-KX ($files.Count -eq 99) 'Arbol Python distinto del candidato a1288d3'
+foreach($file in $files) { Assert-NoReparse $file.FullName }
 $initialCaddySHA256 = (Get-FileHash -LiteralPath $activeCaddy -Algorithm SHA256).Hash
 Write-Host 'FUENTES ORIGINALES Y ESTADO: VERIFICADOS' -ForegroundColor Green
 
@@ -125,8 +130,6 @@ foreach($dir in @($codeRoot,$configRoot,$rollbackRoot,$futureStateRoot)) {
 
 # El checkout anterior contiene exactamente 99 archivos de Python en app.
 # No copiar .env, archivos .pyc, .pem, claves, .git ni ejecutables.
-$files = @(Get-ChildItem -LiteralPath $appSource -Filter '*.py' -Recurse -File -ErrorAction Stop)
-Assert-KX ($files.Count -eq 99) 'Arbol Python distinto del candidato a1288d3'
 $destinationApp = Join-Path $codeRoot 'app'
 New-Item -ItemType Directory -Path $destinationApp | Out-Null
 foreach($file in $files) {
