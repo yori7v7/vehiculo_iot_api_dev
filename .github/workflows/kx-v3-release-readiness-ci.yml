@@ -1,0 +1,105 @@
+name: K-X V3 real release readiness (no live cutover)
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_prod_cutover_controller_v3_RELEASE.ps1
+      - scripts/kx_prod_recoverer_v3_RELEASE.ps1
+      - scripts/kx_prod_bundle_v3_stage_only.ps1
+      - scripts/kx_v3_recovery_release_ci_lab.ps1
+      - .github/workflows/kx-v3-release-readiness-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  safe-release-scripts:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout experimental source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: PS5.1 parser and release gates for exactly V3
+        shell: powershell
+        run: |
+          $files=@(
+           'kx_prod_cutover_controller_v3_RELEASE.ps1',
+           'kx_prod_recoverer_v3_RELEASE.ps1',
+           'kx_prod_bundle_v3_stage_only.ps1',
+           'kx_v3_recovery_release_ci_lab.ps1'
+          )
+          foreach($file in $files){
+           $p=Join-Path '.\scripts' $file
+           $tokens=$null;$errors=$null
+           $ast=[Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$errors)
+           if(@($errors).Count -gt 0){
+            $errors|ForEach-Object{Write-Host ('PARSE: '+$_.Message)}
+            throw ('K-X V3 syntax invalid: '+$file)
+           }
+          }
+          $ctl=Get-Content '.\scripts\kx_prod_cutover_controller_v3_RELEASE.ps1' -Raw
+          $rec=Get-Content '.\scripts\kx_prod_recoverer_v3_RELEASE.ps1' -Raw
+          $stager=Get-Content '.\scripts\kx_prod_bundle_v3_stage_only.ps1' -Raw
+          foreach($required in @(
+           'AuthorizeRealCutover','WATCHDOG_SYSTEM_PROBE','Get-ScheduledTaskInfo',
+           'RestartCount 3','AtStartup','KX-ArmWatchdog','KX-HealthCandidate',
+           '$script:EnableProductionCutover=$true'
+          )){
+           if(-not $ctl.Contains($required)){throw ('Controller gate missing: '+$required)}
+          }
+          foreach($required in @(
+           'KX-RequireLegacyHealth','KX-PerformRecovery',
+           'Only SYSTEM may invoke production recovery',
+           '$script:EnableProductionRecovery=$true'
+          )){
+           if(-not $rec.Contains($required)){throw ('Recoverer gate missing: '+$required)}
+          }
+          if(-not $stager.Contains('kx_https_cutover_bundle_v1_NOT_ARMED') -or
+             -not $stager.Contains('kx_https_cutover_bundle_v2_NOT_ARMED') -or
+             -not $stager.Contains('kx_https_cutover_bundle_v3_RELEASE_READY')){
+             throw 'New V3 stage must preserve V1/V2 paths'
+          }
+          $parseTokens=$null;$parseErrors=$null
+          $ast=[Management.Automation.Language.Parser]::ParseFile(
+            '.\scripts\kx_prod_bundle_v3_stage_only.ps1',[ref]$parseTokens,[ref]$parseErrors)
+          $calls=@($ast.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst]
+          },$true)|ForEach-Object{$_.GetCommandName()})
+          foreach($forbid in @('Register-ScheduledTask','Unregister-ScheduledTask',
+           'Start-ScheduledTask','Stop-ScheduledTask','Disable-ScheduledTask',
+           'Enable-ScheduledTask','Stop-Process','Stop-Service','Start-Service',
+           'Restart-Service','Set-NetFirewallRule','Invoke-Expression','Remove-Item')){
+           if($calls -contains $forbid){throw ('V3 staging cannot mutate production: '+$forbid)}
+          }
+          $paths=@{
+           'kx_prod_cutover_controller_v3_RELEASE.ps1'='8d8cc2326a27c65b197d6bcfdae8cf7c39914063'
+           'kx_prod_recoverer_v3_RELEASE.ps1'='f7fae91ba887805d6ebc76d2f33bca319c745f1d'
+          }
+          foreach($name in $paths.Keys){
+           if(-not $stager.Contains($paths[$name])){throw ('V3 staged code identity missing: '+$name)}
+          }
+          Write-Host 'K-X V3 release code parse and stage-only safety: PASS'
+      - name: Negative controller without explicit switch and recoverer outside SYSTEM
+        shell: powershell
+        run: |
+          $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $before=@(Get-ScheduledTask|Where-Object{$_.TaskName -like 'VehiculoIoT-KX-PROD-Recovery-*'}).Count
+          & $exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.\scripts\kx_prod_cutover_controller_v3_RELEASE.ps1' -Action Cutover
+          $codeA=$LASTEXITCODE
+          & $exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.\scripts\kx_prod_recoverer_v3_RELEASE.ps1' -Action Recover
+          $codeB=$LASTEXITCODE
+          if($codeA -eq 0 -or $codeB -eq 0){throw 'V3 privileged entrypoint must reject unsafe invocation'}
+          $after=@(Get-ScheduledTask|Where-Object{$_.TaskName -like 'VehiculoIoT-KX-PROD-Recovery-*'}).Count
+          if($after -ne $before){throw 'V3 unsafe entrypoint changed Task Scheduler'}
+          Write-Host 'V3 release privileged actions correctly rejected on CI runner'
+          $global:LASTEXITCODE=0
+      - name: Source-derived recovery state regression fixtures
+        shell: powershell
+        run: |
+          $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          & $exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.\scripts\kx_v3_recovery_release_ci_lab.ps1'
+          if($LASTEXITCODE -ne 0){throw ('K-X V3 fake recovery regression NO-GO '+$LASTEXITCODE)}
+          Write-Host 'K-X V3 source-derived recovery regression PASS'
