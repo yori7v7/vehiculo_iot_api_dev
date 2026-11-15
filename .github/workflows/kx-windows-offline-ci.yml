@@ -19,6 +19,20 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Analizar sintaxis staging K-X bajo Windows PowerShell 5.1 (sin ejecutar)
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            '.\\scripts\\kx_prepare_staging_offline.ps1',
+            [ref]$tokens, [ref]$errors
+          )
+          if (@($errors).Count -ne 0) {
+            throw 'K-X offline staging PowerShell 5.1 parsing failed'
+          }
+          Write-Output 'K-X staging syntax: OK, no installation'
+
       - name: Validar audit Windows PowerShell 5.1 y falla segura
         shell: powershell
         run: |
