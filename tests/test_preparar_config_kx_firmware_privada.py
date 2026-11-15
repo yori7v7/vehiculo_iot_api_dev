@@ -110,3 +110,41 @@ def test_refuses_existing_different_private_file(inputs):
     with pytest.raises(FileExistsError, match="NO sobrescribir"):
         stage.prepare(candidate, identity)
     assert (candidate / stage.PREPARED_NAME).read_text() == "NOT OUR FILE"
+
+
+@pytest.mark.parametrize("declaration", [
+    'const char LAB55H_WIFI_SSID[] = "SSID_DE_EJEMPLO";',
+    'static const char LAB55H_WIFI_SSID[25] = "SSID_DE_EJEMPLO";',
+])
+def test_accepts_wifi_char_arrays_and_preserves_literal_bytes(inputs, declaration):
+    candidate, identity, source, old, secret = inputs
+    original = old.decode("utf-8").replace(
+        'const char* LAB55H_WIFI_SSID = "SSID_DE_EJEMPLO";', declaration
+    ).replace(
+        'const char* LAB55H_WIFI_PASSWORD = "PASS_DE_EJEMPLO";',
+        'static const char LAB55H_WIFI_PASSWORD[] = "PASS_DE_EJEMPLO";',
+    )
+    (candidate / stage.HEADER_NAME).write_text(original, encoding="utf-8")
+    created, fingerprint = stage.prepare(candidate, identity)
+    assert created is True
+    assert fingerprint == sha256(secret).hexdigest().upper()
+    generated = (candidate / stage.PREPARED_NAME).read_text(encoding="utf-8")
+    assert declaration in generated
+    assert 'static const char LAB55H_WIFI_PASSWORD[] = "PASS_DE_EJEMPLO";' in generated
+    assert 'LAB55H_HOST = "100-30-4-62.nip.io";' in generated
+    assert "LAB55H_PORT = 443;" in generated
+    assert "KX_AWS_TLS_CONFIG_OK" not in generated
+    assert (candidate / stage.SKETCH_NAME).read_bytes() == source
+    assert (candidate / stage.HEADER_NAME).read_text(encoding="utf-8") == original
+
+
+def test_rejects_nonliteral_wifi_without_creating_private_output(inputs):
+    candidate, identity, _source, old, _secret = inputs
+    header = old.decode("utf-8").replace(
+        'const char* LAB55H_WIFI_PASSWORD = "PASS_DE_EJEMPLO";',
+        'const char LAB55H_WIFI_PASSWORD[] = getSecret();',
+    )
+    (candidate / stage.HEADER_NAME).write_text(header, encoding="utf-8")
+    with pytest.raises(ValueError, match="Formato WiFi privado no reconocido"):
+        stage.prepare(candidate, identity)
+    assert not (candidate / stage.PREPARED_NAME).exists()
