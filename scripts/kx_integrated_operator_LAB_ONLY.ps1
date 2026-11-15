@@ -97,6 +97,24 @@ function AwaitMarker([string]$file,[int]$maxSeconds){
  }
  return $false
 }
+if(-not ('KxLabLongPath' -as [type])){
+ Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.IO;
+using System.Runtime.InteropServices;
+public static class KxLabLongPath {
+ [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+ private static extern uint GetLongPathName(string path, StringBuilder result, uint capacity);
+ public static string Resolve(string path){
+  StringBuilder result = new StringBuilder(32768);
+  uint n=GetLongPathName(path,result,(uint)result.Capacity);
+  if(n==0 || n>=result.Capacity) throw new IOException("Cannot normalize local lab path");
+  return Path.GetFullPath(result.ToString());
+ }
+}
+'@
+}
 function AssertLabTask([string]$name,[string]$prefix,[string]$role){
  Check ($name -match ('^VehiculoIoT-KX-INT-LAB-'+$prefix+'-[a-f0-9]{32}$')) 'Exact dedicated task name'
  $t=Get-ScheduledTask -TaskPath '\' -TaskName $name -ErrorAction Stop
@@ -104,10 +122,12 @@ function AssertLabTask([string]$name,[string]$prefix,[string]$role){
  Check (@($t.Actions).Count -eq 1) 'Single lab task action'
  $expectedPath=Join-Path $labRoot (('kx_integrated_{0}.ps1' -f $role))
  $currentAction=[string]$t.Actions[0].Arguments
- if(-not ($currentAction.Contains($expectedPath))){
-  if($Mode -ceq 'FixtureCI'){throw ('NO-GO Lab task script path EXPECTED='+$expectedPath+' OBSERVED='+$currentAction)}
-  throw 'NO-GO Lab task script path'
- }
+ $m=[regex]::Match($currentAction,'(?i)-File\s+"([^"]+)"')
+ Check $m.Success 'Task executable has quoted -File argument'
+ $taskScript=$m.Groups[1].Value
+ Check ([string]::Equals([KxLabLongPath]::Resolve($taskScript),
+                            [KxLabLongPath]::Resolve($expectedPath),
+                            [StringComparison]::OrdinalIgnoreCase)) 'Task script canonical identity; Windows 8.3 aliases accepted'
  return $t
 }
 function StopFake($s){
