@@ -186,7 +186,8 @@ print("OK: sin tickets virtuales waiting / approved_virtual")
  Check ($temp.Contains("http://127.0.0.1:9481") -and
   $temp.Contains(" bind 127.0.0.1") -and
   $temp.Contains("reverse_proxy 127.0.0.1:9444") -and
-  $temp.Contains('{$KX_STAGING_PROXY_PROOF}') -and
+  $temp.Contains('{env.KX_STAGING_PROXY_PROOF}') -and
+  $temp.Contains(' persist_config off') -and
   $temp.Contains("header_up X-Admission-Client-IP 1.1.1.1")) "Caddy lab aislado con IP SIMULADA"
  Check (-not $temp.Contains("reverse_proxy 127.0.0.1:8000") -and
   -not $temp.Contains("OFFLINE_INVALID_TOKEN_NOT_FOR_DEPLOYMENT") -and
@@ -368,7 +369,7 @@ finally {
    Write-Host "CABECERA DE IP PUBLICA: SIMULADA, NO PROBADA EN INTERNET"
    Write-Host "CONFIGURACION HTTPS PUBLICA: INTACTA"
    Write-Host "LABORATORIO 9481: ELIMINADO"
-   Write-Host "REPORTE: C:\ProgramData\VehiculoIoT-KX-Installer\kx_real_caddy_local_contract.json"
+   Write-Host "REPORTE: C:\ProgramData\VehiculoIoT-KX-Installer\kx_runtime_env_caddy_lab_result.json"
    Write-Host "CONTROL FISICO: OFF"
   } catch {
    Write-Host "NO-GO: reporte final no guardado" -ForegroundColor Red
