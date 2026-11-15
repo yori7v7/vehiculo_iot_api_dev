@@ -238,6 +238,7 @@ sys.exit(0 if n==0 else 3)
  Check (@(KXListeners 9444).Count -eq 0) "Sidecar 9444 realmente detenido"
  $volume=Get-Volume -DriveLetter C -ErrorAction Stop
  Check ($volume.FileSystem -eq "NTFS") "Unidad C utiliza NTFS"
+ Check (([IO.Path]::GetPathRoot($rollbackBackup)) -ceq ([IO.Path]::GetPathRoot($configPath))) "Respaldo NTFS en mismo volumen"
  # IMPORTANT: File.Replace(..., $null) failed with HRESULT 0x80070057 on this server.
  # Five independent dummy tests proved an EXPLICIT backup path succeeds.
  $swapAttempted=$true
@@ -306,6 +307,8 @@ sys.exit(0 if n==0 else 3)
   old_proxy_rejected=403
   new_proxy_authenticated=200
   stale_profile_autosave_deleted=$true
+  explicit_ntfs_backup_used=$true
+  old_ntfs_backup_deleted_before_restart=$oldBackupRemoved
   production_caddy_sha256=$caddyHash
   admin_proof_unchanged=$true
   no_active_virtual_tickets=$true
@@ -315,6 +318,7 @@ sys.exit(0 if n==0 else 3)
   physical_control_enabled=$false
  }|ConvertTo-Json -Depth 4|Set-Content -LiteralPath $rotationReport -Encoding UTF8 -ErrorAction Stop
  Check (Test-Path -LiteralPath $rotationReport -PathType Leaf) "Reporte sin secretos guardado"
+ Check ($oldBackupRemoved -and -not (Test-Path -LiteralPath $rollbackBackup)) "Sin respaldo temporal con token antiguo"
  $success=$true
  Write-Host ""
  Write-Host "=== RESULTADO: ROTACION K-V Y CONTENCION APROBADAS ===" -ForegroundColor Green
