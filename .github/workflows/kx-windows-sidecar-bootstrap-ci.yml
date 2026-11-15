@@ -165,7 +165,7 @@ jobs:
             throw "SYSTEM boot helper failed to parse"
           }
           $source = Get-Content $script -Raw
-          $match = [regex]::Match($source, "(?s)\`$worker=@'\s+?(.*?)\s+'@")
+          $match = [regex]::Match($source, '(?s)\$worker=@''\s+?(.*?)\s+''@')
           if (-not $match.Success) { throw "Missing embedded worker" }
           $worker = Join-Path $env:RUNNER_TEMP "kx_boot_worker.ps1"
           [IO.File]::WriteAllText($worker,$match.Groups[1].Value,[Text.Encoding]::UTF8)
