@@ -140,7 +140,7 @@ try{
   $sr.launcher_candidate_sha256) "Candidato copiado al espejo, no a produccion"
 
  $mockCode=@'
-# MOCK common.ps1: strictly no Start-Process, no network or task changes.
+# MOCK common.ps1: no subprocesses, no network or task changes.
 function Get-VehicleStateDirectory {
  param([string]$StateDirectory)
  return 'C:\ProgramData\VehiculoIoT'
@@ -170,27 +170,27 @@ function Invoke-VehicleProcess {
  if($Component -cne 'caddy' -or $Arguments.Count -lt 5 -or
   $Arguments[0] -cne 'run' -or
   $Arguments[1] -cne '--config') {
-  Write-Output 'STUB_BAD_ARGUMENTS'
+  [Console]::Out.WriteLine('STUB_BAD_ARGUMENTS')
   return 25
  }
  if($env:KX_MOCK_CASE -ceq 'VALID') {
   $c=Get-Content -LiteralPath 'C:\ProgramData\VehiculoIoT-KX-State\service\config.json' -Raw | ConvertFrom-Json
   if($env:KX_STAGING_PROXY_PROOF -cne [string]$c.proxy_proof) {
-   Write-Output 'STUB_VALID_PROOF=NO'
+   [Console]::Out.WriteLine('STUB_VALID_PROOF=NO')
    return 26
   }
-  Write-Output 'STUB_VALID_PROOF=YES'
+  [Console]::Out.WriteLine('STUB_VALID_PROOF=YES')
   return 0
  }
  if($env:KX_MOCK_CASE -ceq 'DENY_ACL') {
   if($env:KX_STAGING_PROXY_PROOF -cne 'KX_INVALID_PROOF_SERVICE_UNAVAILABLE_DO_NOT_USE'){
-   Write-Output 'STUB_DENIED_PROOF=NO'
+   [Console]::Out.WriteLine('STUB_DENIED_PROOF=NO')
    return 27
   }
-  Write-Output 'STUB_DENIED_PROOF=YES'
+  [Console]::Out.WriteLine('STUB_DENIED_PROOF=YES')
   return 0
  }
- Write-Output 'STUB_BAD_CASE'
+ [Console]::Out.WriteLine('STUB_BAD_CASE')
  return 28
 }
 function Write-VehicleFailureLog {param([string]$StateDirectory,[string]$Component)}
