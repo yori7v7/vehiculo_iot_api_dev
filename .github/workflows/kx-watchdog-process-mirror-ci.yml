@@ -1,0 +1,56 @@
+name: K-X independent watchdog mirror crash rehearsal PS 5.1
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_watchdog_process_mirror_lab.ps1
+      - .github/workflows/kx-watchdog-process-mirror-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  watchdog-mirror-windows:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout experimental branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate Windows PowerShell 5.1 AST and safety boundaries
+        shell: powershell
+        run: |
+          $path = '.\scripts\kx_watchdog_process_mirror_lab.ps1'
+          $tokens = $null
+          $errors = $null
+          $ast = [Management.Automation.Language.Parser]::ParseFile(
+            $path,[ref]$tokens,[ref]$errors
+          )
+          if (@($errors).Count -ne 0) { throw 'K-X watchdog syntax PS5.1 NO-GO' }
+          $names = @($ast.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object {$_.GetCommandName()})
+          foreach ($forbidden in @(
+            'Stop-ScheduledTask','Start-ScheduledTask','Disable-ScheduledTask',
+            'Enable-ScheduledTask','Register-ScheduledTask','Unregister-ScheduledTask',
+            'Set-ScheduledTask','Stop-Service','Start-Service','Restart-Service',
+            'Set-Acl','Set-NetFirewallRule','Remove-NetFirewallRule'
+          )) {
+            if ($names -contains $forbidden) { throw ('K-X dangerous verb: '+$forbidden) }
+          }
+          $code = Get-Content -LiteralPath $path -Raw
+          if ($code.Contains('proxy_proof') -or $code.Contains('admin_proof')) {
+            throw 'K-X lab must not read K-V private proof'
+          }
+          if (-not $code.Contains('NO ES AUN UN WATCHDOG DURABLE')) {
+            throw 'K-X real deployment must stay out of scope'
+          }
+          Write-Host 'K-X parser and limited isolation AST: PASS'
+      - name: Verify isolated watcher after hard-killed worker and simulated commit
+        shell: powershell
+        run: |
+          & .\scripts\kx_watchdog_process_mirror_lab.ps1 -Mode FixtureCI
+          if ($LASTEXITCODE -ne 0) { throw 'K-X separate-process mirror watchdog NO-GO' }
+          Write-Host 'K-X watchdog fixture PASS'
