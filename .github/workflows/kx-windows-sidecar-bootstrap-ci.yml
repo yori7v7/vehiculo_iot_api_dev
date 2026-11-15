@@ -32,6 +32,7 @@ on:
       - scripts/kx_public_https_go_nogo_preflight_readonly.ps1
       - scripts/kx_system_real_proxy_proof_dryrun_once.ps1
       - scripts/kx_system_real_caddy_local_lab_once.ps1
+      - scripts/kx_live_process_record_writer_dummy_regression.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -1221,3 +1222,54 @@ jobs:
           }
           if($src -match '(?im)^\s*\$pid\s*='){throw "PowerShell reserved PID assignment"}
           Write-Host "PASS: SYSTEM Caddy 9481 only, pinned lab source, proper task cleanup, PS5.1 parser"
+      - name: Parse and isolate existing supervisor process-record File.Replace regression
+        shell: powershell
+        run: |
+          $file="scripts/kx_live_process_record_writer_dummy_regression.ps1"
+          $tokens=$null; $errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $file),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors|ForEach-Object {Write-Host $_.Message}
+            throw "K-X dummy supervisor regression invalid under PowerShell 5.1"
+          }
+          $src=Get-Content $file -Raw
+          foreach($marker in @(
+            "kx_dummy_process_record_probe_",
+            "Write-VehicleProcessRecord",
+            '[IO.File]::Replace($temporary, $Path, [NullString]::Value)',
+            '[IO.File]::Replace($third,$testFile,$backupFile)',
+            'Get-FileHash -LiteralPath $source',
+            "SECOND_WRITE",
+            "SECOND WRITE",
+            "SEGUNDA ESCRITURA ORIGINAL",
+            "EXPLICIT_BACKUP_DUMMY",
+            "EXCEPCION_INTERNA",
+            "WIN32_LOW",
+            "TODOS los archivos dummy eliminados",
+            "common.ps1 REAL intacto",
+            "run_caddy.ps1 REAL intacto",
+            "Caddyfile REAL intacto",
+            "PUBLICACION K-V: PENDIENTE",
+            "CONTROL FISICO: OFF",
+            "SIN START/STOP/RELOAD/HTTP/RDS/ESP/MOTORES"
+          )){
+            if($marker -eq "SECOND WRITE"){continue}
+            if(-not $src.Contains($marker)){throw "Process-record dummy regression missing safety marker: $marker"}
+          }
+          $cmds=@($ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.CommandAst]
+          },$true)|ForEach-Object{$_.GetCommandName()})
+          foreach($forbidden in @("Stop-ScheduledTask","Start-ScheduledTask",
+             "Register-ScheduledTask","Unregister-ScheduledTask","Set-ScheduledTask",
+             "Start-Process","Stop-Process","Stop-Service","Restart-Service",
+             "Restart-Computer","New-NetFirewallRule","Set-NetFirewallRule",
+             "Invoke-WebRequest","curl.exe","Invoke-RestMethod","Set-Acl")) {
+            if($cmds -contains $forbidden){throw "Dummy writer test mutates production: $forbidden"}
+          }
+          $liveHelper=Get-Content "deploy/windows/common.ps1" -Raw
+          if(-not $liveHelper.Contains('[IO.File]::Replace($temporary, $Path, [NullString]::Value)')){
+            throw "Source helper has changed; update regression contract"
+          }
+          if($src -match '(?im)^\s*\$pid\s*='){throw "Reserved PowerShell PID"}
+          Write-Host "PASS: PS5.1-safe isolated dummy supervisor writer test; live processes untouched"
