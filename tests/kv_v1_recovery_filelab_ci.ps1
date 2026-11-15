@@ -105,7 +105,9 @@ with sqlite3.connect(a) as db, sqlite3.connect(b) as destination:
     assert destination.execute("PRAGMA integrity_check").fetchone()[0] == 'ok'
     assert destination.execute("SELECT state FROM turns WHERE id=1").fetchone()[0] == 'revoked'
 '@
-& $py -c $pycode $db $dbbackup
+$pyScript = Join-Path $root 'sqlite_fixture.py'
+[IO.File]::WriteAllText($pyScript, $pycode, [Text.UTF8Encoding]::new($false))
+& $py $pyScript $db $dbbackup
 Check ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $dbbackup)) 'SQLite consistent snapshot and integrity_check'
 
 $injected = $false
