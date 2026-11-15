@@ -77,3 +77,5 @@ jobs:
           if($before -ne $after){throw 'NO-GO: ScheduledTask changed by rejected operation'}
           Write-Host 'K-X V2: blocked Cutover and Recover entrypoints PASS'
           Write-Host 'NO HTTPS operation attempted or authorized'
+          # Actions PowerShell wrapper otherwise propagates the expected rejected Recover exit=1.
+          $global:LASTEXITCODE=0
