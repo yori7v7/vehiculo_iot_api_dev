@@ -77,7 +77,7 @@ jobs:
             throw "PowerShell validation script syntax invalid"
           }
           $text = Get-Content $file -Raw
-          foreach($required in @("Stop-ScheduledTask", "Start-ScheduledTask", "127.0.0.1:9444", "turno_virtual_activo", "canDrive", "401", "GetOwnerSid")) {
+          foreach($required in @("Stop-ScheduledTask", "Start-ScheduledTask", "127.0.0.1:9444", "turno_activo", "canDrive", "401", "GetOwnerSid")) {
             if(-not $text.Contains($required)) { throw "Missing restart test contract: $required" }
           }
           if ($text -match '(?im)^\s*\$home\s*=') {
