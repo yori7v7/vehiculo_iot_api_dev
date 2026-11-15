@@ -34,6 +34,7 @@ on:
       - scripts/kx_system_real_caddy_local_lab_once.ps1
       - scripts/kx_live_process_record_writer_dummy_regression.ps1
       - scripts/kx_live_process_record_writer_dummy_regression_v2.ps1
+      - scripts/kx_system_full_public_candidate_local_once.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -1365,3 +1366,69 @@ jobs:
             Remove-Item $dir -Recurse -Force -ErrorAction Stop
           }
           Write-Host "PASS: V2 parsed; original writer and explicit backup tested on dummy only"
+      - name: PowerShell 5.1 validate full public candidate under SYSTEM loopback rehearsal only
+        shell: powershell
+        run: |
+          $file="scripts/kx_system_full_public_candidate_local_once.ps1"
+          $tokens=$null;$errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $file),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors|ForEach-Object{Write-Host $_.Message}
+            throw "Full candidate localhost SYSTEM rehearsal not PS5.1 compatible"
+          }
+          $src=Get-Content $file -Raw
+          $base=Get-Content "scripts/kx_runtime_proxy_proof_local_lab.ps1" -Raw
+          $prepare=Get-Content "scripts/kx_prepare_public_https_release_offline.ps1" -Raw
+          foreach($marker in @(
+            "kx_full_candidate_system_once_worker",
+            "kx_full_candidate_system_once_lab",
+            "kx_full_candidate_system_once_result.json",
+            "kx_https_public_release_v1_offline",
+            "Caddyfile.kx.ready.NOT_ACTIVE",
+            "offline_public_https_candidate_never_activated",
+            "Legacy 8000 intacto solo local",
+            "Un solo bloque global de Caddy release reconocido",
+            "Fallback legacy FastAPI responde 200 desde el candidato",
+            "reverse_proxy 127.0.0.1:8000",
+            "reverse_proxy 127.0.0.1:9444",
+            "{env.KX_STAGING_PROXY_PROOF}",
+            "Register-ScheduledTask",
+            "Start-ScheduledTask",
+            "Unregister-ScheduledTask",
+            "StopOnlyOurLabCaddy",
+            "S-1-5-18",
+            "CADDY RELEASE COMPLETO SYSTEM LOCAL APROBADO",
+            "PRODUCCION",
+            "CONTROL FISICO: OFF"
+          )){
+            if($marker -eq "Legacy 8000 intacto solo local" -or
+               $marker -eq "PRODUCCION"){continue}
+            if(-not $src.Contains($marker)){throw "Missing K-X full candidate localhost marker: $marker"}
+          }
+          foreach($needle in @(
+            '$candidate = Join-Path $root "kx_caddy_offline_disabled\Caddyfile.kx.offline"',
+            'Check ($raw.Contains("OFFLINE_INVALID_TOKEN_NOT_FOR_DEPLOYMENT_000000000000000000")',
+            '$temp=$temp.Replace("reverse_proxy 127.0.0.1:8000","respond 404")',
+            '$temp=$temp.Replace("OFFLINE_INVALID_TOKEN_NOT_FOR_DEPLOYMENT_000000000000000000",',
+            'Check (-not $temp.Contains("reverse_proxy 127.0.0.1:8000") -and',
+            '[Uri]"http://127.0.0.1:9481/health"',
+            'Check ([int]$r.StatusCode -eq 404) "Fallback legacy de laboratorio bloqueado"'
+          )){
+            if(-not $base.Contains($needle)){throw "K-X full release derived source does not match previous audited lab"}
+          }
+          if(-not $prepare.Contains('100-30-4-62.nip.io') -or
+             -not $prepare.Contains('persist_config off')) {
+            throw "K-X release candidate template contract changed"
+          }
+          $cmds=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          },$true)|ForEach-Object{$_.GetCommandName()})
+          foreach($forbidden in @("Set-ScheduledTask","Disable-ScheduledTask",
+             "Enable-ScheduledTask","Restart-Service","Stop-Service",
+             "Set-Acl","New-NetFirewallRule","Set-NetFirewallRule",
+             "Restart-Computer","curl.exe","Invoke-WebRequest")){
+            if($cmds -contains $forbidden){throw "Full localhost rehearsal mutates production: $forbidden"}
+          }
+          Write-Host "PASS: full release Caddyfile route test under SYSTEM, local-only, PS5.1 syntax and precise patch markers"
