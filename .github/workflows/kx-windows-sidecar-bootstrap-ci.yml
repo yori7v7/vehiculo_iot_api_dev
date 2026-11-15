@@ -329,9 +329,9 @@ jobs:
           & python -B -m py_compile $probe
           if($LASTEXITCODE -ne 0){throw "Invalid embedded sqlite Python code"}
           foreach($required in @("SELECT COUNT(*) FROM kr_ticket",
-             "mode=ro", "PRAGMA query_only=ON", "SIN_TICKETS",
+             "mode=ro", "PRAGMA query_only=ON", "Sin tickets",
              "Test-LocalGET", "ADMIN_VALIDO", "FORWARDED_FALSO",
-             "PROXY_INVALIDO", "ADMIN_SIN_CLAVE", "HTTP 200",
+             "PROXY_INVALIDO", "SIN_CLAVE_ADMIN", "HTTP 200",
              "GetOwnerSid", "CacheControl.NoStore",
              "physical_control_enabled", "NO REPETIR NI MODIFICAR CADDY",
              "ADMIN GET K-V LOCAL CERTIFICADO")) {
