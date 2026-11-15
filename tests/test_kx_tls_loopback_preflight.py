@@ -104,3 +104,25 @@ def test_http_startup_probe_consumes_integer_status_from_actual_local_stub():
     source = Path(tls.__file__).read_text(encoding="utf-8")
     assert 'if http_request(PORT, "GET", "/docs") == 200:' in source
     assert 'http_request(PORT, "GET", "/docs")[0]' not in source
+
+
+def test_tls_readiness_diagnostics_are_bounded_and_never_log_secrets():
+    source = Path(tls.__file__).read_text(encoding="utf-8")
+    ast.parse(source)
+    for marker in (
+        "DIAG CADDY: SIN_RESPUESTA_ESPERADA",
+        "DIAG CADDY: PROCESO_TERMINADO",
+        "DIAG HTTP_STATUS:",
+        "DIAG STUB_LEGACY:",
+        "DIAG TRANSPORTE:",
+        "DIAG TLS_REASON:",
+        "DIAG TLS_VERIFY_CODE:",
+    ):
+        assert marker in source
+    # El traceback completo puede revelar rutas o material privado:
+    # se imprime solamente la clase y diagnosticos acotados.
+    assert "traceback.print_exc" not in source
+    assert "print(exc)" not in source
+    assert "print(error)" not in source
+    assert "print(_body)" not in source
+    assert "print(server_key)" not in source
