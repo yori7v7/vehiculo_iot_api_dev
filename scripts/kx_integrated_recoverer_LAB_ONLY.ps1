@@ -152,7 +152,11 @@ try {
  }finally{$lock.Dispose()}
  $ok=$true
 }catch{
- try{[IO.File]::WriteAllText((Join-Path $CaseDir 'watchdog.failure'),'NO-GO_INTEGRATED_RECOVERY',[Text.UTF8Encoding]::new($false))}catch{}
+ try{
+  $reason='NO-GO_INTEGRATED_RECOVERY'
+  if($Mode -ceq 'FixtureCI'){$reason=$_.Exception.GetType().Name+': '+$_.Exception.Message+' / '+$_.ScriptStackTrace}
+  [IO.File]::WriteAllText((Join-Path $CaseDir 'watchdog.failure'),$reason,[Text.UTF8Encoding]::new($false))
+ }catch{}
  Write-Host 'NO-GO INTEGRATED RECOVERER: protected LAB check failed; no production action.' -ForegroundColor Red
 }
 if(-not $ok){exit 1}
