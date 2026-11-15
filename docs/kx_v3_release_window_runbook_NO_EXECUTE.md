@@ -72,3 +72,22 @@ La pantalla tambien imprimio \`RESULTADO: K-X HTTPS CUTOVER CONFIRMADO\` al fina
 **Limite de estado:** V3 llama \`KX-HealthOriginal\` antes de \`KX-ArmWatchdog\` y de sustituir archivos. Por secuencia, se espera \`PREPARED\` y originales intactos, pero debe verificarse en EC2 con solo lectura ANTES de cualquier siguiente accion. No dar por ejecutado rollback ni por terminado commit. No relanzar V3 actual. V1/V2/V3 no deben editarse ni borrarse.
 
 **Gate:** NO-GO_PUBLICACION hasta diagnostico de \`transaction.json\`, hashes live, Caddy task, ausencia watchdog y GET \`/\` + \`/openapi.json\` por HTTPS. Solo entonces preparar nueva version inmutable con pruebas CI y sin falsa bandera de exito.
+
+## 2026-11-15: Diagnostico EC2 y correccion V4 de rutas HTTP
+
+Salida del operador tras V3 NO-GO ORIGINAL_PUBLIC_GET:
+- transaction.phase = PREPARED; dos hashes originales en produccion intactos
+- VehiculoIoT-Caddy Running, 443 listening; ninguna tarea recovery residual
+- HTTPS GET / = 200 y GET /openapi.json = 200; no hubo cutover
+
+Causa confirmada en codigo fuente: app/routers/health.py registra GET / y NO GET /health. app/main.py publica openapi_url=/openapi.json. V3 imponia equivocadamente GET /health 200 tanto antes del corte como en comprobaciones de recuperacion/commit. No activar RDS ni modificar backend para satisfacer el preflight incorrecto.
+
+V4 preserva V1/V2/V3 y cambia SOLO las rutas de salud equivocadas en un nuevo controlador y recuperador:
+- scripts/kx_prod_cutover_controller_v4_RELEASE.ps1 (GET / y GET /openapi.json)
+- scripts/kx_prod_recoverer_v4_RELEASE.ps1 (GET / y GET /openapi.json para rollback y commit)
+- scripts/kx_prod_bundle_v4_stage_only.ps1 (nuevo bundle kx_https_cutover_bundle_v4_RELEASE_READY; exige V3 PREPARED y comprueba tres versiones previas y hashes live)
+- scripts/kx_v4_health_contract_recovery_ci_lab.ps1 (funciones reales extraidas mediante AST, rutas HTTP estrictas con mocks y casos crash/rollback)
+
+Windows PowerShell 5.1 GitHub Actions run 43702057983: PASS en commit d3fa200c09b908e1fa268105c5ade62aabe47851 con 45 aserciones. Parser, contrato de fuentes FastAPI, staging sin mutar, acciones peligrosas denegadas en CI, restauracion ficticia y commit idempotente probados.
+
+NO-GO_PUBLICACION sigue vigente: V4 aun no se ha instalado ni revisado en EC2. Siguiente paso es stage-only + Review de V4 con salida atomica. No relanzar V3 ni tocar Caddy antes de concluir.
