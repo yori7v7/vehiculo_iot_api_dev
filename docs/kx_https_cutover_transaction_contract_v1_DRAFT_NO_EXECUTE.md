@@ -85,3 +85,13 @@ Estado GO_INTEGRACION_EC2 / NO-GO_PUBLICACION. Los ensayos aislados y el end-to-
 - Evidencia en EC2: laboratorio integrado sin tareas temporales, Caddy/launcher original y tareas FastAPI/K-V sin cambios, reintentos Caddy 999/PT1M, procesos SYSTEM y loopback comprobados; ninguna accion mutadora.
 - El NO-GO previo por PropertyNotFoundException en TASK_AND_PROCESS era una falla de compatibilidad del script auditado. No se publico K-V ni se modifico HTTPS.
 - Ahora se prepara un paquete protegido fuera del servicio para el cutover real y su recuperador, que se mantendra desactivado hasta la ventana deliberada.
+
+## Paquete productivo propuesto, v1 (STAGED / BLOQUEADO, 2026-11-15)
+
+- Scripts nuevos en rama experimental: scripts/kx_prod_cutover_controller_LOCKED.ps1, scripts/kx_prod_recoverer_LOCKED.ps1 y scripts/kx_prod_bundle_stage_only.ps1.
+- Windows PowerShell 5.1 CI parser/AST PASS run 43698162709, revision fe0b497eadb171d9accec24dfb424b5a712ec062.
+- Controlador LOCKED: contiene propuesta de parada exacta de supervisor y tarea Caddy, prearmado de watchdog SYSTEM por tiempo y al inicio, dos reemplazos SHA256 y checks HTTPS legado/K-V; activacion de Cutover DENEGADA en codigo.
+- Recuperador LOCKED: contiene propuesta de rollback sobre dos archivos originales, desactivacion de reintentos de la tarea, identidad estricta de procesos, reinicio del legado y comprobaciones HTTPS; activacion Recover DENEGADA en codigo.
+- Instalador stage-only: solo crea una carpeta nueva privada `C:\ProgramData\VehiculoIoT-KX-Installer\kx_https_cutover_bundle_v1_NOT_ARMED` con 4 copias de archivos de contenido, XML de tarea original, scripts bloqueados, hashes/manifiesto, estado PREPARED y lock. Sin modificar tareas, puertos, datos ni archivos del servicio.
+- NOTA DE SEGURIDAD: parser/AST no es ensayo de rollback productivo. Quedan por revisar y probar la semantica de reintentos reales/Stop-ScheduledTask, carrera contra watchdog en interrupciones, salud HTTP/SSL publica y procedimiento de emergencia para commit ya verificado. Ningun script LOCKED es publicable en su estado actual.
+- Estado: GO_CI_PAQUETE_BLOQUEADO, NO-GO_PUBLICACION. No se desbloquean ni se ejecutan mutaciones en el servidor por esta preparacion.
