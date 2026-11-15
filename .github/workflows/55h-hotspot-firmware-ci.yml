@@ -6,7 +6,9 @@ on:
     paths:
       - 'firmware/Excavadora_IoT_55H_Hotspot_Seguro/**'
       - 'scripts/preparar_55h_hotspot_seguro.py'
+      - 'scripts/reparar_tls_bearssl_55h.py'
       - 'tests/test_55h_hotspot_firmware_safety.py'
+      - 'tests/test_55h_tls_bearssl_repair.py'
       - 'tests/test_55h_hotspot_server.py'
       - 'scripts/servidor_55h_hotspot_seguro.py'
       - '.github/workflows/55h-hotspot-firmware-ci.yml'
@@ -29,7 +31,7 @@ jobs:
       - name: Dependencies only for local test fixture
         run: python -m pip install -r requirements-dev.txt
       - name: Never enable 74HC595 / assert HMAC and hotspot isolation
-        run: python -m pytest -q tests/test_55h_hotspot_firmware_safety.py tests/test_55h_hotspot_server.py
+        run: python -m pytest -q tests/test_55h_hotspot_firmware_safety.py tests/test_55h_hotspot_server.py tests/test_55h_tls_bearssl_repair.py
 
   compile-esp8266:
     runs-on: ubuntu-latest
