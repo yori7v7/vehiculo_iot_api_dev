@@ -11,6 +11,7 @@ on:
       - scripts/kx_install_bootstrap_helper.ps1
       - scripts/kx_caddy_offline_candidate.ps1
       - scripts/kx_caddy_loopback_header_route_lab.ps1
+      - scripts/kx_caddy_release_preflight_readonly_http.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -251,3 +252,27 @@ jobs:
           if (-not $source.Contains('$python -B -m py_compile $echoFile')) { throw "Unsafe Python syntax-check command; use py_compile" }
           if ($source.Contains('ast.parse(open(')) { throw "Legacy quoted inline Python still present" }
           Write-Host "PASS: Caddy header/route lab syntax and embedded echo server"
+      - name: Parse K-X release preflight and safe negative GET probes
+        shell: powershell
+        run: |
+          $file = "scripts/kx_caddy_release_preflight_readonly_http.ps1"
+          $tok = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tok,[ref]$errors) | Out-Null
+          if (@($errors).Count -ne 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "Preflight PowerShell 5.1 syntax invalid"
+          }
+          $source = Get-Content $file -Raw
+          foreach($marker in @("Export-ScheduledTask", "Get-FileHash",
+            "127.0.0.1:9444", "Probe-Denial", "Control fisico", "NO-GO",
+            "CacheControl.NoStore", "new_public_routes_activated", "rollback_execution_tested",
+            "GetOwnerSid", "Get-NetTCPConnection", "icacls.exe")) {
+            if(-not $source.Contains($marker)) { throw "Missing preflight safety marker: $marker" }
+          }
+          foreach($illegal in @("Set-ScheduledTask", "Register-ScheduledTask", "caddy reload",
+            "Restart-Service", "Restart-Computer", "New-NetFirewallRule", "Set-NetFirewallRule")) {
+            if($source.Contains($illegal)) { throw "Unexpected live mutation: $illegal" }
+          }
+          if($source -match '(?im)^\s*\$home\s*=') { throw "Reserved PowerShell HOME assignment" }
+          Write-Host "PASS: preflight PowerShell AST and no-publication guards"
