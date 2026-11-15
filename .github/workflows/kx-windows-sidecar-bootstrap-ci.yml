@@ -17,6 +17,7 @@ on:
       - scripts/kx_caddy_real_kv_local_get_lab.ps1
       - scripts/kx_https_publication_readiness_inventory.ps1
       - scripts/kx_caddy_launcher_autosave_readonly.ps1
+      - scripts/kx_caddy_launcher_acl_diagnosis_readonly.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -458,3 +459,40 @@ jobs:
           if($src -match '(?im)^\s*Start-Process\b') {throw "Direct process launch forbidden in read-only inventory"}
           if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME assignment"}
           Write-Host "PASS: launcher extraction, ACL inspection, autosave check, no secrets printed"
+      - name: Check K-X Caddy launcher ACL diagnostics are read-only under PowerShell 5.1
+        shell: powershell
+        run: |
+          $file = "scripts/kx_caddy_launcher_acl_diagnosis_readonly.ps1"
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -gt 0) {
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "K-X launcher ACL diagnosis invalid under PS5.1"
+          }
+          $src = Get-Content $file -Raw
+          foreach($required in @("Resolve-Launcher", "Audit-KXACL",
+            "GetAccessRules", "S-1-1-0", "S-1-5-11", "S-1-5-32-545",
+            "IsInherited", "InheritanceFlags", "PropagationFlags",
+            "WriteData", "AppendData", "TakeOwnership",
+            "Get-FileHash", "Get-ScheduledTask", "CONTROL FISICO: OFF",
+            "NO CAMBIAR ACL NI REINICIAR")) {
+              if(-not $src.Contains($required)){
+                throw "ACL diagnosis missing safety marker: $required"
+              }
+          }
+          $commands = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          }, $true) | ForEach-Object {$_.GetCommandName()})
+          foreach($forbidden in @("Set-Acl", "icacls.exe",
+            "Set-ScheduledTask", "Register-ScheduledTask",
+            "Start-Process", "Stop-Process", "Restart-Service",
+            "Restart-Computer", "Invoke-WebRequest", "Set-Content",
+            "Remove-Item", "Out-File")) {
+              if($commands -contains $forbidden){
+                throw "ACL diagnosis attempts mutation: $forbidden"
+              }
+          }
+          if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME assignment"}
+          Write-Host "PASS: read-only launcher ACL diagnosis syntax and security contract"
