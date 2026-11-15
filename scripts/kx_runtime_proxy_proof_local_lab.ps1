@@ -123,6 +123,8 @@ try {
  Check ($k.Count -eq 1 -and $k[0].LocalAddress -eq "127.0.0.1") "K-V real solo 127.0.0.1:9444"
  Check (@(Get-KXListener 9481).Count -eq 0) "Puerto de ensayo 9481 libre"
  Check (@(Get-KXListener 443).Count -gt 0) "Caddy publico sigue escuchando 443"
+ $adminListeners=@(Get-KXListener 2019)
+ Check (@($adminListeners | Where-Object {$_.LocalAddress -notin @("127.0.0.1","::1")}).Count -eq 0) "API administrativa 2019 no expuesta"
  $ownerProcess=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$k[0].OwningProcess)
  $ownerSid=(Invoke-CimMethod -InputObject $ownerProcess -MethodName GetOwnerSid).Sid
  Check ($ownerSid -eq $manifest.dedicated_sid) "K-V mantiene identidad dedicada"
