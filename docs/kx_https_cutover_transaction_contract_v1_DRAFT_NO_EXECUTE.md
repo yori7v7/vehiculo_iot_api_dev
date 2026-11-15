@@ -53,7 +53,7 @@ Implementar y revisar **un unico par integrado** de ejecutor y recuperador basad
 - .github/workflows/kx-integrated-cutover-lab-ci.yml: PASS run 43696193313, commit 12535c9eab6fc65db9353c99380135433545c29e.
 - CI CRASH_AFTER_SECOND: ejecucion interrumpida de forma intencional, watchdog auto bajo SYSTEM, restauracion SHA256 doble, servicio fake ORIGINAL saludable, estado durable ROLLED_BACK_VERIFIED.
 - CI COMMIT_OK: servicio fake CANDIDATE saludable, watchdog sin falso rollback, estado durable COMMITTED_VERIFIED, tareas de laboratorio eliminadas.
-- PENDIENTE: ejecutar EC2CopyLab sobre nuevas copias verificadas en el servidor, sin alterar tareas productivas.
+- APROBADO EN EC2 (evidencia del operador 2026-11-15): ejecucion de `kx_integrated_operator_LAB_ONLY.ps1 -Mode EC2CopyLab`, resultado completo **TRANSACCION INTEGRADA CON SERVICIO FICTICIO APROBADA**, `CRASH_AFTER_SECOND` restaura dos archivos y recupera servicio, `COMMIT_OK` conserva candidato sano; tareas LAB eliminadas y Caddy/tareas reales intactos.
 - El par integrado ES LABORATORIO SOLAMENTE. No ejecuta cutover 443 ni rollback de servicio productivo; reboot real, RDP, TLS/ACME y procesos productivos pendientes de ensayo autorizado.
 
-Estado GO_CI_INTEGRADO / NO-GO_PUBLICACION. No se repiten las pruebas aisladas.
+Estado GO_INTEGRACION_EC2 / NO-GO_PUBLICACION. Los ensayos aislados y el end-to-end LAB han concluido.
