@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.public_control.kr_ticket_ledger import KRTicketDenied, KRTicketLedger
+from app.public_control.kx_device_identity import load_private_key
 from app.public_control.kx_signed_wss import KXDiagnosticWSSHub
 from app.public_control.kq_restart_fence import KQRestartFence, FenceRejected
 from app.public_control.repository import StoreUnavailable
@@ -239,14 +240,27 @@ async def admission_lifespan(app):
     fence = KQRestartFence(path)
     app.state.kx_ledger = None
     app.state.kx_admin_proof = None
+    started_hub = None
     try:
         epoch = fence.start()
         ledger = KRTicketLedger(fence, epoch, proof)
         ledger.prepare()
+        if settings.kx_diagnostic_wss_enabled:
+            if app.state.kx_diag_hub is not None:
+                raise ValueError("WSS K-X ya fue instalado; arranque denegado")
+            # No leer la clave antes de adquirir la exclusiva del journal.
+            # Una ausencia o corrupción aborta la puesta en servicio.
+            key, _fingerprint = load_private_key(settings.kx_diagnostic_wss_key_path)
+            started_hub = KXDiagnosticWSSHub(key)
+            app.state.kx_diag_hub = started_hub
         app.state.kx_admin_proof = proof
         app.state.kx_ledger = ledger
         yield
     finally:
+        # Invalidar autorización antes de cerrar el WSS de diagnostico.
         app.state.kx_ledger = None
         app.state.kx_admin_proof = None
+        if started_hub is not None:
+            await started_hub.shutdown()
+            app.state.kx_diag_hub = None
         fence.close()
