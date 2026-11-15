@@ -88,7 +88,13 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
                                   hotspot_device_ip: str | None = None,
                                   **limits):
     """Offline-only factory; *not* an alternative production startup entrypoint."""
-    if os.environ.get("KX_KV_VIRTUAL_BRIDGE_LAB") != "isolated_ci_only":
+    mode = os.environ.get("KX_KV_VIRTUAL_BRIDGE_LAB")
+    if mode == "isolated_lab_local":
+        # En pruebas reales es OBLIGATORIO peer exacto en interfaz hotspot.
+        # El arranque de red solo podrá hacerse con el wrapper WSS-only.
+        if hotspot_host is None or hotspot_device_ip is None:
+            raise ValueError("NO-GO: laboratorio real exige host y peer cerrados")
+    elif mode != "isolated_ci_only":
         raise ValueError("Puente virtual disponible solo en CI/laboratorio aislado")
     if type(device_key) is not bytes or len(device_key) != 32:
         raise ValueError("Clave HMAC de prueba de exactamente 32 bytes requerida")
