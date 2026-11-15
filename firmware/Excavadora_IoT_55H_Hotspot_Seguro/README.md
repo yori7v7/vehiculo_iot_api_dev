@@ -45,3 +45,28 @@ Para funcionamiento físico posterior son necesarios: autoridad exclusiva de tur
 4. Después, y solo con aviso explícito, conexión USB del ESP con batería desconectada.
 
 Hasta completar esas condiciones, **NO conectar ESP ni batería y mantener AWS/RDS apagados**. No cambiar \`main\`, Caddy ni el firmware físico anterior.
+
+## Servidor WSS local que reutiliza la identidad del firmware ya cargado
+
+El script `scripts/servidor_55h_hotspot_seguro.py` **lee sin regenerar**
+la identidad de `firmware/Excavadora_IoT_55H_Hotspot_Seguro/private/`.
+Usa el HMAC y el certificado que ya generó la laptop antes de subir
+el sketch al ESP. No volver a ejecutar el generador de secretos a menos
+que se vaya a recompilar y volver a flashear el ESP.
+
+Tras actualizar la rama local (`git pull --ff-only`) y crear un entorno
+virtual de Python con FastAPI y Uvicorn, desde la raíz del repositorio:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.servidor_55h_hotspot_seguro
+```
+
+Solo escucha en el IP privado configurado en `settings.json` y el puerto
+8443. No abre firewall, Caddy, router, Internet, AWS, RDS ni actuadores.
+Comprueba Host/origen/subred, autenticación HMAC, ACK y STOP **virtuales**.
+Las pruebas de firmware y backend deben pasar antes de ejecutar en USB.
+
+Si continúa inaccesible con el servidor ya escuchando, revisar conectividad
+y firewall local con alcance restringido al hotspot. Si cambia la IP de la
+laptop respecto al certificado, detener y planificar la rotación conjunta
+de identidad y nuevo firmware.
