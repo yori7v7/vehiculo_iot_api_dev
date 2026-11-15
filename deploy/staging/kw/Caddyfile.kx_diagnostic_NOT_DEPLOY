@@ -19,6 +19,11 @@
     @legacy_websockets {
         path /ws /ws/*
     }
+    # Una ruta WebSocket legacy codificada/reescrita no debe pasar
+    # simplemente porque haya eludido el matcher /ws/*.
+    @legacy_upgrade {
+        header Upgrade *
+    }
     @legacy_write {
         method POST PUT PATCH DELETE
     }
@@ -44,6 +49,9 @@
 
         handle @legacy_websockets {
             respond "WebSocket legacy cerrado durante K-X" 403
+        }
+        handle @legacy_upgrade {
+            respond "Upgrade legacy cerrado durante K-X" 403
         }
         handle @legacy_write {
             respond "Escrituras legacy cerradas durante K-X" 503
