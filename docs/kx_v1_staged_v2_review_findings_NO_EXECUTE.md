@@ -52,4 +52,11 @@ GitHub Actions Windows PowerShell 5.1 PASS: run 43698906454, commit 4d92a856d535
 - **Alcance limitado**: no ejecuta Task Scheduler real, ni reinicia Caddy; valida funciones de V2 con comportamiento del SO simulado. No valida reboot Windows ni caida de RDP.
 - Nuevo instalador `scripts/kx_prod_bundle_v2_stage_only.ps1` usa ruta separada `kx_https_cutover_bundle_v2_NOT_ARMED`; antes de copiar verifica que V1 este privado e inactivo. Usa hashes Git fijados de controlador y recuperador V2 y copias originales/candidatas inmutables.
 - CI de sintaxis/AST del instalador V2 PASS run 43699654646, commit ded6ea5af7b834fdd006da3c20983175e83678fa. Comprueba ausencia de mutaciones de tareas en stage-only, rutas separadas y barreras LOCKED.
-- **PENDIENTE**: ejecucion de stage-only V2 en EC2 del operador. La V1 permanece tal cual. NO-GO_PUBLICACION no cambia.
+- **APROBADO EN EC2 (evidencia del operador)**: `kx_prod_bundle_v2_stage_only.ps1` termino con `PAQUETE V2 REVISADO PREPARADO, NO ARMADO`, copias SHA verificadas, controladores V2 presentes y bloqueados, HTTPS 443 y tareas productivas intactos, sin watchdog registrado. La V1 permanece tal cual. NO-GO_PUBLICACION no cambia.
+
+## Estado del paquete V2 tras reconexion RDP (2026-11-15)
+
+- El operador reporto reconexion de su sesion RDP y despues salida terminal de PASS de stage-only V2, incluido `LASTEXITCODE` sin throw.
+- La desconexion por inactividad de RDP no se interpreta como reboot ni como recuperacion real del Caddy, y el script de staging no usa tareas activadas ni cambia 443.
+- Siguiente comprobacion concreta: correr `-Action Review` de ambos ejecutables V2 ya instalados, despues de verificar SHA Git; solo consulta archivos protegidos, la tarea y el estado PREPARED.
+- La publicacion permanece **NO-GO** aunque ambos Review terminen PASS. Ninguna tarea productiva debe deshabilitarse por esta comprobacion.
