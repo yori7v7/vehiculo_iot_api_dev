@@ -8,6 +8,7 @@ on:
       - scripts/kx_rollback_virtual_sidecar_loopback.ps1
       - scripts/kx_validate_virtual_sidecar_restart.ps1
       - scripts/kx_enable_virtual_sidecar_boot.ps1
+      - scripts/kx_install_bootstrap_helper.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -152,3 +153,37 @@ jobs:
           if ($fromName -ne $fromSid) { throw "SID name translation mismatch" }
           Write-Host "PASS: SID name and string identity resolution"
           Write-Host "PASS: auto-start PowerShell syntax, guarded preconditions, no reboot"
+      - name: Parse SYSTEM boot helper and embedded worker on Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $script = "scripts/kx_install_bootstrap_helper.ps1"
+          $tok = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tok, [ref]$errors) | Out-Null
+          if (@($errors).Count -ne 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "SYSTEM boot helper failed to parse"
+          }
+          $source = Get-Content $script -Raw
+          $match = [regex]::Match($source, "(?s)\`$worker=@'\s+?(.*?)\s+'@")
+          if (-not $match.Success) { throw "Missing embedded worker" }
+          $worker = Join-Path $env:RUNNER_TEMP "kx_boot_worker.ps1"
+          [IO.File]::WriteAllText($worker,$match.Groups[1].Value,[Text.Encoding]::UTF8)
+          $tok = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($worker,[ref]$tok,[ref]$errors) | Out-Null
+          if (@($errors).Count -ne 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "Embedded SYSTEM worker failed to parse"
+          }
+          foreach ($required in @("Register-ScheduledTask", "-User ""SYSTEM""", "New-ScheduledTaskTrigger -AtStartup", "Start-ScheduledTask", "Unregister-ScheduledTask", "127.0.0.1", "physical_control_enabled")) {
+            if (-not $source.Contains($required) -and -not $match.Groups[1].Value.Contains($required)) {
+              throw "Missing safety invariant $required"
+            }
+          }
+          if ($source -match '(?im)^\s*\$home\s*=') { throw "Reserved HOME assignment" }
+          $trigger = New-ScheduledTaskTrigger -AtStartup -RandomDelay (New-TimeSpan -Seconds 15)
+          if ($trigger.CimClass.CimClassName -notlike "*BootTrigger") { throw "Expected BootTrigger" }
+          $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -MultipleInstances IgnoreNew
+          if (-not $settings) { throw "Missing task settings" }
+          Write-Host "PASS: bootstrap installer and SYSTEM worker PowerShell 5.1 syntax"
