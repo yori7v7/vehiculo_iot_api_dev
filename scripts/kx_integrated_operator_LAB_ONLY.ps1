@@ -273,7 +273,14 @@ function RunIntegratedCase([string]$name,[string]$inputs){
   $worker=Start-Process -FilePath $exe -ArgumentList $args -WindowStyle Hidden -PassThru -ErrorAction Stop
   $proc=Get-CimInstance Win32_Process -Filter ('ProcessId = '+[int]$worker.Id) -ErrorAction Stop
   $birth=$proc.CreationDate.ToUniversalTime().Ticks.ToString()
-  Check (AwaitMarker 'worker.stage' 22) 'Integrated worker reached second replacement'
+  if(-not (AwaitMarker 'worker.stage' 22)){
+   if($Mode -ceq 'FixtureCI'){
+    $diag=Join-Path $CaseDir 'worker.ci-error.txt'
+    if(Test-Path -LiteralPath $diag -PathType Leaf){Write-Host ('CI WORKER DIAG: '+[IO.File]::ReadAllText($diag))}
+   }
+   throw 'NO-GO: integrated worker stage not reached'
+  }
+  Check $true 'Integrated worker reached second replacement'
   Check ($null -ne (Get-ScheduledTask -TaskPath '\' -TaskName ([string]$s.watchdog_task) -ErrorAction SilentlyContinue)) 'Independent watchdog registered before failure'
   $watchRegistered=$true
   if($name -ceq 'CRASH_AFTER_SECOND'){
@@ -430,7 +437,12 @@ try {
 }catch{
  Write-Host ('=== NO-GO TRANSACCION INTEGRADA / '+$Role+' ===') -ForegroundColor Red
  Write-Host ('TIPO: '+$_.Exception.GetType().Name) -ForegroundColor Yellow
- if($Mode -ceq 'FixtureCI'){Write-Host ('CI DETALLE: '+$_.Exception.Message) -ForegroundColor Yellow}
+ if($Mode -ceq 'FixtureCI'){
+  if($Role -ceq 'Worker' -and -not [string]::IsNullOrWhiteSpace($CaseDir)){
+   try{[IO.File]::WriteAllText((Join-Path $CaseDir 'worker.ci-error.txt'),($_.Exception.GetType().Name+': '+$_.Exception.Message))}catch{}
+  }
+  Write-Host ('CI DETALLE: '+$_.Exception.Message) -ForegroundColor Yellow
+ }
 }
 if(-not $success){exit 1}
 exit 0
