@@ -38,7 +38,8 @@ jobs:
       - name: Exercise real V2 helper functions against fake data and mocked OS
         shell: powershell
         run: |
-          & '.\scripts\kx_v2_recovery_targeted_ci_lab.ps1'
+          $ps51=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          & $ps51 -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.\scripts\kx_v2_recovery_targeted_ci_lab.ps1'
           $code=$LASTEXITCODE
           if($code -ne 0){throw ('K-X V2 targeted regression NO-GO: '+$code)}
           Write-Host 'K-X V2 targeted regression PASS (isolated CI)'
