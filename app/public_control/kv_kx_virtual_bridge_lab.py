@@ -9,7 +9,7 @@ import asyncio
 import os
 import re
 from contextlib import asynccontextmanager
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from typing import Literal
 
 from fastapi import HTTPException, Request, WebSocket
@@ -25,6 +25,7 @@ from app.public_control.kx_signed_wss import KXDiagnosticWSSHub, PATH
 from app.public_control.repository import StoreUnavailable
 
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z", re.ASCII)
+HOTSPOT_PATH = "/ws/dispositivos-lab/1/contrato"
 LOCAL_ACTION = "/__lab__/vehiculos/{id_vehiculo}/accion-virtual"
 
 
@@ -82,16 +83,40 @@ class VirtualOnlyAuthority:
 
 
 def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
-                                  device_key: bytes, *, clock=None, **limits):
+                                  device_key: bytes, *, clock=None,
+                                  hotspot_host: str | None = None,
+                                  hotspot_device_ip: str | None = None,
+                                  **limits):
     """Offline-only factory; *not* an alternative production startup entrypoint."""
     if os.environ.get("KX_KV_VIRTUAL_BRIDGE_LAB") != "isolated_ci_only":
         raise ValueError("Puente virtual disponible solo en CI/laboratorio aislado")
     if type(device_key) is not bytes or len(device_key) != 32:
         raise ValueError("Clave HMAC de prueba de exactamente 32 bytes requerida")
 
+    # Host y peer LAN se enlazan entre sí: no habilitar modo LAN abierto
+    # ni exponerlo en una interfaz pública.
+    if (hotspot_host is None) != (hotspot_device_ip is None):
+        raise ValueError("NO-GO: host y peer de hotspot deben definirse juntos")
+    peer_required = None
+    if hotspot_host is not None:
+        try:
+            ip_literal, port_literal = hotspot_host.rsplit(":", 1)
+            host_ip = ip_address(ip_literal)
+            peer_required = ip_address(hotspot_device_ip)
+            valid = (port_literal == "8443" and host_ip.version == 4 and
+                     peer_required.version == 4 and host_ip.is_private and
+                     peer_required.is_private and not host_ip.is_loopback and
+                     not peer_required.is_loopback and
+                     host_ip in ip_network(f"{host_ip}/24", strict=False) and
+                     peer_required in ip_network(f"{host_ip}/24", strict=False) and
+                     host_ip != peer_required)
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            raise ValueError("NO-GO: destino privado hotspot 55-I invalido")
     app = create_kv_virtual_app(db_path, admin_proof, proxy_proof,
                                 clock=clock, **limits)
-    hub = KXDiagnosticWSSHub(device_key)
+    hub = KXDiagnosticWSSHub(device_key, expected_host=hotspot_host or None or "100-30-4-62.nip.io")
     authority = VirtualOnlyAuthority(hub)
     app.state.kx_enabled = True
     app.state.kx_diag_hub = hub
@@ -148,9 +173,10 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
             raise HTTPException(401, "Sesión de invitado requerida")
         return await authority.execute(ledger, keys[0], data.codigo, data.duracion_ms)
 
-    @app.websocket(PATH)
+    @app.websocket(HOTSPOT_PATH if hotspot_host is not None else PATH)
     async def lab_device_ws(ws: WebSocket):
-        # No public device WebSocket; TestClient/loopback-only laboratory.
+        # Host exacto verificado por el Hub; peer exacto en modo hotspot.
+        # Default K-V/K-X mantiene condición loopback histórica.
         try:
             peer = ip_address(ws.client.host if ws.client else "")
             if peer.version == 6 and peer.ipv4_mapped:
@@ -158,7 +184,8 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
         except ValueError:
             await ws.close(code=1008)
             return
-        if not peer.is_loopback:
+        if ((peer_required is None and not peer.is_loopback) or
+                (peer_required is not None and peer != peer_required)):
             await ws.close(code=1008)
             return
         await hub.serve(ws)  # Includes HMAC challenge and signed initial STOP.
