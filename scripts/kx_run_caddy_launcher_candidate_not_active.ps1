@@ -48,8 +48,8 @@ function Get-KXValidatedVirtualProxyProof {
     $data = Get-Content -LiteralPath $configFile -Raw -Encoding UTF8 |
         ConvertFrom-Json -ErrorAction Stop
     $keys = @($data.PSObject.Properties.Name | Sort-Object)
-    $expected = @('schema_version','mode','bind_host','bind_port',
-        'database_path','admin_proof','proxy_proof' | Sort-Object)
+    $expected = @(@('schema_version','mode','bind_host','bind_port',
+        'database_path','admin_proof','proxy_proof') | Sort-Object)
     if (($keys -join ',') -cne ($expected -join ',') -or
         $data.schema_version -ne 1 -or
         $data.mode -cne 'virtual_loopback_only' -or
