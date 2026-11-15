@@ -106,7 +106,7 @@ Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
 - GitHub Actions Windows PS 5.1 PASS, run 43694073714, commit `1526bf7b1ae636981b6f4c67c6094459d07148ab`.
 - Pruebas CI: tarea *temporal, unica, sin trigger* bajo SYSTEM, iniciada bajo demanda; interrupcion del Worker tras el primer reemplazo y tras el segundo, y commit exitoso sin falso rollback; limpieza de tarea comprobada.
 - No se tocan tareas productivas, Caddy 443, FastAPI, K-V, RDS ni firmware. La tarea no queda armada permanentemente.
-- PENDIENTE: ejecutar `-Mode EC2CopyLab` en mirrors privados y verificar eliminacion de todas las tareas temporales.
+- APROBADO EN EC2 (evidencia de consola del operador, 2026-11-15): `kx_watchdog_task_mirror_lab.ps1 -Mode EC2CopyLab`, los 3 casos PASS: falla tras el primer y segundo archivo, y commit sin falso rollback; tareas LAB bajo SYSTEM eliminadas; tareas originales, HTTPS 443 y control fisico intactos. NO prueba tarea armada con trigger automatico ni cierre abrupto de consola.
 - SIGUE PENDIENTE: watchdog durable armado automaticamente antes del cutover, recovery ante cierre de RDP / reinicio, orquestacion segura de reintentos reales, activacion publica y rollback operativo real.
 
 **NO-GO_PUBLICACION sigue vigente.**
