@@ -30,6 +30,51 @@ function Test-Fixture([string]$Label, [scriptblock]$Action, [string]$ErrorCode =
     Write-Output ('[K-V Windows CI] OK: ' + $Label)
 }
 
+# ACL observada en EC2: LOCAL SERVICE es RX en code/runtime y NUNCA
+# en carpetas de estado, credenciales, staging de candidato o Caddy.
+$rx = [Security.AccessControl.FileSystemRights]::ReadAndExecute -bor
+      [Security.AccessControl.FileSystemRights]::Synchronize
+$trustedReader = 'S-1-5-21-1874011428-618372525-1786715310-1003'
+$base = 'C:\ProgramData\VehiculoIoT-KX-Staging'
+foreach ($path in @(
+    ($base + '\code'),
+    ($base + '\code\app\public_control\kv_virtual_staging.py'),
+    ($base + '\runtime'),
+    ($base + '\runtime\venv\Scripts\python.exe')
+)) {
+    Test-Fixture ('LOCAL SERVICE RX limitado al arbol ' + $path) {
+        Assert-Fixture (Test-KVUpgradeStagingLocalServiceRead $path $trustedReader 'S-1-5-19' $rx) 'read-only expected'
+    }
+}
+foreach ($path in @(
+    ($base + '\code-other\settings.txt'),
+    ($base + '\code\..\state\secret.txt'),
+    ($base + '\runtime-backup\python.exe'),
+    ($base + '\code\..\..\VehiculoIoT-KX-State\service\config.json'),
+    'C:\ProgramData\VehiculoIoT-KV-UpgradeV1-CANDIDATE\candidate.json',
+    'C:\ProgramData\VehiculoIoT\Caddyfile'
+)) {
+    Test-Fixture ('LOCAL SERVICE RX rechazado fuera del arbol ' + $path) {
+        Assert-Fixture (-not (Test-KVUpgradeStagingLocalServiceRead $path $trustedReader 'S-1-5-19' $rx)) 'must reject scope'
+    }
+}
+foreach ($rights in @(
+    [Security.AccessControl.FileSystemRights]::Modify,
+    [Security.AccessControl.FileSystemRights]::FullControl,
+    [Security.AccessControl.FileSystemRights]::ReadData,
+    ([Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [Security.AccessControl.FileSystemRights]::Write)
+)) {
+    Test-Fixture ('LOCAL SERVICE rechaza privilegios o derechos divergentes ' + $rights) {
+        Assert-Fixture (-not (Test-KVUpgradeStagingLocalServiceRead ($base + '\code') $trustedReader 'S-1-5-19' $rights)) 'unexpected rights blocked'
+    }
+}
+Test-Fixture 'LOCAL SERVICE rechaza lector no dedicado' {
+    Assert-Fixture (-not (Test-KVUpgradeStagingLocalServiceRead ($base + '\code') 'S-1-5-20' 'S-1-5-19' $rx)) 'reader SID'
+}
+Test-Fixture 'LOCAL SERVICE rechaza otra identidad' {
+    Assert-Fixture (-not (Test-KVUpgradeStagingLocalServiceRead ($base + '\code') $trustedReader 'S-1-5-20' $rx)) 'foreign SID'
+}
+
 function Reset-Fixture {
     $date = [datetime]::UtcNow.AddMinutes(-1)
     $command = '"' + $ctx.Python + '" -B -I "' + $ctx.Launcher + '" '
