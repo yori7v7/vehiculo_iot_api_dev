@@ -23,6 +23,7 @@ on:
       - scripts/kx_caddy_stale_autosave_secret_exposure_readonly.ps1
       - scripts/kx_rotate_virtual_proxy_proof_remove_stale_autosave.ps1
       - scripts/kx_file_replace_dummy_acl_diagnostic.ps1
+      - scripts/kx_file_replace_matrix_dummy.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -723,3 +724,48 @@ jobs:
           }
           if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME assignment"}
           Write-Host "PASS: PS5.1 parse of two disposable ACL replica File.Replace probes, no config mutation"
+      - name: Validate K-X File.Replace 5-case dummy-only matrix under PowerShell 5.1
+        shell: powershell
+        run: |
+          $path = "scripts/kx_file_replace_matrix_dummy.ps1"
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "K-X File.Replace matrix invalid under Windows PowerShell 5.1"
+          }
+          $src=Get-Content $path -Raw
+          foreach($required in @("KX_MATRIX_", "DUMMY_NEW_", "DUMMY_OLD_",
+            '"BASE_NULL"', '"BASE_BACKUP"', '"CLONE_NULL"',
+            '"CLONE_BACKUP"', '"CLONE_BACKUP_IGNORE"',
+            'Test-Replace "BASE_NULL" $false $false $false',
+            'Test-Replace "BASE_BACKUP" $false $true $false',
+            'Test-Replace "CLONE_NULL" $true $false $false',
+            'Test-Replace "CLONE_BACKUP" $true $true $false',
+            'Test-Replace "CLONE_BACKUP_IGNORE" $true $true $true',
+            'Set-Acl -LiteralPath $dest',
+            '[IO.File]::Replace($src,$dest,$backupArg)',
+            '[IO.File]::Replace($src,$dest,$backupArg,$true)',
+            'GetOwnerSid', 'Get-FileHash', 'Get-ScheduledTask',
+            'SISTEMA ARCHIVOS VOLUMEN C', 'RESULTADO: MATRIZ FILE.REPLACE COMPLETA',
+            'config.json REAL intacto', 'Caddy REAL intacto',
+            'ROTACION DE PROXY_PROOF: PENDIENTE',
+            'AUTOSAVE ANTIGUO: INTACTO', 'CONTROL FISICO: OFF')) {
+            if(-not $src.Contains($required)) { throw "Missing dummy matrix safety marker: $required" }
+          }
+          $commands=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object { $_.GetCommandName() })
+          foreach($forbidden in @("Stop-ScheduledTask", "Start-ScheduledTask",
+            "Set-ScheduledTask","Register-ScheduledTask", "Stop-Process",
+            "Start-Process", "Restart-Service", "Restart-Computer",
+            "New-NetFirewallRule", "Invoke-WebRequest", "Move-Item",
+            "Copy-Item","curl.exe")) {
+            if($commands -contains $forbidden) {
+              throw "Forbidden action in dummy test: $forbidden"
+            }
+          }
+          if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME"}
+          Write-Host "PASS: five dummy Replace cases with no product config/task changes, PS5.1 syntax verified"
