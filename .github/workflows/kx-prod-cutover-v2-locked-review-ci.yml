@@ -34,6 +34,7 @@ jobs:
             }
           }
           $c=Get-Content -LiteralPath $controller -Raw
+          if((Get-Content -LiteralPath $controller -Raw).Contains('$script:Home') -or (Get-Content -LiteralPath $recoverer -Raw).Contains('$script:Home')){throw 'PowerShell reserved HOME variable'}
           $r=Get-Content -LiteralPath $recoverer -Raw
           if($c -notmatch [regex]::Escape('$script:EnableProductionCutover=$false')){throw 'Controller NOT LOCKED'}
           if($r -notmatch [regex]::Escape('$script:EnableProductionRecovery=$false')){throw 'Recoverer NOT LOCKED'}
@@ -66,9 +67,10 @@ jobs:
           $before=@(Get-ScheduledTask | Where-Object {$_.TaskName -like 'VehiculoIoT-KX-PROD-Recovery-*'}).Count
           $controller='.\scripts\kx_prod_cutover_controller_v2_LOCKED.ps1'
           $recoverer='.\scripts\kx_prod_recoverer_v2_LOCKED.ps1'
-          & $controller -Action Cutover
+          $ps51=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $controller -Action Cutover
           $controllerCode=$LASTEXITCODE
-          & $recoverer -Action Recover
+          & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $recoverer -Action Recover
           $recovererCode=$LASTEXITCODE
           if($controllerCode -eq 0 -or $recovererCode -eq 0){throw 'NO-GO: Locked operation executed'}
           $after=@(Get-ScheduledTask | Where-Object {$_.TaskName -like 'VehiculoIoT-KX-PROD-Recovery-*'}).Count
