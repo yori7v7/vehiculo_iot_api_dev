@@ -125,3 +125,12 @@ Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
 - Documento integrado: docs/kx_https_cutover_transaction_contract_v1_DRAFT_NO_EXECUTE.md (no ejecutable). Especifica estados durables, bloqueo entre sesiones, task SYSTEM prearmada, bloqueo de reintentos 999/PT1M, reversibilidad de los dos archivos, health checks reales y criterios de autorizacion.
 - Siguiente trabajo de ingenieria: desarrollar un unico par integrado de ejecutor/recuperador y verificarlo conjuntamente sobre servicio ficticio. No enviar al operador la misma coleccion de ensayos aislados.
 - **NO-GO_PUBLICACION**. Sin autorizacion para parar Caddy, tocar tareas originales ni habilitar hardware.
+
+
+## Integracion end-to-end CI verde (2026-11-15)
+
+- Contrato actualizado en docs/kx_https_cutover_transaction_contract_v1_DRAFT_NO_EXECUTE.md.
+- Par de scripts LAB_ONLY ejecutor/recuperador y workflow Windows PS 5.1 aprobados en GitHub Actions run 43696193313, commit 12535c9eab6fc65db9353c99380135433545c29e.
+- Ambos casos integrados PASS: falla del ejecutor y recuperacion con fake servicio SYSTEM saludable; commit saludable sin falso rollback. Tareas LAB limpias.
+- SIGUIENTE: una sola validacion EC2CopyLab con los dos scripts y archivos espejo reales verificados; no se requiere repetir los ensayos individuales.
+- NO-GO_PUBLICACION sigue vigente; este par no tiene ruta de intervencion productiva 443.
