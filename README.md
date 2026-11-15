@@ -1166,3 +1166,9 @@ Referencias técnicas: [FastAPI y Uvicorn](https://fastapi.tiangolo.com/deployme
 [configuración de Pydantic](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) y
 [cursores PyMySQL](https://pymysql.readthedocs.io/en/latest/modules/cursors.html).
 Certificados: [TLS y CA de Amazon RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html).
+
+## Estado K-X (publicación virtual HTTPS, 15/11/2026)
+
+El operador confirmó en EC2 el cutover real V4 (`COMMITTED_VERIFIED`) y la validación final de solo lectura de HTTPS legado y admisión virtual K-V (`VALIDACION PUBLICA V4 APROBADA`). Caddy continúa Running, el watchdog temporal fue retirado, los candidatos SHA256 fueron verificados y K-V quedó protegido sin habilitar control físico.
+
+Ver [acta de cierre K-X V4](docs/kx_v4_cierre_produccion_2026-11-15.md) para evidencia de consola, alcance, limitaciones y recomendaciones de operación. **No volver a ejecutar el cutover ni las revisiones de estado PREPARED** sobre la instalación V4 en producción. La documentación de V1/V2/V3 conserva valor histórico; no describe el estado activo actual.
