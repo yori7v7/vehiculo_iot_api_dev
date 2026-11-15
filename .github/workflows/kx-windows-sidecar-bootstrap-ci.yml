@@ -697,12 +697,12 @@ jobs:
           }
           $src = Get-Content $path -Raw
           foreach($required in @("KX_REPLACE_", "DUMMY_NEW_", "DUMMY_OLD_",
-            "Set-Acl -LiteralPath $dest", "THREE_ARGUMENTS", "FOUR_IGNORE_METADATA",
-            "[IO.File]::Replace($src,$dest,$null)",
-            "[IO.File]::Replace($src,$dest,$null,$true)",
+            'Set-Acl -LiteralPath $dest', "THREE_ARGUMENTS", "FOUR_IGNORE_METADATA",
+            '[IO.File]::Replace($src,$dest,$null)',
+            '[IO.File]::Replace($src,$dest,$null,$true)',
             "Get-FileHash", "Get-NetTCPConnection", "GetOwnerSid",
             "Get-ScheduledTask", "ReadOnlyAclSummary", "ReadData", "WriteData",
-            "no se muestran", "ROTACION: PENDIENTE", "AUTOSAVE ANTIGUO: SIN ELIMINAR",
+            "MENSAJE ORIGINAL OMITIDO PARA EVITAR RUTAS O SECRETOS", "ROTACION: PENDIENTE", "AUTOSAVE ANTIGUO: SIN ELIMINAR",
             "CONFIG ORIGINAL: SIN REEMPLAZAR","CONTROL FISICO: OFF")) {
             if(-not $src.Contains($required)) {
               throw "Dummy NTFS diagnostic missing safety marker: $required"
