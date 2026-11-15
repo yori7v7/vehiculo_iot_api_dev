@@ -441,7 +441,7 @@ jobs:
             "System32\config\systemprofile\AppData\Roaming\Caddy\autosave.json",
             "Inspect-RiskyACL", "broad_write_entries", "CONTENIDO DEL LANZADOR: NO MOSTRADO",
             "ARGUMENTOS COMPLETOS: NO MOSTRADOS", "LANZADOR USA --RESUME",
-            "AUTOSAVE RUTAS WINDOWS SYSTEM COMUNES", "ADMIN API Caddy",
+            "AUTOSAVE RUTAS WINDOWS SYSTEM COMUNES", "Admin API Caddy",
             "K-V PUBLICO: NO ACTIVADO", "CONTROL FISICO: OFF")) {
               if(-not $src.Contains($required)) {
                 throw "Caddy launcher inventory missing protection: $required"
