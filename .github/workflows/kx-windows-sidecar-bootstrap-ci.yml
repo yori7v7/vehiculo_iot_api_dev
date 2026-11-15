@@ -13,6 +13,7 @@ on:
       - scripts/kx_caddy_loopback_header_route_lab.ps1
       - scripts/kx_caddy_release_preflight_readonly_http.ps1
       - scripts/kx_caddy_restore_copy_rehearsal.ps1
+      - scripts/kx_admin_get_local_contract_readonly_http.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -309,3 +310,39 @@ jobs:
           }
           if($source -match '(?im)^\s*\$home\s*=') { throw "PowerShell HOME reserved variable" }
           Write-Host "PASS: no-reload, copy-only rollback rehearsal script parses and preserves safety contracts"
+      - name: Parse K-X guarded authenticated local GET and no-active-ticket precheck
+        shell: powershell
+        run: |
+          $file = "scripts/kx_admin_get_local_contract_readonly_http.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0) {
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "K-X admin GET script invalid under PowerShell 5.1"
+          }
+          $source = Get-Content $file -Raw
+          $match = [regex]::Match($source, '(?s)\$pythonCode = @''\s+?(.*?)\s+''@')
+          if(-not $match.Success){throw "Missing Python read-only DB precheck"}
+          $probe = Join-Path $env:RUNNER_TEMP "kx_active_tickets_check.py"
+          [IO.File]::WriteAllText($probe,$match.Groups[1].Value,[Text.Encoding]::UTF8)
+          & python -B -m py_compile $probe
+          if($LASTEXITCODE -ne 0){throw "Invalid embedded sqlite Python code"}
+          foreach($required in @("SELECT COUNT(*) FROM kr_ticket",
+             "mode=ro", "PRAGMA query_only=ON", "SIN_TICKETS",
+             "Test-LocalGET", "ADMIN_VALIDO", "FORWARDED_FALSO",
+             "PROXY_INVALIDO", "ADMIN_SIN_CLAVE", "HTTP 200",
+             "GetOwnerSid", "CacheControl.NoStore",
+             "physical_control_enabled", "NO REPETIR NI MODIFICAR CADDY",
+             "ADMIN GET K-V LOCAL CERTIFICADO")) {
+            if(-not $source.Contains($required)){
+              throw "Missing read-only GET security contract: $required"
+            }
+          }
+          foreach($forbidden in @("Register-ScheduledTask","Set-ScheduledTask",
+             "Restart-Computer","Restart-Service","New-NetFirewallRule",
+             "caddy reload", "Invoke-WebRequest")) {
+            if($source.Contains($forbidden)){throw "Forbidden action in GET script: $forbidden"}
+          }
+          if($source -match '(?im)^\s*\$home\s*=') {throw "Reserved PowerShell HOME assignment"}
+          Write-Host "PASS: guarded local GET script, no-active-ticket Python check, and anti-spoofing cases"
