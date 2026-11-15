@@ -114,3 +114,30 @@ jobs:
              throw 'NO-GO: unsafe rollback or backup runbook'
           }
           Write-Host 'PASS: live EC2 upgrade requires independent maintenance window'
+
+      - name: Ensayar rollback de dos archivos y SQLite en Windows CI aislado
+        shell: powershell
+        env:
+          KV_V1_LAB_ONLY: file-fixtures-faults
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = '.\tests\kv_v1_recovery_filelab_ci.ps1'
+          $tokens = $null; $errors = $null
+          $ast = [Management.Automation.Language.Parser]::ParseFile(
+            $path, [ref]$tokens, [ref]$errors
+          )
+          if(@($errors).Count -ne 0) {
+            foreach($issue in @($errors)) { Write-Host ('PARSE: ' + $issue.ToString()) }
+            throw 'NO-GO: recovery lab script has PowerShell syntax errors'
+          }
+          $text = [IO.File]::ReadAllText((Resolve-Path $path))
+          if(-not $text.Contains("KV_V1_LAB_ONLY -cne 'file-fixtures-faults'") -or
+             -not $text.Contains('$env:RUNNER_TEMP') -or
+             $text.Contains('Stop-ScheduledTask') -or
+             $text.Contains('Start-ScheduledTask') -or
+             $text.Contains('C:\ProgramData\VehiculoIoT')) {
+            throw 'NO-GO: recovery lab is not confined to CI fixtures'
+          }
+          & $path
+          if(-not $?) { throw 'NO-GO: rollback fault lab failed' }
+
