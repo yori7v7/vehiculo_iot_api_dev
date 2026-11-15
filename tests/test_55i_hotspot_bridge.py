@@ -181,3 +181,94 @@ def test_kv_permission_to_real_55h_wire_contract_virtual_only(app):
             assert emergency.code == 0
             assert revoked.status_code == 200, revoked.text
             assert action().status_code == 403
+
+
+def approve_guest(browser):
+    """Ticket temporal CI aislado, sin browser real ni claves privadas."""
+    secret = secrets.token_urlsafe(32)
+    created = browser.post(GUEST, headers={
+        **HEAD, "Idempotency-Key": secrets.token_urlsafe(32),
+        "X-Browser-Proposal": secret,
+    })
+    assert created.status_code == 201, created.text
+    rid = created.json()["request_id"]
+    assert browser.post(INBOX + "/supervision", headers=AUTH).status_code == 200
+    approved = browser.post(INBOX + f"/{rid}/aprobar", headers=AUTH,
+                            json={"modo": "timed", "segundos": 120})
+    assert approved.status_code == 200, approved.text
+    return secret
+
+
+def send_virtual_action(browser, secret):
+    return browser.post(
+        LOCAL_ACTION.replace("{id_vehiculo}", "1"),
+        headers={**HEAD, "X-Browser-Session": secret},
+        json={"codigo": 9, "duracion_ms": 250},
+    )
+
+
+def wait_offline(app):
+    for _ in range(200):
+        if not app.state.kx_diag_hub.ready:
+            return
+        time.sleep(.01)
+    pytest.fail("NO-GO: socket virtual siguio disponible despues de desconexion")
+
+
+def test_55j_transport_loss_denies_actions_until_fresh_hmac_session(app):
+    """Sin WSS autenticado, permiso K-V no basta para emitir una orden."""
+    with TestClient(app, base_url=PUBLIC, client=("127.0.0.1", 54000)) as browser:
+        secret = approve_guest(browser)
+        device = TestClient(app, base_url=f"https://{IP}:8443",
+                            client=(DEVICE_IP, 54001))
+        device.portal = browser.portal
+
+        with device.websocket_connect(HOTSPOT_PATH, headers={"Host": LAN_HOST}) as ws:
+            first_wire = auth_device(ws)
+            assert acknowledge(ws, first_wire).code == 0
+            wait_ready(app)
+        wait_offline(app)
+        assert send_virtual_action(browser, secret).status_code == 503
+
+        # Reconexion NO hereda la sesion HMAC previa; exige nuevo desafio
+        # y STOP inicial, incluso si el permiso virtual sigue vigente.
+        with device.websocket_connect(HOTSPOT_PATH, headers={"Host": LAN_HOST}) as ws:
+            new_wire = auth_device(ws)
+            assert acknowledge(ws, new_wire).code == 0
+            wait_ready(app)
+            with ThreadPoolExecutor(max_workers=1) as threads:
+                request = threads.submit(send_virtual_action, browser, secret)
+                movement = acknowledge(ws, new_wire)
+                stopping = acknowledge(ws, new_wire)
+                accepted = request.result(timeout=7)
+            assert movement.code == 9 and stopping.code == 0
+            assert accepted.status_code == 200, accepted.text
+            assert accepted.json()["control_fisico"] is False
+
+
+def test_55j_rejected_signed_ack_forces_disconnection_and_no_dispatch(app):
+    """ACK HMAC genuino de RECHAZO no debe convertirse en autorizacion."""
+    with TestClient(app, base_url=PUBLIC, client=("127.0.0.1", 54000)) as browser:
+        secret = approve_guest(browser)
+        device = TestClient(app, base_url=f"https://{IP}:8443",
+                            client=(DEVICE_IP, 54001))
+        device.portal = browser.portal
+        with device.websocket_connect(HOTSPOT_PATH, headers={"Host": LAN_HOST}) as ws:
+            wire = auth_device(ws)
+            assert acknowledge(ws, wire).code == 0
+            wait_ready(app)
+            with ThreadPoolExecutor(max_workers=1) as threads:
+                request = threads.submit(send_virtual_action, browser, secret)
+                frame = ws.receive_json()
+                order = wire.verify_order(frame, now_ms=int(time.time() * 1000))
+                assert order.code == 9
+                rejected = DeviceAck(
+                    1, order.session_id, order.operation_id, order.generation,
+                    order.epoch, order.sequence, int(time.time() * 1000),
+                    3, False,
+                )
+                ws.send_json(wire.sign_ack(rejected))
+                response = request.result(timeout=7)
+            assert response.status_code == 503
+            wait_offline(app)
+        assert send_virtual_action(browser, secret).status_code == 503
