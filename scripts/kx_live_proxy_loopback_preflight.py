@@ -146,7 +146,14 @@ def loopback_config(candidate: str, port: int, old_port: int) -> str:
     ):
         if required not in candidate:
             raise RuntimeError("Falta proteccion obligatoria en candidato")
-    cfg = candidate.replace(DOMAIN + " {", f"http://127.0.0.1:{port} {{")
+    # Un sitio "http://127.0.0.1:PUERTO" filtraria Host: nip.io y
+    # devolveria 404 aunque Caddy estuviera funcionando. El sitio sin
+    # hostname acepta el Host publico, pero "bind" restringe el socket
+    # EXCLUSIVAMENTE a loopback (no a 0.0.0.0).
+    cfg = candidate.replace(
+        DOMAIN + " {",
+        f"http://:{port} {{\n    bind 127.0.0.1",
+    )
     cfg = cfg.replace("reverse_proxy 127.0.0.1:8000",
                       f"reverse_proxy 127.0.0.1:{old_port}")
     # K-X conserva 9444 LOCAL; 443 nunca se abre en este ensayo.
@@ -275,18 +282,24 @@ def main(argv=None) -> int:
                 stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+            last_http_status = None
             for _ in range(90):
                 if proxy.poll() is not None:
-                    raise RuntimeError("Caddy temporal no inicio")
+                    raise RuntimeError("Caddy temporal cerro antes de escuchar")
                 try:
                     status, _body, stub = http_request(edge, "GET", "/docs")
+                    last_http_status = status
                     if status == 200 and stub == "legacy":
                         break
                 except (OSError, http.client.HTTPException):
                     pass
                 time.sleep(0.1)
             else:
-                raise RuntimeError("Caddy temporal no respondio")
+                # Solo codigo numerico de respuesta, nunca cabeceras privadas.
+                if last_http_status is not None:
+                    print("CADDY LOOPBACK HTTP:", last_http_status,
+                          "| backend ficticio no confirmado")
+                raise RuntimeError("Caddy temporal no enruto /docs al stub")
             print("CADDY + LEGACY FICTICIO: SOLO LECTURA")
             phase = "contratos HTTP y WS"
             status, _body, _ = http_request(edge, "POST", "/vehiculos/1/movimientos")
