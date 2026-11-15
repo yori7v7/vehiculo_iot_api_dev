@@ -1,0 +1,61 @@
+name: K-X auditoria Caddy supervisor solo lectura PS 5.1
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_caddy_supervisor_retry_readonly.ps1
+      - .github/workflows/kx-caddy-supervisor-readonly-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ps51-readonly-audit:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout rama experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parser PowerShell 5.1 y restricciones de AST
+        shell: powershell
+        run: |
+          $path = '.\scripts\kx_caddy_supervisor_retry_readonly.ps1'
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $path,[ref]$tokens,[ref]$errors
+          )
+          if (@($errors).Count -ne 0) { throw 'K-X readonly PS 5.1 parse failed' }
+          $commands = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object { $_.GetCommandName() })
+          foreach ($bad in @(
+            'Stop-ScheduledTask','Start-ScheduledTask','Register-ScheduledTask',
+            'Unregister-ScheduledTask','Enable-ScheduledTask','Disable-ScheduledTask',
+            'Set-ScheduledTask','Stop-Process','Start-Process','Remove-Item',
+            'Set-Content','Add-Content','Out-File','Copy-Item','Move-Item',
+            'Set-Acl','New-Item','Restart-Service','Start-Service','Stop-Service'
+          )) {
+            if ($commands -contains $bad) { throw ('K-X readonly forbidden command: '+$bad) }
+          }
+          if ($commands -notcontains 'Export-ScheduledTask') {
+            throw 'K-X readonly task XML inspection missing'
+          }
+          if ($commands -notcontains 'Get-CimInstance') {
+            throw 'K-X readonly process identity inspection missing'
+          }
+          Write-Host 'K-X readonly Windows PS 5.1 syntax + AST commands PASS'
+      - name: Confirmar que no se guardan secrets ni se habilitan sistemas
+        shell: powershell
+        run: |
+          $text = Get-Content '.\scripts\kx_caddy_supervisor_retry_readonly.ps1' -Raw
+          if ($text.Contains('proxy_proof') -or $text.Contains('admin_proof')) {
+            throw 'K-X readonly must not read, emit or store proof values'
+          }
+          if (-not $text.Contains("NO-GO AUDITORIA SUPERVISOR")) {
+            throw 'K-X audit lacks NO-GO response'
+          }
+          Write-Host 'K-X readonly/no-secrets PASS; NOT executed against server'
