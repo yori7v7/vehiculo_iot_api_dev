@@ -185,7 +185,7 @@ try {
   recovery_enabled=$true
   requires_explicit_cutover_switch=$true
   timestamp_utc=[DateTime]::UtcNow.ToString('o')
-  source_commit='898c3225514f8de46a957c52191010d593f22cda'
+  source_commit='122db923e4f9fc92012496803294dc5553df8d38'
   task_name='VehiculoIoT-Caddy'
   public_hostname='100-30-4-62.nip.io'
   caddy_live_changed=$false
