@@ -15,6 +15,7 @@ on:
       - scripts/kx_caddy_restore_copy_rehearsal.ps1
       - scripts/kx_admin_get_local_contract_readonly_http.ps1
       - scripts/kx_caddy_real_kv_local_get_lab.ps1
+      - scripts/kx_https_publication_readiness_inventory.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -390,3 +391,35 @@ jobs:
           }
           if($source -match '(?im)^\s*\$home\s*=') {throw "Reserved PowerShell HOME variable"}
           Write-Host "PASS: ephemeral Caddy to real virtual K-V GET lab and memory-only proof"
+      - name: Parse K-X HTTPS read-only publication readiness inventory in Windows
+        shell: powershell
+        run: |
+          $file = "scripts/kx_https_publication_readiness_inventory.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0) {
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "HTTPS inventory invalid under Windows PowerShell 5.1"
+          }
+          $source = Get-Content $file -Raw
+          foreach($required in @("Get-ScheduledTask", "Get-NetTCPConnection",
+            "GetOwnerSid", "Get-FileHash", "original_caddy_sha256",
+            "kx_real_caddy_local_contract.json", "Caddyfile.original.copy",
+            "LOGON TYPE CADDY", "IDENTIDAD PROCESO CADDY",
+            "KX_STAGING_PROXY_PROOF", "LINEA DE COMANDOS EN PROCESO",
+            "Get-Acl", "K-V: NO PUBLICADO",
+            "PENDIENTE: MECANISMO DE INYECCION SEGURA",
+            "CONTROL FISICO: OFF")) {
+              if(-not $source.Contains($required)){
+                throw "HTTPS inventory missing safety marker: $required"
+              }
+          }
+          foreach($forbidden in @("Set-ScheduledTask", "Register-ScheduledTask",
+            "Restart-Computer", "Restart-Service", "New-NetFirewallRule",
+            "caddy reload", "Invoke-WebRequest", "Set-Content",
+            "Out-File", "Remove-Item", "Start-Process")) {
+              if($source.Contains($forbidden)){throw "Unsafe mutation in read-only inventory: $forbidden"}
+          }
+          if($source -match '(?im)^\s*\$home\s*=') {throw "Reserved PowerShell HOME variable"}
+          Write-Host "PASS: read-only HTTPS publication inventory syntax and fail-closed safety contracts"
