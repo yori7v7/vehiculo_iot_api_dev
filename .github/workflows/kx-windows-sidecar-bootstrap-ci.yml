@@ -9,6 +9,7 @@ on:
       - scripts/kx_validate_virtual_sidecar_restart.ps1
       - scripts/kx_enable_virtual_sidecar_boot.ps1
       - scripts/kx_install_bootstrap_helper.ps1
+      - scripts/kx_caddy_offline_candidate.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -187,3 +188,27 @@ jobs:
           $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -MultipleInstances IgnoreNew
           if (-not $settings) { throw "Missing task settings" }
           Write-Host "PASS: bootstrap installer and SYSTEM worker PowerShell 5.1 syntax"
+      - name: Parse Caddy offline candidate script on Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $file = "scripts/kx_caddy_offline_candidate.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+          if (@($errors).Count -ne 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "Caddy offline candidate PS5.1 script syntax invalid"
+          }
+          $source = Get-Content $file -Raw
+          $match = [regex]::Match($source, '(?s)\$candidate = @''\s+?(.*?)\s+''@')
+          if (-not $match.Success) { throw "Caddyfile candidate heredoc missing" }
+          $candidate = $match.Groups[1].Value
+          foreach ($required in @("handle @kv_virtual", "reverse_proxy 127.0.0.1:8000", "reverse_proxy 127.0.0.1:9444", "header_up -X-Forwarded-For", "header_up -X-Forwarded-Proto", "X-Admission-Client-IP", "OFFLINE_INVALID_TOKEN_NOT_FOR_DEPLOYMENT", "100-30-4-62.nip.io")) {
+            if (-not $candidate.Contains($required)) { throw "Missing candidate safety marker: $required" }
+          }
+          if ($candidate.Contains("{$")) { throw "Unbound Caddy env-var placeholder" }
+          if ($source -match '(?im)^\s*(Restart-Service|Restart-Computer|Stop-Computer|Set-ScheduledTask|New-NetFirewallRule|caddy reload)\b') {
+            throw "Unexpected production mutation in offline candidate"
+          }
+          if ($source -match '(?im)^\s*\$home\s*=') { throw "Reserved PowerShell HOME assignment" }
+          Write-Host "PASS: offline Caddy candidate PowerShell AST and safety markers"
