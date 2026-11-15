@@ -358,22 +358,15 @@ try {
      Write-Host 'SYSTEM recovery requested; verify status.' -ForegroundColor Yellow
     }
    }elseif($state.phase -ceq 'PREPARED'){
-    # Watchdog was registered but no production mutation happened: clean it.
     $taskName='VehiculoIoT-KX-PROD-Recovery-'+[string]$state.transaction_id
-    if($taskName -match '^VehiculoIoT-KX-PROD-Recovery-[a-f0-9]{32}
-  }catch{Write-Host 'NO-GO: Recovery dispatch failed; operator incident response needed.' -ForegroundColor Red}
- }
-}
-if(-not $script:Success){exit 1}
-exit 0
-){
+    if($taskName -match '^VehiculoIoT-KX-PROD-Recovery-[a-f0-9]{32}$'){
      Unregister-ScheduledTask -TaskPath '\' -TaskName $taskName -Confirm:$false -ErrorAction Stop
-     Write-Host 'Recovery task unregistered; production PREPARED unchanged.' -ForegroundColor Yellow
+     Write-Host 'Recovery task cleaned; production PREPARED unchanged.' -ForegroundColor Yellow
     }
    }else{
     Write-Host 'NO-GO: unknown state; recovery not dispatched.' -ForegroundColor Yellow
    }
-  }catch{Write-Host 'NO-GO: Recovery dispatch failed; operator incident response needed.' -ForegroundColor Red}
+  }catch{Write-Host 'NO-GO: recovery dispatch failed; operator incident response required.' -ForegroundColor Red}
  }
 }
 if(-not $script:Success){exit 1}
