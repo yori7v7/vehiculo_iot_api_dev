@@ -195,3 +195,4 @@ finally {
     Write-Host 'SIN CAMBIOS A TAREAS, CADDY, AWS, RDS, ESP NI MOTORES'
 }
 if (-not $passed) { exit 1 }
+exit 0
