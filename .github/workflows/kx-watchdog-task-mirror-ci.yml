@@ -1,0 +1,41 @@
+name: K-X watchdog TASK SYSTEM mirror lab Windows 5.1
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_watchdog_task_mirror_lab.ps1
+      - .github/workflows/kx-watchdog-task-mirror-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  task-watchdog-fixtures:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse PowerShell 5.1 and verify scope guard
+        shell: powershell
+        run: |
+          $path='.\scripts\kx_watchdog_task_mirror_lab.ps1'
+          $tok=$null
+          $err=$null
+          $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tok,[ref]$err)
+          if (@($err).Count -ne 0) { throw 'K-X task lab PowerShell 5.1 syntax NO-GO' }
+          $src=Get-Content -LiteralPath $path -Raw
+          foreach($blocked in @('proxy_proof','admin_proof','Stop-VehicleDeployment','Start-VehicleDeployment','taskkill.exe','Set-NetFirewallRule')){
+            if($src.Contains($blocked)){throw ('K-X forbidden instruction '+$blocked)}
+          }
+          if(-not $src.Contains("VehiculoIoT-KX-LAB-Watchdog-")){throw 'K-X watchdog task prefix missing'}
+          if(-not $src.Contains('TAREAS LAB: ELIMINADAS')){throw 'K-X cleanup evidence missing'}
+          Write-Host 'K-X PS5.1 parsed and scoped LAB'
+      - name: Execute three SYSTEM task cases on CI fixtures only
+        shell: powershell
+        run: |
+          & '.\scripts\kx_watchdog_task_mirror_lab.ps1' -Mode FixtureCI
+          if ($LASTEXITCODE -ne 0) {throw 'K-X scheduled-task mirror recovery NO-GO'}
+          Write-Host 'K-X task SYSTEM fixtures PASS'
