@@ -102,7 +102,12 @@ function AssertLabTask([string]$name,[string]$prefix,[string]$role){
  $t=Get-ScheduledTask -TaskPath '\' -TaskName $name -ErrorAction Stop
  Check ($t.Principal.UserId -match '^(SYSTEM|S-1-5-18|NT AUTHORITY\\SYSTEM)$') 'Lab task SYSTEM'
  Check (@($t.Actions).Count -eq 1) 'Single lab task action'
- Check (([string]$t.Actions[0].Arguments).Contains((Join-Path $labRoot (('kx_integrated_{0}.ps1' -f $role))))) 'Lab task script path'
+ $expectedPath=Join-Path $labRoot (('kx_integrated_{0}.ps1' -f $role))
+ $currentAction=[string]$t.Actions[0].Arguments
+ if(-not ($currentAction.Contains($expectedPath))){
+  if($Mode -ceq 'FixtureCI'){throw ('NO-GO Lab task script path EXPECTED='+$expectedPath+' OBSERVED='+$currentAction)}
+  throw 'NO-GO Lab task script path'
+ }
  return $t
 }
 function StopFake($s){
