@@ -135,7 +135,7 @@ b.serve_forever()
  $echoFile=Join-Path $lab "echo.py"
  $labCaddy=Join-Path $lab "Caddyfile"
  [IO.File]::WriteAllText($echoFile,$echoSrc,([Text.UTF8Encoding]::new($false)))
- & $python -B -c 'import ast,sys;ast.parse(open(sys.argv[1],encoding="utf-8").read())' $echoFile
+ & $python -B -m py_compile $echoFile
  Check ($LASTEXITCODE -eq 0) "Sintaxis echo Python correcta"
  $derived=$raw.Replace("100-30-4-62.nip.io {","http://127.0.0.1:9481 {")
  $derived=$derived.Replace("reverse_proxy 127.0.0.1:9444","reverse_proxy 127.0.0.1:9482")
