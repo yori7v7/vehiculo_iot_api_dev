@@ -27,9 +27,7 @@ function ACL-Restricted([string]$p,[string]$label) {
  $acl=Get-Acl -LiteralPath $p -ErrorAction Stop
  $broad=@("S-1-1-0","S-1-5-11","S-1-5-32-545")
  $risky=0
- $readMask=[int](
-  [Security.AccessControl.FileSystemRights]::ReadData -bor
-  [Security.AccessControl.FileSystemRights]::ReadPermissions)
+ $readMask=[int][Security.AccessControl.FileSystemRights]::ReadData
  $writeMask=[int](
   [Security.AccessControl.FileSystemRights]::WriteData -bor
   [Security.AccessControl.FileSystemRights]::AppendData -bor
@@ -54,6 +52,7 @@ try{
  foreach($item in @($launcher,$common,$state,$caddyfile,$deployment,$root,$manifest,$backup,$report)){
   No-Reparse $item ([IO.Path]::GetFileName($item))
  }
+ Pass ((Get-Acl -LiteralPath $state).AreAccessRulesProtected) "Raiz de estado Caddy protegida"
  $m=Get-Content -LiteralPath $manifest -Raw|ConvertFrom-Json
  $r=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
  Pass ($m.mode -eq "loopback_only_not_public" -and
@@ -102,12 +101,13 @@ try{
   Write-Host "AUTOSAVE: ENCONTRADO"
   Write-Host ("AUTOSAVE SHA256: "+(Get-FileHash -LiteralPath $autosave -Algorithm SHA256).Hash)
   Write-Host ("AUTOSAVE CONTIENE K-V HEADER: "+[bool]($raw -match 'X-Admission-Proxy-Token'))
+  Pass (-not ($raw -match 'X-Admission-Proxy-Token')) "Autosave aun no incluye cabeceras de K-V"
   Write-Host "AUTOSAVE JSON / VALORES / TOKENS: NO MOSTRADOS"
   $raw=$null
   $parsed=$null
  } else {
   Write-Host "AUTOSAVE: NO ENCONTRADO EN RUTA XDG" -ForegroundColor Yellow
-  Write-Host "NO-GO PARA PUBLICACION: investigar autosave no encontrado"
+  throw "NO-GO: Autosave no encontrado en ruta XDG esperada; investigar antes de publicar"
  }
  $admin=@(Get-NetTCPConnection -State Listen -LocalPort 2019 -ErrorAction SilentlyContinue)
  Pass (@($admin|Where-Object{$_.LocalAddress -notin @("127.0.0.1","::1")}).Count -eq 0) "API administrativa 2019 no expuesta"
