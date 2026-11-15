@@ -2,10 +2,10 @@
 # Solo admision virtual. NO modifica Caddy, firewall, tareas legacy ni hardware.
 $ErrorActionPreference = "Stop"
 $stage = "C:\ProgramData\VehiculoIoT-KX-Staging"
-$home = "C:\ProgramData\VehiculoIoT-KX-State\service"
+$serviceDir = "C:\ProgramData\VehiculoIoT-KX-State\service"
 $taskName = "VehiculoIoT-Admission-Virtual"
-$configPath = Join-Path $home "config.json"
-$manifestPath = Join-Path $home "install.json"
+$configPath = Join-Path $serviceDir "config.json"
+$manifestPath = Join-Path $serviceDir "install.json"
 $caddy = "C:\ProgramData\VehiculoIoT\Caddyfile"
 $http = $null
 $interrupted = $false
@@ -82,7 +82,7 @@ try {
   Assert-KX ($st.mode -eq "offline_staging_only") "Staging original independiente"
   $initialHash = (Get-FileHash $caddy -Algorithm SHA256).Hash
   Assert-KX ($initialHash -eq $manifest.original_caddy_sha256) "Caddy sin modificaciones"
-  Assert-KX ((Get-FileHash (Join-Path $home "launcher.py") -Algorithm SHA256).Hash -eq $manifest.launcher_sha256) "Lanzador sin alteraciones"
+  Assert-KX ((Get-FileHash (Join-Path $serviceDir "launcher.py") -Algorithm SHA256).Hash -eq $manifest.launcher_sha256) "Lanzador sin alteraciones"
   $account = Get-LocalUser -Name "VehIoT_KXSvc" -ErrorAction Stop
   $taskSid = $account.SID.Value
   Assert-KX ($taskSid -eq $manifest.dedicated_sid) "SID dedicado correcto"
@@ -98,7 +98,7 @@ try {
   Assert-KX ($config.mode -eq "virtual_loopback_only" -and $config.bind_host -eq "127.0.0.1" -and
              $config.bind_port -eq 9444 -and $config.admin_proof -ne $config.proxy_proof) "Configuracion privada del servicio"
   $configAcl = Get-Acl -LiteralPath $configPath
-  Assert-KX ($configAcl.AreAccessRulesProtected -or (Get-Acl -LiteralPath $home).AreAccessRulesProtected) "Ruta privada protegida"
+  Assert-KX ($configAcl.AreAccessRulesProtected -or (Get-Acl -LiteralPath $serviceDir).AreAccessRulesProtected) "Ruta privada protegida"
   Add-Type -AssemblyName System.Net.Http -ErrorAction Stop
   $handler = [Net.Http.HttpClientHandler]::new()
   $handler.UseProxy = $false
@@ -154,7 +154,7 @@ try {
   Assert-KX ($response.Status -eq 401) "Sesion anterior rechazada tras cambio de epoca"
   $checks++
   $response = Invoke-KV "GET" $adminPath $adminHeaders
-  Assert-KX ($response.Status -eq 200 -and $response.Data.turno_virtual_activo -eq $false -and
+  Assert-KX ($response.Status -eq 200 -and $response.Data.turno_activo -eq $false -and
              $response.Data.canDrive -eq $false) "Sin turno virtual heredado"
   $checks++
   $response = Invoke-KV "POST" ($adminPath+"/revocar") $adminHeaders
