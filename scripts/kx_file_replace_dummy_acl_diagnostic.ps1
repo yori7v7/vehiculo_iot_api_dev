@@ -51,10 +51,11 @@ function ReadOnlyAclSummary([string]$p,[string]$label){
 }
 function DescribeError([Exception]$ex){
  $inner=if($null -ne $ex.InnerException){$ex.InnerException}else{$ex}
- $hex="0x"+([uint32]$inner.HResult).ToString("X8")
+ $hresultUnsigned=([long]$inner.HResult -band 4294967295)
+ $hex="0x"+$hresultUnsigned.ToString("X8")
  Write-Host ("EXCEPCION_INTERNA_TIPO: "+$inner.GetType().Name)
  Write-Host ("EXCEPCION_INTERNA_HRESULT: "+$hex)
- Write-Host ("EXCEPCION_INTERNA_WIN32_LOW: "+([uint32]$inner.HResult -band 65535))
+ Write-Host ("EXCEPCION_INTERNA_WIN32_LOW: "+($hresultUnsigned -band 65535))
  Write-Host "MENSAJE ORIGINAL OMITIDO PARA EVITAR RUTAS O SECRETOS"
 }
 function RunProbe([string]$label,[bool]$ignoreMetadata,[Security.AccessControl.FileSecurity]$configAcl){
