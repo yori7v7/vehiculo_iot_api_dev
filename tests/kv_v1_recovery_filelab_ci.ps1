@@ -24,8 +24,8 @@ $candidate = Join-Path $root 'candidate'
 $backup = Join-Path $root 'backup'
 $data = Join-Path $root 'data'
 $names = @('kv_virtual_staging.py','kr_ticket_ledger.py')
-$old = @{kv_virtual_staging.py='old-http-contract-120';kr_ticket_ledger.py='old-ledger-120'}
-$new = @{kv_virtual_staging.py='new-http-contract-120-300-600-1200';kr_ticket_ledger.py='new-ledger-supervised'}
+$old = @{'kv_virtual_staging.py'='old-http-contract-120';'kr_ticket_ledger.py'='old-ledger-120'}
+$new = @{'kv_virtual_staging.py'='new-http-contract-120-300-600-1200';'kr_ticket_ledger.py'='new-ledger-supervised'}
 $script:running = $true
 $script:checks = 0
 $script:passes = 0
