@@ -23,6 +23,26 @@ function Get-KVUpgradeArtifact([string]$Path, [bool]$Directory) {
     return $item
 }
 
+function Test-KVUpgradeStagingLocalServiceRead([string]$Path, [string]$Reader,
+    [string]$Sid, [Security.AccessControl.FileSystemRights]$Rights) {
+    # K-X: LOCAL SERVICE tiene solamente RX en code y runtime.
+    # Nunca conceder a este SID acceso a estado, secretos, recovery ni Caddy.
+    if ($Sid -cne 'S-1-5-19' -or
+        $Reader -cnotmatch '^S-1-5-21-(?:[0-9]+-){3}[0-9]+$') { return $false }
+    $rx = [Security.AccessControl.FileSystemRights]::ReadAndExecute -bor
+        [Security.AccessControl.FileSystemRights]::Synchronize
+    if ($Rights -ne $rx) { return $false }
+    $canonical = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    foreach ($root in @('C:\ProgramData\VehiculoIoT-KX-Staging\code',
+                        'C:\ProgramData\VehiculoIoT-KX-Staging\runtime')) {
+        if ($canonical -ieq $root -or
+            $canonical.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Assert-KVUpgradeAcl([string]$Path, [string]$Reader = '', [string]$Writer = '',
     [switch]$RequireProtected, [switch]$Ancestor, [switch]$AllowWriterOwner) {
     $system = 'S-1-5-18'
@@ -52,6 +72,7 @@ function Assert-KVUpgradeAcl([string]$Path, [string]$Reader = '', [string]$Write
                 ($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -or
                 -not ($rule.FileSystemRights -band $write))) { continue }
         if ($Reader -and $sid -eq $Reader -and -not ($rule.FileSystemRights -band $write)) { continue }
+        if (Test-KVUpgradeStagingLocalServiceRead $Path $Reader $sid $rule.FileSystemRights) { continue }
         if ($Writer -and $sid -eq $Writer -and -not ($rule.FileSystemRights -band (-bnot $writerRights))) { continue }
         throw 'KV_ACL'
     }
