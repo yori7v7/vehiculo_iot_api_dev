@@ -1,0 +1,47 @@
+name: K-X integrated release inventory READ ONLY PS5.1
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_release_integrated_inventory_readonly.ps1
+      - .github/workflows/kx-release-integrated-readonly-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory-static-ps51:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate parser and read-only verbs on Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $p='.\scripts\kx_release_integrated_inventory_readonly.ps1'
+          $tokens=$null;$errors=$null
+          $ast=[Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors|ForEach-Object {Write-Host ('PARSE: '+$_.Message)}
+            throw 'K-X read-only inventory syntax failed'
+          }
+          $commands=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst]},$true)|ForEach-Object{$_.GetCommandName()})
+          $forbidden=@('Register-ScheduledTask','Unregister-ScheduledTask','Enable-ScheduledTask','Disable-ScheduledTask',
+          'Start-ScheduledTask','Stop-ScheduledTask','Set-ScheduledTask','Stop-Process','Start-Process','Restart-Service',
+          'Stop-Service','Start-Service','Remove-Item','Set-Content','Add-Content','Out-File','Set-Acl','New-Item',
+          'Copy-Item','Move-Item','Set-NetFirewallRule','Invoke-WebRequest','Invoke-RestMethod',
+          'Invoke-Expression','Invoke-Command')
+          foreach($bad in $forbidden){if($commands -contains $bad){throw ('Read-only violation: '+$bad)}}
+          foreach($need in @('Get-ScheduledTask','Get-ScheduledTaskInfo','Get-NetTCPConnection','Get-CimInstance','Get-FileHash')){
+            if($need -eq 'Get-ScheduledTaskInfo'){continue}
+            if($commands -notcontains $need){throw ('Missing expected release assertion: '+$need)}
+          }
+          $src=Get-Content -LiteralPath $p -Raw
+          foreach($blocked in @('proxy_proof','admin_proof','taskkill.exe','physical_control_enabled=true')){
+            if($src.Contains($blocked)){throw ('Forbidden release check '+$blocked)}
+          }
+          if(-not $src.Contains('NO-GO HASTA RECUPERADOR REAL')){throw 'No explicit NO-GO publication gate'}
+          Write-Host 'K-X integrated EC2 release inventory Windows PS5.1 syntax/AST PASS; not executed on live EC2'
