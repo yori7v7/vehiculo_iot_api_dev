@@ -73,7 +73,22 @@ function Assert-Baseline {
     $dedicated = Get-LocalUser -Name ([string]$install.dedicated_user) -ErrorAction Stop
     Require ($dedicated.SID.Value -ceq [string]$install.dedicated_sid) 'SID de servicio coincide con manifiesto'
     # La cuenta K-X dedicada tiene acceso esperado al estado. No modificar ACL.
-    Assert-Private 'C:\ProgramData\VehiculoIoT-KX-State' @([string]$install.dedicated_sid)
+    # Observado en EC2: la RAIZ contiene LocalService S-1-5-19
+    # exactamente con Modify+Synchronize. No autorizar en service/.
+    $stateRoot = 'C:\ProgramData\VehiculoIoT-KX-State'
+    Assert-Private $stateRoot @('S-1-5-19')
+    $rootAcl = Get-Acl -LiteralPath $stateRoot -ErrorAction Stop
+    Require ($rootAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ceq 'S-1-5-32-544') 'Propietario original de raiz'
+    $rootRules = @($rootAcl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    $localService = @($rootRules | Where-Object {
+        $_.IdentityReference.Value -ceq 'S-1-5-19'
+    })
+    $rights = [Security.AccessControl.FileSystemRights]::Modify -bor
+              [Security.AccessControl.FileSystemRights]::Synchronize
+    Require ($localService.Count -eq 1 -and
+             $localService[0].AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+             $localService[0].FileSystemRights -eq $rights -and
+             -not $localService[0].IsInherited) 'LocalService solo en raiz, permisos exactos registrados'
     Assert-Private $state @([string]$install.dedicated_sid)
     $transaction = Get-Content -LiteralPath (Join-Path $v4 'transaction.json') -Raw -ErrorAction Stop | ConvertFrom-Json
     Require ($transaction.phase -ceq 'COMMITTED_VERIFIED') 'Caddy V4 ya COMMITTED_VERIFIED'
