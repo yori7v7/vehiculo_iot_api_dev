@@ -1,0 +1,59 @@
+name: 55-H ESP8266 Hotspot firmware (LAB ONLY, GPIO always zero)
+
+on:
+  pull_request:
+    branches: [feature/kv-v1-upgrade-staging-only]
+    paths:
+      - 'firmware/Excavadora_IoT_55H_Hotspot_Seguro/**'
+      - 'scripts/preparar_55h_hotspot_seguro.py'
+      - 'tests/test_55h_hotspot_firmware_safety.py'
+      - '.github/workflows/55h-hotspot-firmware-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencies only for local test fixture
+        run: python -m pip install pytest cryptography
+      - name: Never enable 74HC595 / assert HMAC and hotspot isolation
+        run: python -m pytest -q tests/test_55h_hotspot_firmware_safety.py
+
+  compile-esp8266:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Test identity (CI-ONLY; no personal credentials)
+        run: |
+          python -m pip install cryptography
+          python scripts/preparar_55h_hotspot_seguro.py --host 192.168.4.2 --ci-fixture
+      - name: Install ESP8266 core 3.1.2
+        run: |
+          arduino-cli core update-index --additional-urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266@3.1.2 --additional-urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+      - name: Libraries
+        run: |
+          arduino-cli lib install WiFiManager
+          arduino-cli lib install WebSockets
+          arduino-cli lib install ArduinoJson
+      - name: Compile NodeMCU ESP-12E without upload
+        run: |
+          arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
+            firmware/Excavadora_IoT_55H_Hotspot_Seguro
