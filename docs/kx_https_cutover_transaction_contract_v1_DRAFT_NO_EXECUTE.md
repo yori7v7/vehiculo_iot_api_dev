@@ -57,3 +57,10 @@ Implementar y revisar **un unico par integrado** de ejecutor y recuperador basad
 - El par integrado ES LABORATORIO SOLAMENTE. No ejecuta cutover 443 ni rollback de servicio productivo; reboot real, RDP, TLS/ACME y procesos productivos pendientes de ensayo autorizado.
 
 Estado GO_INTEGRACION_EC2 / NO-GO_PUBLICACION. Los ensayos aislados y el end-to-end LAB han concluido.
+
+## Gate final read-only antes de preparar cutover
+
+- Script `scripts/kx_release_integrated_inventory_readonly.ps1` creado en rama experimental y CI static Windows PowerShell 5.1 PASS (run 43696877424, commit fd65cfdb99878abd55128f1e4e21ebec61d9898e).
+- Solo consulta hashes, manifests, report de integracion EC2, ausencia de tareas LAB residuales, tareas reales Running, PID/creation_ticks/SYSTEM de supervisor/hijo, propietario de 443, 999/PT1M y aislamiento 9444/8000.
+- Aun NO ejecutado en EC2 del operador. No lee secretos ni realiza HTTP, reinicios, escrituras o registro de tareas. Un PASS de este gate NO autoriza cutover.
+- PENDIENTE: implementar mecanismo de intervencion y recuperacion para **tareas y servicio reales**, validarlo en seco y solicitar permiso expreso para ventana HTTPS. No existe autorizacion actual para tocar 443.
