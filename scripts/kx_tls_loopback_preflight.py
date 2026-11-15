@@ -28,15 +28,81 @@ import threading
 import time
 import base64
 
-from scripts import kx_live_proxy_loopback_preflight as common
-
-DOMAIN = common.DOMAIN
-ORIGIN = common.ORIGIN
-HOST = common.HOST
-GUEST = common.GUEST
-WSS_PATH = common.WSS
+DOMAIN = "100-30-4-62.nip.io"
+ORIGIN = "https://yori7v7.github.io"
+HOST = "127.0.0.1"
+GUEST = "/publico/vehiculos/1/solicitudes"
+WSS_PATH = "/ws/kx-diagnostico/1"
 PORT = 9444
-EXPECTED = common.EXPECTED
+EXPECTED = "AABB6EFF0F31B6171DA1795FE69C6DA62015A3B0AD61452494AD57F917A7D839"
+
+
+def free_port(excluded: set[int]) -> int:
+    for _ in range(100):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((HOST, 0))
+            p = int(sock.getsockname()[1])
+            if p >= 1024 and p not in excluded:
+                return p
+    raise RuntimeError("No hay puerto efimero disponible")
+
+
+def exact(sock: socket.socket, amount: int) -> bytes:
+    data = b""
+    while len(data) < amount:
+        part = sock.recv(amount - len(data))
+        if not part:
+            raise RuntimeError("Socket cerrado antes de completar el desafio")
+        data += part
+    return data
+
+
+def http_request(port: int, method: str, path: str) -> int:
+    con = http.client.HTTPConnection(HOST, port, timeout=3)
+    try:
+        con.request(method, path)
+        response = con.getresponse()
+        response.read()
+        return response.status
+    finally:
+        con.close()
+
+
+@contextmanager
+def legacy_stub(port: int):
+    class Stub(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b"legacy-stub-sin-API"
+            self.send_response(200)
+            self.send_header("X-KX-Stub", "legacy")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer((HOST, port), Stub)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=4)
+
+
+def close_child(process: subprocess.Popen | None) -> None:
+    if process is None:
+        return
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=4)
 
 
 def create_local_ca(directory: Path) -> Path:
@@ -179,22 +245,22 @@ def wss_challenge(port: int, context: ssl.SSLContext) -> None:
         ws.sendall(req.encode("ascii"))
         hdr = b""
         while not hdr.endswith(b"\r\n\r\n"):
-            hdr += common.exact(ws, 1)
+            hdr += exact(ws, 1)
             if len(hdr) > 8192:
                 raise RuntimeError("Respuesta WSS demasiado larga")
         if not hdr.startswith(b"HTTP/1.1 101 "):
             raise RuntimeError("WSS no devolvio HTTP 101")
-        initial = common.exact(ws, 2)
+        initial = exact(ws, 2)
         if (initial[0] & 0x0F) != 1 or (initial[1] & 0x80):
             raise RuntimeError("Desafio WSS invalido")
         size = initial[1] & 0x7F
         if size == 126:
-            size = int.from_bytes(common.exact(ws, 2), "big")
+            size = int.from_bytes(exact(ws, 2), "big")
         elif size == 127:
             raise RuntimeError("Marco WSS demasiado grande")
         if size > 512:
             raise RuntimeError("Desafio WSS fuera de contrato")
-        payload = json.loads(common.exact(ws, size))
+        payload = json.loads(exact(ws, size))
         if payload.get("tipo") != "desafio_dispositivo_lab" or payload.get("simulado") is not True:
             raise RuntimeError("Desafio virtual no confirmado")
         # Desconectar sin responder al desafio: nunca se autentica el ESP.
@@ -247,8 +313,8 @@ def main(argv=None) -> int:
             raise RuntimeError("HMAC del dispositivo no coincide")
         previous_caddy_hash = hashlib.sha256(opts.active.read_bytes()).hexdigest()
         port_is_free(PORT)
-        edge = common.free_port({PORT, 443, 8000, 9444})
-        legacy_port = common.free_port({PORT, edge, 443, 8000, 9444})
+        edge = free_port({PORT, 443, 8000, 9444})
+        legacy_port = free_port({PORT, edge, 443, 8000, 9444})
         temporary = Path(tempfile.mkdtemp(prefix="kx-tls-wss-"))
         phase = "certificados"
         ca = create_local_ca(temporary)
@@ -270,7 +336,7 @@ def main(argv=None) -> int:
             raise RuntimeError("Caddy TLS local no valido configuracion")
         print("CERTIFICADOS TLS TEMPORALES: GENERADOS")
         print("CADDY TLS: CONFIGURACION VALIDADA")
-        with common.legacy_stub(legacy_port):
+        with legacy_stub(legacy_port):
             env = os.environ.copy()
             env.update({
                 "APP_ENV": "production",
@@ -297,7 +363,7 @@ def main(argv=None) -> int:
                 if kx.poll() is not None:
                     raise RuntimeError("FastAPI salio antes del preflight")
                 try:
-                    if common.http_request(PORT, "GET", "/docs")[0] == 200:
+                    if http_request(PORT, "GET", "/docs")[0] == 200:
                         break
                 except (OSError, http.client.HTTPException):
                     pass
@@ -365,8 +431,8 @@ def main(argv=None) -> int:
         problem = (phase, type(error).__name__)
     finally:
         try:
-            common.close_child(caddy)
-            common.close_child(kx)
+            close_child(caddy)
+            close_child(kx)
             print("CADDY Y FASTAPI TEMPORALES: CERRADOS")
         except Exception:
             problem = ("cierre", "ProcesoNoCerro")
