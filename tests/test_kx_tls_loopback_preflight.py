@@ -174,8 +174,11 @@ def test_ephemeral_cert_chain_passes_python_x509_strict_tls_handshake(tmp_path):
             try:
                 conn, _address = listener.accept()
                 with conn:
+                    conn.settimeout(5)
                     with server_ctx.wrap_socket(conn, server_side=True) as stream:
-                        stream.recv(1)
+                        assert stream.recv(1) == b"X"
+                        stream.sendall(b"Y")
+                        stream.unwrap()
             except Exception as exc:
                 failures.append(type(exc).__name__)
 
@@ -187,6 +190,10 @@ def test_ephemeral_cert_chain_passes_python_x509_strict_tls_handshake(tmp_path):
             ) as client:
                 assert client.version() in ("TLSv1.2", "TLSv1.3")
                 client.sendall(b"X")
+                # Wait for delivery and exchange close_notify before the peers
+                # close. Otherwise an immediate Windows close can reset recv.
+                assert client.recv(1) == b"Y"
+                client.unwrap()
         thread.join(timeout=5)
         assert not thread.is_alive()
         assert failures == []
