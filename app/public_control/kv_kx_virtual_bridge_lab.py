@@ -21,7 +21,7 @@ from app.public_control.kr_ticket_ledger import KRTicketDenied
 from app.public_control.kv_virtual_staging import (
     ADMIN, GUEST, _guard, _safe, create_kv_virtual_app,
 )
-from app.public_control.kx_signed_wss import KXDiagnosticWSSHub, PATH
+from app.public_control.kx_signed_wss import KXDiagnosticWSSHub, PATH, HOST
 from app.public_control.repository import StoreUnavailable
 
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z", re.ASCII)
@@ -107,7 +107,6 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
                      peer_required.version == 4 and host_ip.is_private and
                      peer_required.is_private and not host_ip.is_loopback and
                      not peer_required.is_loopback and
-                     host_ip in ip_network(f"{host_ip}/24", strict=False) and
                      peer_required in ip_network(f"{host_ip}/24", strict=False) and
                      host_ip != peer_required)
         except (TypeError, ValueError):
@@ -116,7 +115,7 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
             raise ValueError("NO-GO: destino privado hotspot 55-I invalido")
     app = create_kv_virtual_app(db_path, admin_proof, proxy_proof,
                                 clock=clock, **limits)
-    hub = KXDiagnosticWSSHub(device_key, expected_host=hotspot_host or None or "100-30-4-62.nip.io")
+    hub = KXDiagnosticWSSHub(device_key, expected_host=hotspot_host or HOST)
     authority = VirtualOnlyAuthority(hub)
     app.state.kx_enabled = True
     app.state.kx_diag_hub = hub
