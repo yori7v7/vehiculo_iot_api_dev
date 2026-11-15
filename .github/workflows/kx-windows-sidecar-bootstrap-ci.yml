@@ -26,6 +26,8 @@ on:
       - scripts/kx_file_replace_matrix_dummy.ps1
       - scripts/kx_rotate_virtual_proxy_proof_explicit_backup_v2.ps1
       - scripts/kx_prepare_public_https_release_offline.ps1
+      - scripts/kx_run_caddy_launcher_candidate_not_active.ps1
+      - scripts/kx_stage_caddy_launcher_offline.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -885,3 +887,83 @@ jobs:
           }
           if($src -match '(?im)^\s*\$home\s*='){throw "Reserved HOME assignment"}
           Write-Host "PASS: offline HTTPS candidate leaves production untouched; no secret persistence"
+      - name: Validate staged Caddy launcher runtime-only environment injection
+        shell: powershell
+        run: |
+          $candidate="scripts/kx_run_caddy_launcher_candidate_not_active.ps1"
+          $stage="scripts/kx_stage_caddy_launcher_offline.ps1"
+          foreach($file in @($candidate,$stage)){
+            $tokens=$null; $errors=$null
+            $ast=[System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),[ref]$tokens,[ref]$errors)
+            if(@($errors).Count -ne 0){
+              $errors|ForEach-Object {Write-Host $_.Message}
+              throw "PS5.1 syntax error: $file"
+            }
+            if($file -eq $candidate){
+              $src=Get-Content $file -Raw
+              foreach($marker in @(
+                "param([string]$([char]36)StateDirectory)",
+                "function Get-KXValidatedVirtualProxyProof",
+                'KX_STAGING_PROXY_PROOF',
+                "KX_INVALID_PROOF_SERVICE_UNAVAILABLE_DO_NOT_USE",
+                "Set-VehicleCaddyEnvironment", "Invoke-VehicleProcess",
+                "Get-Content -LiteralPath", "config.json", "install.json",
+                "GetAccessRules", "proxy_proof",
+                "Remove-Item Env:KX_STAGING_PROXY_PROOF",
+                'Write-Warning',
+                'Write-VehicleFailureLog',
+                "'127.0.0.1'")) {
+                if(-not $src.Contains($marker)) {throw "Runtime launcher candidate missing contract: $marker"}
+              }
+              if($src -match '(?im)^\s*Write-(?:Host|Output|Verbose|Debug|Information)\s+.*(?:proof|secret|config)') {
+                throw "Launcher candidate may print secret material"
+              }
+              $defs=@($ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+              },$true)|ForEach-Object {$_.Name})
+              if($defs -notcontains "Get-KXValidatedVirtualProxyProof"){
+                throw "Candidate requires validated proof helper"
+              }
+              $cmds=@($ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.CommandAst]
+              },$true)|ForEach-Object {$_.GetCommandName()})
+              foreach($forbidden in @("Set-Acl","Stop-ScheduledTask","Start-ScheduledTask",
+                "Set-ScheduledTask","Register-ScheduledTask","Restart-Service",
+                "Stop-Process","Start-Process","Set-Content","Add-Content",
+                "Invoke-WebRequest","curl.exe")) {
+                if($cmds -contains $forbidden){throw "Launcher candidate unexpected action: $forbidden"}
+              }
+            }else{
+              $src=Get-Content $file -Raw
+              foreach($marker in @(
+                "launcher_staging_v1", "run_caddy.kx.pending.ps1",
+                "run_caddy.original.backup.ps1",
+                "launcher_stage_report.json",
+                "launcher_candidate_staged_offline_not_installed",
+                "Caddyfile.kx.ready.NOT_ACTIVE",
+                "launcher_original_sha256", "launcher_candidate_git_blob",
+                "production_caddy_modified",
+                "Identidad Git del candidato verificada",
+                "Launcher original",
+                "Lanzador productivo NO modificado",
+                "Invoke-WebRequest","Move-Item -LiteralPath $temporary",
+                "CONTROL FISICO: OFF")) {
+                if($marker -eq "Launcher original"){continue}
+                if(-not $src.Contains($marker)){throw "Offline staging missing contract: $marker"}
+              }
+              $cmds=@($ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.CommandAst]
+              },$true)|ForEach-Object {$_.GetCommandName()})
+              foreach($forbidden in @("Stop-ScheduledTask","Start-ScheduledTask",
+                "Set-ScheduledTask","Register-ScheduledTask","Stop-Process",
+                "Restart-Service","Restart-Computer","New-NetFirewallRule",
+                "Set-Acl","curl.exe")) {
+                if($cmds -contains $forbidden){throw "Offline staging unexpected action: $forbidden"}
+              }
+            }
+          }
+          Write-Host "PASS: launcher candidate and secret-free staging PS5.1 parse and safety contracts"
