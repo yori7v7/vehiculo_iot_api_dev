@@ -64,3 +64,10 @@ Estado GO_INTEGRACION_EC2 / NO-GO_PUBLICACION. Los ensayos aislados y el end-to-
 - Solo consulta hashes, manifests, report de integracion EC2, ausencia de tareas LAB residuales, tareas reales Running, PID/creation_ticks/SYSTEM de supervisor/hijo, propietario de 443, 999/PT1M y aislamiento 9444/8000.
 - Aun NO ejecutado en EC2 del operador. No lee secretos ni realiza HTTP, reinicios, escrituras o registro de tareas. Un PASS de este gate NO autoriza cutover.
 - PENDIENTE: implementar mecanismo de intervencion y recuperacion para **tareas y servicio reales**, validarlo en seco y solicitar permiso expreso para ventana HTTPS. No existe autorizacion actual para tocar 443.
+
+## 2026-11-15: NO-GO del inventario productivo read-only; correccion defensiva
+
+- El operador ejecuto kx_release_integrated_inventory_readonly.ps1 commit fd65cfdb99878abd55128f1e4e21ebec61d9898e y obtuvo NO-GO en TASK_AND_PROCESS, tipo PropertyNotFoundException. No hubo cambios productivos.
+- Causa exacta aun NO CONFIRMADA: la salida compartida no incluye el ultimo OK del inventario ni la linea; en el codigo se detectaron expresiones no robustas para PowerShell StrictMode (consulta de Actions[0] y retorno escalar de funciones de listener).
+- Parche de script en commit ec809956ec1a8405f91771de4430e87ba61bdf77 (blob d056482c3bafb08786b0aac45ae56f8ca2c2fe3d). Refactor de propiedades task/arrays de puertos y diagnostico sanitizado PASO/LINEA/TIPO. CI PS5.1 parser y prohibicion de verbos mutadores PASS run 43697172461.
+- El parche NO ha sido ejecutado en la EC2 del operador. El resultado NO-GO sigue vigente hasta verificar inventario corregido; aun con PASS, publicacion permanece NO-GO hasta contar con recuperador productivo real, comprobaciones HTTP y autorizacion.
