@@ -75,7 +75,7 @@ jobs:
            if($calls -contains $forbid){throw ('V3 staging cannot mutate production: '+$forbid)}
           }
           $paths=@{
-           'kx_prod_cutover_controller_v3_RELEASE.ps1'='8d8cc2326a27c65b197d6bcfdae8cf7c39914063'
+           'kx_prod_cutover_controller_v3_RELEASE.ps1'='5880af534f54a3fe286967d091905b0403b35727'
            'kx_prod_recoverer_v3_RELEASE.ps1'='f7fae91ba887805d6ebc76d2f33bca319c745f1d'
           }
           foreach($name in $paths.Keys){
