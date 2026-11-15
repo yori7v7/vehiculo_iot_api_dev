@@ -16,6 +16,7 @@ on:
       - scripts/kx_admin_get_local_contract_readonly_http.ps1
       - scripts/kx_caddy_real_kv_local_get_lab.ps1
       - scripts/kx_https_publication_readiness_inventory.ps1
+      - scripts/kx_caddy_launcher_autosave_readonly.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -423,3 +424,36 @@ jobs:
           }
           if($source -match '(?im)^\s*\$home\s*=') {throw "Reserved PowerShell HOME variable"}
           Write-Host "PASS: read-only HTTPS publication inventory syntax and fail-closed safety contracts"
+      - name: Parse K-X Caddy launcher and autosave READ ONLY security inventory
+        shell: powershell
+        run: |
+          $file = "scripts/kx_caddy_launcher_autosave_readonly.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -gt 0){
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "K-X launcher and autosave audit invalid under Windows PowerShell 5.1"
+          }
+          $src = Get-Content $file -Raw
+          foreach($required in @("Export-ScheduledTask", "Get-Ps1Path", "Get-FileHash",
+            "PowerShell", "GetOwnerSid", "Get-NetTCPConnection",
+            "System32\config\systemprofile\AppData\Roaming\Caddy\autosave.json",
+            "Inspect-RiskyACL", "broad_write_entries", "CONTENIDO DEL LANZADOR: NO MOSTRADO",
+            "ARGUMENTOS COMPLETOS: NO MOSTRADOS", "LANZADOR USA --RESUME",
+            "AUTOSAVE RUTAS WINDOWS SYSTEM COMUNES", "ADMIN API Caddy",
+            "K-V PUBLICO: NO ACTIVADO", "CONTROL FISICO: OFF")) {
+              if(-not $src.Contains($required)) {
+                throw "Caddy launcher inventory missing protection: $required"
+              }
+          }
+          foreach($forbidden in @("Register-ScheduledTask","Set-ScheduledTask",
+            "Restart-Computer","Restart-Service","New-NetFirewallRule",
+            "caddy reload", "Invoke-WebRequest", "Set-Content",
+            "Out-File", "Remove-Item", "Start-Process")) {
+              if($src.Contains($forbidden)){
+                throw "Unsafe mutation in launcher inventory: $forbidden"
+              }
+          }
+          if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME assignment"}
+          Write-Host "PASS: launcher extraction, ACL inspection, autosave check, no secrets printed"
