@@ -379,17 +379,44 @@ def main(argv=None) -> int:
                 stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+            # Diagnostico acotado: nunca imprimir cuerpos, cabeceras,
+            # rutas de certificados, llaves o excepciones de Caddy.
+            last_http_status = None
+            stub_confirmed = False
+            last_network_error = "NINGUNO"
+            tls_verify_code = None
+            tls_reason = "NINGUNA"
             for _ in range(100):
                 if caddy.poll() is not None:
+                    print("DIAG CADDY: PROCESO_TERMINADO")
+                    print("DIAG CADDY EXIT:", caddy.returncode)
                     raise RuntimeError("Caddy TLS termino prematuramente")
                 try:
                     status, _body, stub = https_request(edge, ctx, "GET", "/docs")
-                    if status == 200 and stub == "legacy":
+                    last_http_status = status
+                    stub_confirmed = (stub == "legacy")
+                    if status == 200 and stub_confirmed:
                         break
-                except (OSError, ssl.SSLError, http.client.HTTPException):
-                    pass
+                except ssl.SSLCertVerificationError as exc:
+                    last_network_error = "CERTIFICADO_NO_VALIDADO"
+                    tls_verify_code = exc.verify_code
+                except ssl.SSLError as exc:
+                    last_network_error = "ERROR_TLS"
+                    reason = getattr(exc, "reason", None)
+                    if isinstance(reason, str) and reason.isidentifier() and len(reason) <= 64:
+                        tls_reason = reason
+                except (OSError, http.client.HTTPException) as exc:
+                    last_network_error = type(exc).__name__
                 time.sleep(0.1)
             else:
+                print("DIAG CADDY: SIN_RESPUESTA_ESPERADA")
+                print("DIAG PROCESO_CADDY_ACTIVO:", caddy.poll() is None)
+                print("DIAG HTTP_STATUS:", last_http_status if last_http_status is not None else "NINGUNO")
+                print("DIAG STUB_LEGACY:", stub_confirmed)
+                print("DIAG TRANSPORTE:", last_network_error)
+                print("DIAG TLS_REASON:", tls_reason)
+                if tls_verify_code is not None:
+                    print("DIAG TLS_VERIFY_CODE:", tls_verify_code)
                 raise RuntimeError("Caddy TLS no respondio al sitio localhost")
             print("HTTPS CADDY > LEGACY FICTICIO: CA VALIDADA")
             phase = "contratos HTTPS/WSS"
