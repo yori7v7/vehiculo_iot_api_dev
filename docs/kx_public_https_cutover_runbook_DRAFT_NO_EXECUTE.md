@@ -132,5 +132,5 @@ Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
 - Contrato actualizado en docs/kx_https_cutover_transaction_contract_v1_DRAFT_NO_EXECUTE.md.
 - Par de scripts LAB_ONLY ejecutor/recuperador y workflow Windows PS 5.1 aprobados en GitHub Actions run 43696193313, commit 12535c9eab6fc65db9353c99380135433545c29e.
 - Ambos casos integrados PASS: falla del ejecutor y recuperacion con fake servicio SYSTEM saludable; commit saludable sin falso rollback. Tareas LAB limpias.
-- SIGUIENTE: una sola validacion EC2CopyLab con los dos scripts y archivos espejo reales verificados; no se requiere repetir los ensayos individuales.
+- APROBADO EN EC2 (2026-11-15): `kx_integrated_operator_LAB_ONLY.ps1 -Mode EC2CopyLab` con recuperacion tras crash y commit OK; servicio ficticio, lock NTFS, watchdog SYSTEM y ausencia de tareas residuales PASS; Caddy real 443 intacto. No repetir.
 - NO-GO_PUBLICACION sigue vigente; este par no tiene ruta de intervencion productiva 443.
