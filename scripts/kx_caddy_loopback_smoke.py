@@ -181,7 +181,7 @@ def main(argv=None) -> int:
                 encoding="utf-8",
             )
             if re.search(
-                r"127\\.0\\.0\\.1:(?:443|8000|9444)(?!\\d)",
+                r"127\.0\.0\.1:(?:443|8000|9444)(?!\d)",
                 cfg.read_text(encoding="utf-8"),
             ):
                 raise RuntimeError("Puerto real encontrado en ensayo aislado")
