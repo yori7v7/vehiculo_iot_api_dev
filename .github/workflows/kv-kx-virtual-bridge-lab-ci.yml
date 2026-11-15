@@ -33,7 +33,7 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Isolated shared-authority + signed WSS regression
         env:
-          APP_ENV: staging
+          APP_ENV: development
           ADMISSION_VIRTUAL_ONLY: enabled
           KX_KV_VIRTUAL_BRIDGE_LAB: isolated_ci_only
           DEVICE_LAB_ENABLED: 'false'
