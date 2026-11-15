@@ -1417,7 +1417,8 @@ jobs:
           )){
             if(-not $base.Contains($needle)){throw "K-X full release derived source does not match previous audited lab"}
           }
-          if(-not $prepare.Contains('100-30-4-62.nip.io') -or
+          $template=Get-Content "scripts/kx_caddy_offline_candidate.ps1" -Raw
+          if(-not $template.Contains('100-30-4-62.nip.io') -or
              -not $prepare.Contains('persist_config off')) {
             throw "K-X release candidate template contract changed"
           }
