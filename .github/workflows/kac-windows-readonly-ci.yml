@@ -1,0 +1,58 @@
+name: K-AC preflight Windows 5.1 y NO-GO en configuración
+on:
+  push:
+    branches:
+      - feature/5-5a-dispositivo-protocolo-aislado
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  windows-preflight:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout de rama experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preflight solo lectura y prueba negativa
+        shell: powershell
+        run: |
+          .\tests\kac_ec2_preflight_ci.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-AC preflight no aprobado' }
+      - name: K-AD matriz fail-closed de listeners (sin sockets)
+        shell: powershell
+        run: |
+          .\tests\kad_listener_policy_ci.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-AD: política de puertos no aprobada' }
+      - name: K-AD verificación de propiedad de procesos (sin procesos del host)
+        shell: powershell
+        run: |
+          .\tests\kad_process_policy_ci.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-AD: identidad de procesos no aprobada' }
+      - name: K-AC preflight Server con lectura del host simulada
+        shell: powershell
+        run: |
+          .\tests\kac_server_preflight_ci.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-AC: preflight Server simulado no aprobado' }
+      - name: K-AF permisos ACL delete-child sin tocar el host
+        shell: powershell
+        run: |
+          .\tests\kad_acl_rights_ci.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-AF: máscara ACL no aprobada' }
+      - name: Modo Server no debe autorizar una instalación ausente
+        shell: powershell
+        run: |
+          $missing = Join-Path $env:ProgramData ('KAC-NotDeployed-' + [guid]::NewGuid().ToString('N'))
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+            -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+            -File .\deploy\staging\kw\kac_ec2_preflight_READONLY.ps1 `
+            -Mode Server -LegacyStateDirectory $missing
+          if ($LASTEXITCODE -ne 2) {
+            throw 'K-AC debe responder NO-GO si no hay instalación'
+          }
+          Write-Output '[K-AC CI] OK: no hay false-positive GO sin Caddy legacy instalado'
+          # El subproceso falló a propósito con código 2 (NO-GO esperado).
+          # La acción CI no debe heredar LASTEXITCODE=2 después de validarlo.
+          exit 0

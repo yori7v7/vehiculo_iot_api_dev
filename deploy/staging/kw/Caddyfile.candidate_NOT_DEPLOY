@@ -1,0 +1,46 @@
+# PROPUESTA DE REVISION, NO INSTALAR EN EC2 NI PROGRAMDATA.
+# NO es el Caddyfile vigente: deploy/windows/Caddyfile debe permanecer igual.
+# Objetivo futuro: preservar CONTROL/MONITOREO legacy (puerto 8000)
+# y enrutar SOLO admision virtual K-V (9444 local).
+#
+# PUNTOS NO APROBADOS: no hay host remoto auditado, ni proceso/ACL Windows
+# para K-V, ni clave de proxy custodiada, ni pruebas desde Internet.
+# Solo Caddy conectado DIRECTAMENTE al cliente: no colocar detrás de un
+# CDN, AWS ALB ni otro proxy sin revisar el origen real {remote_host}.
+# No encender motores ni habilitar flags Pages mediante este archivo.
+
+100-30-4-62.nip.io {
+    @kv_virtual_admission {
+        path /publico/vehiculos/1/solicitudes /publico/vehiculos/1/solicitudes/estado /admin/vehiculos/1/control-publico/solicitudes /admin/vehiculos/1/control-publico/solicitudes/*
+    }
+
+    handle @kv_virtual_admission {
+        reverse_proxy 127.0.0.1:9444 {
+            # No heredar la identidad HTTP no confiable ni pseudo-proxies.
+            header_up Host 100-30-4-62.nip.io
+            header_up -Forwarded
+            header_up -X-Forwarded-For
+            header_up -X-Forwarded-Host
+            header_up -X-Forwarded-Proto
+            header_up -X-Real-IP
+            header_up -Via
+            header_up -Cookie
+            header_up -Authorization
+            header_up -Proxy-Authorization
+            header_up -X-Original-URL
+            header_up -X-Rewrite-URL
+            # Sobrescribir completamente: NO combinar con -X-Admission-*.
+            # El secreto debe existir SOLO en el entorno privado de Caddy.
+            header_up X-Admission-Proxy-Token {$KW_PROXY_TOKEN}
+            header_up X-Admission-Client-IP {remote_host}
+            header_up X-Admission-Scheme https
+        }
+    }
+
+    # La ruta legacy conserva el comportamiento actual.
+    # Esto no arregla vulnerabilidades previas de API/Swagger ni
+    # autoriza que el invitado accione motores.
+    handle {
+        reverse_proxy 127.0.0.1:8000
+    }
+}

@@ -1,0 +1,41 @@
+name: K-Y sidecar Windows virtual independiente de legacy
+
+on:
+  push:
+    branches:
+      - feature/5-5a-dispositivo-protocolo-aislado
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-sidecar-isolated:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Rama experimental sin credenciales Git
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Python 3.12 en Windows real
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Dependencias aisladas
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Arranque, denegación y parada separados de legacy
+        shell: powershell
+        env:
+          APP_ENV: staging
+          ADMISSION_VIRTUAL_ONLY: enabled
+        run: |
+          .\tests\ky_windows_sidecar_ci.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw 'K-Y no confirmó independencia del sidecar'
+          }

@@ -1,0 +1,32 @@
+name: K-Z Windows task virtual staging y rollback aislados
+on:
+  push:
+    branches:
+      - feature/5-5a-dispositivo-protocolo-aislado
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  windows-task-lifecycle:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout del backend experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Tarea LocalService sin trigger, ACL privada y rollback de CI
+        shell: powershell
+        run: |
+          .\tests\kz_windows_task_lifecycle_ci.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw 'K-Z: prueba de instalacion/reversion aislada no superada'
+          }
+      - name: Revalidar legado sin modificaciones
+        shell: powershell
+        run: |
+          .\deploy\staging\kw\kz_installation_plan_readonly.ps1 -Mode VerifyRepository
+          if ($LASTEXITCODE -ne 0) {
+            throw 'K-Z: preflight solo lectura fallo'
+          }

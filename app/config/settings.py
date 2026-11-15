@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     control_publico_turn_seconds: int = Field(default=120, ge=1, le=1200)
     control_publico_inactivity_seconds: int = Field(default=20, ge=1, le=1200)
 
+    # K-X: admisión VIRTUAL in-process. Nunca autoriza motores; OFF por defecto.
+    public_virtual_admission_enabled: ExplicitBool = False
+    public_virtual_admission_sqlite_path: Path | None = None
+
+    # K-X: WSS de diagnostico autenticado, DESACTIVADO por defecto.
+    # Solo usa clave binaria local fuera del repositorio. Nunca motores.
+    kx_diagnostic_wss_enabled: ExplicitBool = False
+    kx_diagnostic_wss_key_path: Path | None = None
+
+    # Canal WSS aislado para pruebas con dispositivo virtual, jamás físico.
+    device_lab_enabled: ExplicitBool = False
+    device_lab_vehicle_id: SimulatedVehicleId = 1
+    device_lab_key: SecretStr = Field(default=SecretStr(""), repr=False)
+
     @model_validator(mode="after")
     def check_public_control_settings(self) -> "Settings":
         if self.control_publico_enabled != self.control_publico_simulation:
@@ -74,6 +88,44 @@ class Settings(BaseSettings):
             raise ValueError("Los vehículos simulados deben ser únicos y contener al menos un ID.")
         if self.control_publico_inactivity_seconds > self.control_publico_turn_seconds:
             raise ValueError("La inactividad no puede superar la duración máxima de turno.")
+        if self.device_lab_enabled:
+            if self.app_env != "development" or self.control_publico_enabled:
+                raise ValueError("El WSS de laboratorio exige desarrollo sin turnos simultáneos.")
+            from app.device_channel.authenticated_lab import decoded, NONCE_LEN
+            try:
+                decoded(self.device_lab_key.get_secret_value(), NONCE_LEN)
+            except ValueError as e:
+                raise ValueError("Configura una clave privada de laboratorio de 32 bytes en Base64url.") from e
+        # La ruta de la clave se valida tambien aunque WSS este apagado,
+        # para rechazar configuraciones engañosas o dentro del repositorio.
+        device_path = self.kx_diagnostic_wss_key_path
+        if device_path is not None and (
+            not device_path.is_absolute()
+            or device_path.resolve().is_relative_to(PROJECT_ROOT.resolve())
+        ):
+            raise ValueError("La clave K-X debe estar en ruta absoluta fuera del repositorio.")
+        if self.kx_diagnostic_wss_enabled and (
+            not self.public_virtual_admission_enabled
+            or self.device_lab_enabled
+            or self.control_publico_enabled
+            or self.app_env != "production"
+            or device_path is None
+        ):
+            raise ValueError(
+                "El WSS K-X exige admision virtual en produccion y archivo "
+                "privado de dispositivo; nunca habilita motores."
+            )
+        if self.public_virtual_admission_enabled:
+            admission = self.public_virtual_admission_sqlite_path
+            if (self.app_env != "production" or self.control_publico_enabled
+                    or self.device_lab_enabled or admission is None
+                    or not admission.is_absolute()
+                    or admission.resolve().is_relative_to(PROJECT_ROOT.resolve())
+                    or len(self.api_key.get_secret_value()) < 32):
+                raise ValueError(
+                    "La admision virtual exige produccion, SQLite privada fuera del repo "
+                    "y API_KEY administrativa robusta; nunca activa motores."
+                )
         return self
 
 

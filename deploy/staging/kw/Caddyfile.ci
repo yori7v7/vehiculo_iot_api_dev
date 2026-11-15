@@ -1,0 +1,52 @@
+# K-W — Caddy real, AISLADO a GitHub Actions y loopback.
+#
+# No instalar este archivo en EC2. No sustituye deploy/windows/Caddyfile.
+# Los dos archivos TLS se crean en RUNNER_TEMP de un runner efímero.
+# La IP pública 8.8.8.8 es una identidad FICTICIA del test (no geo/IP real).
+#
+# Docker se ejecuta con --network host SOLO en GitHub Actions.
+# Usuario externo, API legacy, RDS, ESP, WSS y GPIO nunca intervienen.
+{
+    admin off
+    auto_https disable_redirects
+}
+
+https://100-30-4-62.nip.io:9443 {
+    bind 127.0.0.1
+    tls {$KW_TLS_CERT} {$KW_TLS_KEY}
+
+    @admission {
+        path /publico/vehiculos/1/solicitudes /publico/vehiculos/1/solicitudes/estado /admin/vehiculos/1/control-publico/solicitudes /admin/vehiculos/1/control-publico/solicitudes/*
+    }
+
+    handle @admission {
+        reverse_proxy 127.0.0.1:9444 {
+            # El backend solo confía en la conexión loopback y un secreto
+            # inyectado por Caddy. TODO lo que llega del navegador se limpia.
+            header_up Host 100-30-4-62.nip.io
+            header_up -Forwarded
+            header_up -X-Forwarded-For
+            header_up -X-Forwarded-Host
+            header_up -X-Forwarded-Proto
+            header_up -X-Real-IP
+            header_up -Via
+            header_up -Cookie
+            header_up -Authorization
+            header_up -Proxy-Authorization
+            header_up -X-Original-URL
+            header_up -X-Rewrite-URL
+            # header_up X-Admission-* sobrescribe por completo entradas
+            # del cliente; no combinar con -X-Admission-* (delete gana).
+            header_up X-Admission-Proxy-Token {$KW_PROXY_TEST_KEY}
+            # SOLO CI: sustituye {remote_host} por identidad controlada
+            # para no depender de NAT ni de una IP pública externa.
+            header_up X-Admission-Client-IP 8.8.8.8
+            header_up X-Admission-Scheme https
+        }
+    }
+
+    # No hay proxy al FastAPI legacy /8000 ni endpoints de movimiento.
+    handle {
+        respond "Not Found" 404
+    }
+}

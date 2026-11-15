@@ -1,0 +1,80 @@
+name: K-X preflight offline Windows 5.1 sin AWS
+
+on:
+  push:
+    branches:
+      - feature/5-5a-dispositivo-protocolo-aislado
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-windows:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout de rama experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Analizar sintaxis staging K-X bajo Windows PowerShell 5.1 (sin ejecutar)
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            '.\\scripts\\kx_prepare_staging_offline.ps1',
+            [ref]$tokens, [ref]$errors
+          )
+          if (@($errors).Count -ne 0) {
+            throw 'K-X offline staging PowerShell 5.1 parsing failed'
+          }
+          Write-Output 'K-X staging syntax: OK, no installation'
+
+      - name: Analizar preflight identidad y runtime K-X en PowerShell 5.1 (sin ejecutar)
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            '.\\scripts\\kx_identity_runtime_readonly.ps1',
+            [ref]$tokens, [ref]$errors
+          )
+          if (@($errors).Count -ne 0) {
+            throw 'K-X runtime-readonly PowerShell 5.1 parsing failed'
+          }
+          Write-Output 'K-X runtime-readonly syntax: OK, no users or services touched'
+
+      - name: Validar sintaxis K-X runtime independiente en Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            '.\scripts\kx_prepare_isolated_python_runtime.ps1',
+            [ref]$tokens, [ref]$errors
+          )
+          if (@($errors).Count -ne 0) {
+            throw 'K-X isolated Python runtime script PowerShell 5.1 parse failed'
+          }
+          Write-Output 'K-X runtime staging syntax OK; no users, tasks or services touched'
+
+      - name: Validar audit Windows PowerShell 5.1 y falla segura
+        shell: powershell
+        run: |
+          .\tests\kx_windows_offline_checks.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'K-X Windows offline checks failed' }
+
+      - name: Confirmar que los dos scripts originales no se instalaron
+        shell: powershell
+        run: |
+          $legacy = Get-Content -LiteralPath '.\deploy\windows\Caddyfile' -Raw
+          if ($legacy -notmatch 'reverse_proxy 127\.0\.0\.1:8000') {
+            throw 'Caddy legacy alterado'
+          }
+          if ($legacy -match '9444') {
+            throw 'No ejecutar K-V en Caddy de producción'
+          }
+          Write-Output 'K-X: Windows CI solo lectura / fixture. Sin Scheduled Tasks, EC2 ni RDS.'
