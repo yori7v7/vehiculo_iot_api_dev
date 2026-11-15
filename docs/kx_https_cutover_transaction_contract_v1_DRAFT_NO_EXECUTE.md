@@ -45,3 +45,15 @@ Dos archivos de contenido: C:\ProgramData\VehiculoIoT\Caddyfile y C:\vehiculo_io
 ## Siguiente entrega concreta
 
 Implementar y revisar **un unico par integrado** de ejecutor y recuperador basados en este contrato, con una simulacion de extremo a extremo sobre servicio ficticio; no repetir escenarios independientes ya aprobados. Tras validar el conjunto, solicitar autorizacion para la ventana real. Mantener NO-GO_PUBLICACION hasta entonces.
+
+## 2026-11-15: par integrado de ejecucion y recuperacion -- CI WINDOWS APROBADO
+
+- scripts/kx_integrated_operator_LAB_ONLY.ps1: ejecutor con estados protegidos, lock FileStream/FileShare.None entre sesiones, servicio ficticio SYSTEM con 999 reintentos/PT1M, tarea recuperadora prearmada y dos escenarios de extremo a extremo.
+- scripts/kx_integrated_recoverer_LAB_ONLY.ps1: recuperacion independiente por tarea SYSTEM, validacion de hashes y carpeta privada, restaura ambos archivos ficticios y comprueba salud del servicio original; no revierte un commit saludable.
+- .github/workflows/kx-integrated-cutover-lab-ci.yml: PASS run 43696193313, commit 12535c9eab6fc65db9353c99380135433545c29e.
+- CI CRASH_AFTER_SECOND: ejecucion interrumpida de forma intencional, watchdog auto bajo SYSTEM, restauracion SHA256 doble, servicio fake ORIGINAL saludable, estado durable ROLLED_BACK_VERIFIED.
+- CI COMMIT_OK: servicio fake CANDIDATE saludable, watchdog sin falso rollback, estado durable COMMITTED_VERIFIED, tareas de laboratorio eliminadas.
+- PENDIENTE: ejecutar EC2CopyLab sobre nuevas copias verificadas en el servidor, sin alterar tareas productivas.
+- El par integrado ES LABORATORIO SOLAMENTE. No ejecuta cutover 443 ni rollback de servicio productivo; reboot real, RDP, TLS/ACME y procesos productivos pendientes de ensayo autorizado.
+
+Estado GO_CI_INTEGRADO / NO-GO_PUBLICACION. No se repiten las pruebas aisladas.
