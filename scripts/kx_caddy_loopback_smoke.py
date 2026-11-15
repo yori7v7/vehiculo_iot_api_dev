@@ -116,6 +116,21 @@ def _loopback_config(text: str, port: int, kx_port: int, old_port: int) -> str:
     return "{\n    admin off\n    auto_https off\n}\n\n" + out
 
 
+def _has_real_port_in_active_directives(config_text: str) -> bool:
+    """Ignorar comentarios al auditar puertos; Caddy tampoco los ejecuta.
+
+    Un comentario puede mencionar 127.0.0.1:8000 para explicar el rollback,
+    pero SOLO una directiva activa puede abrir o enviar tráfico a ese puerto.
+    """
+    effective = "\n".join(
+        line for line in config_text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    return re.search(
+        r"127\.0\.0\.1:(?:443|8000|9444)(?!\d)", effective
+    ) is not None
+
+
 def _test_routing(port: int) -> int:
     # La columna final es el stub que DEBE recibir la petición.
     tests = (
@@ -180,9 +195,8 @@ def main(argv=None) -> int:
                 _loopback_config(candidate_text, public, kx_port, legacy_port),
                 encoding="utf-8",
             )
-            if re.search(
-                r"127\.0\.0\.1:(?:443|8000|9444)(?!\d)",
-                cfg.read_text(encoding="utf-8"),
+            if _has_real_port_in_active_directives(
+                cfg.read_text(encoding="utf-8")
             ):
                 raise RuntimeError("Puerto real encontrado en ensayo aislado")
             validate = subprocess.run(
