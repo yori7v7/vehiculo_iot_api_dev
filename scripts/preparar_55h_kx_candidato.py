@@ -69,11 +69,13 @@ def prepare(source: Path, destination: Path) -> tuple[str, str]:
     if b"KX_AWS_TLS_CONFIG_OK" in header:
         raise ValueError("La cabecera privada ya define la habilitacion K-X. ABORTAR.")
     transformed = content.replace(OLD_ROUTE, NEW_ROUTE, 1)
+    # Arduino IDE puede guardar el sketch en CRLF; conservar sus saltos.
+    newline = "\r\n" if "\r\n" in content else "\n"
+    directive = '#include "config_55h_local.h"' + newline
     transformed = transformed.replace(
-        '#include "config_55h_local.h"\n',
-        '#include "config_55h_local.h"\n' + COMPILE_INTERLOCK, 1,
+        directive, directive + COMPILE_INTERLOCK.replace("\n", newline), 1,
     )
-    if COMPILE_INTERLOCK not in transformed:
+    if COMPILE_INTERLOCK.replace("\n", newline) not in transformed:
         raise ValueError("No se pudo insertar el bloqueo de compilacion.")
     if transformed.count(NEW_ROUTE) != 1 or OLD_ROUTE in transformed:
         raise ValueError("La ruta WSS candidata no es unica.")
