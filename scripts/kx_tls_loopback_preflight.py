@@ -363,7 +363,7 @@ def main(argv=None) -> int:
                 if kx.poll() is not None:
                     raise RuntimeError("FastAPI salio antes del preflight")
                 try:
-                    if http_request(PORT, "GET", "/docs")[0] == 200:
+                    if http_request(PORT, "GET", "/docs") == 200:
                         break
                 except (OSError, http.client.HTTPException):
                     pass
