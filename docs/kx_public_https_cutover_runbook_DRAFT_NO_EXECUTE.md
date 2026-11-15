@@ -77,3 +77,15 @@ Restaurar ambos originales de las copias verificadas, con su propietario y ACL c
 ## Política de autorización
 
 Permanecer en `NO-GO_PUBLICACION` hasta que (1) exista un procedimiento de cutover y rollback ensayado en aislamiento y protegido frente a interrupción, (2) se verifiquen hashes/tareas/sesiones y (3) el operador autorice expresamente una ventana para posible caída del HTTPS público. La publicación del control físico está completamente fuera de alcance.
+
+## Avance posterior: laboratorio de rollback doble (NO ACTIVA PRODUCCION)
+
+Se agregaron scripts/kx_dual_file_rollback_fault_lab.ps1 y .github/workflows/kx-dual-rollback-fault-ci.yml en la rama experimental.
+
+- GitHub Actions Windows PowerShell 5.1: PASS, run 43692746158, commit ac3d8647c7bf27516b1d02294c24e6b63ef95486.
+- Se ensayaron solo fixtures: fallo tras primer reemplazo, fallo tras segundo reemplazo y recuperacion planificada de ambos.
+- Cada ensayo recupero los dos hashes originales. No hubo intervencion en EC2, servicios, tareas, puertos, RDS ni control fisico.
+- PENDIENTE: ejecutar EC2CopyLab sobre espejos de archivos respaldados y protegidos en EC2, sin modificar rutas productivas.
+- NO IMPLEMENTADO: watchdog independiente, rollback tras cierre abrupto del operador, coordinacion de reintentos y recuperacion real del HTTPS 443.
+
+Este avance NO cambia NO-GO_PUBLICACION ni autoriza el cutover.
