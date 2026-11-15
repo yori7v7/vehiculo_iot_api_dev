@@ -70,3 +70,39 @@ Si continúa inaccesible con el servidor ya escuchando, revisar conectividad
 y firewall local con alcance restringido al hotspot. Si cambia la IP de la
 laptop respecto al certificado, detener y planificar la rotación conjunta
 de identidad y nuevo firmware.
+
+## Corrección del error BearSSL 56 (IP SAN no reconocido)
+
+El ESP8266 core 3.1.2/BearSSL compara el servidor por el `dNSName` del SAN.
+El certificado inicial tenía solo `iPAddress`; por eso el error
+`Expected server name was not found in the chain` tras conectar TCP.
+
+**Solución exclusiva para este LAB privado:** el generador actualizado
+incorpora ambos tipos de SAN: `iPAddress` (correcto para clientes
+que usan IPv4) y `dNSName` numérico (compatibilidad BearSSL; **NO
+conforme con RFC 9525, NO reutilizar para entornos productivos**).
+No desactivar certificados, CA, reloj ni HMAC para sortear el problema.
+
+En una laptop que **ya compiló/subió el firmware con la CA anterior**,
+no ejecutar el generador completo: cambia también la clave HMAC.
+Después de cerrar el servidor local y con la batería desconectada,
+desde la raíz del repositorio ejecutar:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.reparar_tls_bearssl_55h
+```
+
+El reparador exige que el certificado actual tenga SAN IP sin SAN DNS,
+coteja la IP y la clave HMAC de header vs `private/device-key.bin`,
+y comprueba que el laboratorio no habilita movimiento físico.
+Guarda respaldo local ignorado por Git en
+`private/backup-before-bearssl-ip/`, conserva clave HMAC,
+contraseña del AP de WiFiManager y `settings.json`, y emite solo
+una nueva CA y un certificado de servidor. Luego **es obligatorio**
+recompilar y volver a subir el firmware al ESP para cambiar su CA
+embebida; después reiniciar el servidor WSS, que usará el nuevo
+certificado. No revelar ni publicar `private/`, ni el header local.
+
+Tras el test, restaurar la regla TCP bloqueadora de Python.
+La excepción temporal de firewall del ESP deberá retirarse al cerrar
+el laboratorio. Este procedimiento NO habilita GPIO ni la etapa física.
