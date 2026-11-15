@@ -80,4 +80,17 @@ jobs:
           foreach($required in @("Stop-ScheduledTask", "Start-ScheduledTask", "127.0.0.1:9444", "turno_virtual_activo", "canDrive", "401", "GetOwnerSid")) {
             if(-not $text.Contains($required)) { throw "Missing restart test contract: $required" }
           }
+          if ($text -match '(?im)^\s*\$home\s*=') {
+            throw "Do not assign reserved PowerShell variable HOME"
+          }
+          if ($text -match '\$response\.Data\.turno_virtual_activo') {
+            throw "Wrong HTTP shape: backend exposes turno_activo"
+          }
+          if (-not $text.Contains('$serviceDir')) {
+            throw "Expected independent service directory variable"
+          }
+          if (-not $text.Contains('$response.Data.turno_activo')) {
+            throw "Missing correct HTTP admin snapshot field"
+          }
+          Write-Host "PASS: safe PowerShell variable names and backend API response contract"
           Write-Host "PASS: sidecar restart and epoch fencing script syntax"
