@@ -93,6 +93,10 @@ function AwaitMock([string]$state,$s,[int]$maxSeconds){
 function AwaitMarker([string]$file,[int]$maxSeconds){
  for($i=0;$i -lt $maxSeconds*5;$i++){
   if(Test-Path -LiteralPath (Join-Path $CaseDir $file) -PathType Leaf){return $true}
+  if($file -ceq 'watchdog.result' -and (Test-Path -LiteralPath (Join-Path $CaseDir 'watchdog.failure') -PathType Leaf)){
+   if($Mode -ceq 'FixtureCI'){Write-Host ('CI WATCHDOG DIAG: '+[IO.File]::ReadAllText((Join-Path $CaseDir 'watchdog.failure')))}
+   throw 'NO-GO: integrated SYSTEM recoverer explicitly failed'
+  }
   Start-Sleep -Milliseconds 200
  }
  return $false
