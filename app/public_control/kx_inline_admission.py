@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.public_control.kr_ticket_ledger import KRTicketDenied, KRTicketLedger
+from app.public_control.kx_signed_wss import KXDiagnosticWSSHub
 from app.public_control.kq_restart_fence import KQRestartFence, FenceRejected
 from app.public_control.repository import StoreUnavailable
 from app.security.api_key import require_api_key
@@ -158,7 +159,15 @@ async def verify_virtual_action(id_vehiculo: int, request: Request,
     if len(secrets) != 1 or not _TOKEN.fullmatch(secrets[0]):
         raise HTTPException(401, "Sesion de navegador requerida")
     _run(lambda: ledger.verify_virtual_action(secrets[0]), denied=403)
-    # Ninguna comprobacion previa puede ser usada luego como permiso fisico.
+    hub = getattr(request.app.state, "kx_diag_hub", None)
+    if isinstance(hub, KXDiagnosticWSSHub):
+        await hub.execute_virtual(ledger, secrets[0], data.codigo, data.duracion_ms)
+        return _virtual(
+            permiso_virtual_verificado=True, codigo=data.codigo,
+            duracion_ms=data.duracion_ms, despacho_wss=True,
+            neutral_virtual_reportado=True, stop_fisico_confirmado=False,
+        )
+    # En AWS siempre cae aqui: no hay WSS diagnostico inyectado.
     return _virtual(
         permiso_virtual_verificado=True, codigo=data.codigo,
         duracion_ms=data.duracion_ms, despacho_wss=False,
@@ -209,8 +218,13 @@ async def admin_reject(id_vehiculo: int, request_id: UUID, request: Request):
 @router.post(ADMIN_PREFIX + "/revocar", dependencies=[Depends(require_api_key)])
 async def admin_revoke(id_vehiculo: int, request: Request):
     ledger, proof = _admin(request, id_vehiculo)
+    hub = getattr(request.app.state, "kx_diag_hub", None)
+    if isinstance(hub, KXDiagnosticWSSHub):
+        hub.interlock()  # Denegar órdenes nuevas ANTES de esperar el STOP.
     _run(lambda: ledger.revoke(proof), denied=503)
-    return _virtual(revocado=True, stop_fisico_confirmado=False)
+    neutral_virtual = await hub.stop_virtual() if isinstance(hub, KXDiagnosticWSSHub) else False
+    return _virtual(revocado=True, stop_fisico_confirmado=False,
+                    neutral_virtual_reportado=neutral_virtual)
 
 
 @asynccontextmanager
