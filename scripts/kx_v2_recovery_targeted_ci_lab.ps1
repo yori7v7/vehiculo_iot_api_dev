@@ -110,8 +110,11 @@ Assert (([IO.File]::ReadAllText($orphan)) -ceq 'PARTIAL-CRASH-SIMULATED') 'No de
 $s=KX-ReadState
 KX-SetState $s 'VERIFYING'
 Assert ((Read-Phase) -ceq 'VERIFYING') 'Controller state replacement survives abandoned .next files'
-$other=@(Get-ChildItem -LiteralPath $root -File -Filter 'transaction.json.next.*' |
- Where-Object {$_.Name -cne 'transaction.json.next.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'})
+$other=@(Get-ChildItem -LiteralPath $root -File |
+ Where-Object {
+  $_.Name.StartsWith('transaction.json.next.',[StringComparison]::Ordinal) -and
+  $_.Name -cne 'transaction.json.next.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+ })
 Assert ($other.Count -eq 0) 'No temporary files leaked by completed state writes'
 
 # Override native operating system interactions for the source KX-StopOnlyTrackedCaddy:
