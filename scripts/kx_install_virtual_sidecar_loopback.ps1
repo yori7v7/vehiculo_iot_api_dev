@@ -199,7 +199,7 @@ except BaseException:
   Register-ScheduledTask @parameters|Out-Null
   $pass=$null;$secure=$null
   $task=Get-ScheduledTask -TaskPath "\" -TaskName $taskName -ErrorAction Stop
-  Assert (@($task.Triggers).Count -eq 0) "Tarea sin trigger"
+  Assert (@($task.Triggers | Where-Object { $null -ne $_ }).Count -eq 0) "Tarea sin trigger"
   Assert ([string]$task.Principal.RunLevel -eq "Limited") "Tarea no elevada"
 
   Write-Host ""
