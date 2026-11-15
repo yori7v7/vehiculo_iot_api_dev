@@ -18,7 +18,7 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.public_control.kq_restart_fence import FenceRejected, KQRestartFence
 from app.public_control.kr_ticket_ledger import KRTicketDenied, KRTicketLedger
@@ -34,8 +34,16 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 class KVirtualApproval(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
-    modo: Literal["timed"]
-    segundos: int = Field(ge=1, le=120, strict=True)
+    modo: Literal["timed", "supervised"]
+    segundos: int | None = Field(default=None, ge=1, le=1200, strict=True)
+
+    @model_validator(mode="after")
+    def validate_duration(self):
+        if self.modo == "timed" and self.segundos is None:
+            raise ValueError("El turno temporal requiere segundos")
+        if self.modo == "supervised" and "segundos" in self.model_fields_set:
+            raise ValueError("El turno indefinido no admite segundos")
+        return self
 
 
 def _answer(**data) -> dict:
@@ -197,7 +205,9 @@ def create_kv_virtual_app(db_path, admin_proof, proxy_proof, *, clock=None, **li
         ledger, _ = _guard(request, id_vehiculo, admin=True)
         row = _safe(lambda: ledger.snapshot(admin_proof), denial=503)
         return _answer(solicitudes=row["solicitudes"],
-                       turno_activo=row["turno_virtual_activo"])
+                       turno_activo=row["turno_virtual_activo"],
+                       duraciones_segundos=[120, 300, 600, 1200],
+                       modo_supervisado=True)
 
     @app.post(ADMIN + "/supervision")
     async def supervise(id_vehiculo: int, request: Request):
@@ -210,7 +220,8 @@ def create_kv_virtual_app(db_path, admin_proof, proxy_proof, *, clock=None, **li
                       data: KVirtualApproval, request: Request):
         ledger, _ = _guard(request, id_vehiculo, admin=True)
         _safe(lambda: ledger.approve_virtual(
-            admin_proof, str(request_id), seconds=data.segundos))
+            admin_proof, str(request_id), seconds=data.segundos,
+            mode=data.modo))
         return _answer(aprobada=True)
 
     @app.post(ADMIN + "/{request_id}/rechazar")
