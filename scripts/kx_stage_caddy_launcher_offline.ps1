@@ -96,7 +96,11 @@ try{
  Check ($liveHash -eq $expectedOriginalSha256) "Lanzador de produccion SHA256 exacto"
  ACLNoBroadWrite $originalLauncher
  ACLNoBroadWrite (Split-Path -Parent $originalLauncher)
- Check ((Get-FileHash -LiteralPath $common -Algorithm SHA256).Hash.Length -eq 64) "Helper comun existente y verificado"
+ $commonText=Get-Content -LiteralPath $common -Raw
+ Check ($commonText.Contains("function Invoke-VehicleProcess") -and
+  $commonText.Contains("function Set-VehicleCaddyEnvironment") -and
+  $commonText.Contains("Start-Process -FilePath") -and
+  -not $commonText.Contains("KX_STAGING_PROXY_PROOF")) "Helper comun original invoca proceso sin token en codigo"
  $task=Get-ScheduledTask -TaskPath "\" -TaskName "VehiculoIoT-Caddy" -ErrorAction Stop
  Check ($task.State -eq "Running" -and @($task.Actions).Count -eq 1) "Tarea de Caddy intacta"
  Check (([string]$task.Actions[0].Arguments).Contains($originalLauncher)) "Tarea sigue apuntando al lanzador original"
