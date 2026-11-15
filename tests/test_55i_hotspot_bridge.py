@@ -115,13 +115,15 @@ def test_hotspot_guard_fails_closed(tmp_path, monkeypatch):
 
 
 def test_reject_wrong_peer_host_and_browser_origin(app):
-    with TestClient(app, base_url=PUBLIC, client=("127.0.0.1", 5000)):
+    with TestClient(app, base_url=PUBLIC, client=("127.0.0.1", 5000)) as browser:
         for ip, host, headers in [
             ("172.22.82.6", LAN_HOST, {}),
             (DEVICE_IP, "attacker.invalid", {}),
             (DEVICE_IP, LAN_HOST, {"Origin": "https://evil.invalid"}),
         ]:
             device = TestClient(app, base_url=f"https://{IP}:8443", client=(ip, 54000))
+            # Reutilizar el MISMO event loop ASGI que las solicitudes K-V.
+            device.portal = browser.portal
             with pytest.raises(WebSocketDisconnect):
                 with device.websocket_connect(HOTSPOT_PATH, headers={
                     "Host": host, **headers,
@@ -152,6 +154,8 @@ def test_kv_permission_to_real_55h_wire_contract_virtual_only(app):
 
         device = TestClient(app, base_url=f"https://{IP}:8443",
                             client=(DEVICE_IP, 54001))
+        # Un solo servidor ASGI/event loop, simulando distintos peers.
+        device.portal = browser.portal
         with device.websocket_connect(HOTSPOT_PATH, headers={"Host": LAN_HOST}) as ws:
             wire = auth_device(ws)
             initial = acknowledge(ws, wire)
