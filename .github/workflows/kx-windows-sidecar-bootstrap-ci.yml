@@ -1433,3 +1433,72 @@ jobs:
             if($cmds -contains $forbidden){throw "Full localhost rehearsal mutates production: $forbidden"}
           }
           Write-Host "PASS: full release Caddyfile route test under SYSTEM, local-only, PS5.1 syntax and precise patch markers"
+      - name: Materialize exact full candidate local worker text and parse derived script under PS5.1
+        shell: powershell
+        run: |
+          $orchestrator="scripts/kx_system_full_public_candidate_local_once.ps1"
+          $tokens=$null;$errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $orchestrator),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw "Orchestrator cannot parse"}
+          $assignments=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+             $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+             $node.Left.VariablePath.UserPath -eq "patches"
+          },$true))
+          if($assignments.Count -ne 1){throw "Expected one precise patch plan"}
+          . ([ScriptBlock]::Create($assignments[0].Extent.Text))
+          if($patches.Count -ne 8){throw "Wrong number of source transformations"}
+          $base=Get-Content "scripts/kx_runtime_proxy_proof_local_lab.ps1" -Raw
+          foreach($pair in $patches){
+            if($pair.Count -ne 2 -or
+               -not $base.Contains([string]$pair[0])){
+              throw "Source patch pair missing or not applicable"
+            }
+            $base=$base.Replace([string]$pair[0],[string]$pair[1])
+          }
+          $whole=Get-Content $orchestrator -Raw
+          $here=[regex]::Match($whole,"(?s)\x24removeGlobal=@'\r?\n(.*?)\r?\n'@")
+          if(-not $here.Success){throw "Missing exact local admin-off transformation"}
+          $candidateRead='$raw=Get-Content -LiteralPath $candidate -Raw'
+          if(-not $base.Contains($candidateRead)){throw "Candidate read not found"}
+          $base=$base.Replace($candidateRead,
+            $candidateRead+[Environment]::NewLine+$here.Groups[1].Value)
+          $oldLab='$lab = Join-Path $root "kx_runtime_env_caddy_lab"'
+          $oldReport='$reportPath = Join-Path $root "kx_runtime_env_caddy_lab_result.json"'
+          $oldGuard='Check ($id.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) "Consola elevada"'
+          if(-not $base.Contains($oldLab) -or
+             -not $base.Contains($oldReport) -or
+             -not $base.Contains($oldGuard)){throw "Old worker identity or paths missing"}
+          $worker=$base.Replace($oldLab,
+            '$lab = Join-Path $root "kx_full_candidate_system_once_lab"')
+          $worker=$worker.Replace($oldReport,
+            '$reportPath = Join-Path $root "kx_full_candidate_system_once_result.json"')
+          $worker=$worker.Replace($oldGuard,
+            $oldGuard+[Environment]::NewLine+
+            '  Check ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ceq "S-1-5-18") "Ejecutando Caddy lab realmente como SYSTEM"')
+          $t=$null;$e=$null
+          $workerAst=[System.Management.Automation.Language.Parser]::ParseInput(
+            $worker,[ref]$t,[ref]$e)
+          if(@($e).Count -ne 0){
+            $e|ForEach-Object{Write-Host $_.Message}
+            throw "Derived full-candidate SYSTEM worker not PS5.1 syntax safe"
+          }
+          foreach($needle in @(
+            'reverse_proxy 127.0.0.1:8000',
+            'reverse_proxy 127.0.0.1:9444',
+            'Fallback legacy FastAPI responde 200 desde el candidato',
+            'http://127.0.0.1:9481/openapi.json',
+            'Un solo bloque global de Caddy release reconocido',
+            'kx_full_candidate_system_once_result.json',
+            'kx_full_candidate_system_once_lab',
+            '{env.KX_STAGING_PROXY_PROOF}'
+          )){
+             if(-not $worker.Contains($needle)){throw "Derived full-candidate worker missing contract: $needle"}
+          }
+          if($worker.Contains('respond 404') -or
+             $worker.Contains('kx_system_caddy_local_once_result.json')){
+             throw "Old simplified lab or prior output path still in full-candidate worker"
+          }
+          Write-Host "PASS: generated full candidate worker PS5.1 parse and full legacy+virtual route contracts"
