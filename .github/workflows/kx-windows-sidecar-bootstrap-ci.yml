@@ -28,6 +28,7 @@ on:
       - scripts/kx_prepare_public_https_release_offline.ps1
       - scripts/kx_run_caddy_launcher_candidate_not_active.ps1
       - scripts/kx_stage_caddy_launcher_offline.ps1
+      - scripts/kx_simulate_caddy_launcher_and_rollback_offline.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -967,3 +968,56 @@ jobs:
             }
           }
           Write-Host "PASS: launcher candidate and secret-free staging PS5.1 parse and safety contracts"
+      - name: Parse and review isolated Caddy launcher stub and NTFS rollback simulation
+        shell: powershell
+        run: |
+          $file="scripts/kx_simulate_caddy_launcher_and_rollback_offline.ps1"
+          $tokens=$null; $errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0) {
+            $errors|ForEach-Object {Write-Host $_.Message}
+            throw "Isolated launcher test invalid under Windows PowerShell 5.1"
+          }
+          $src=Get-Content $file -Raw
+          foreach($required in @("launcher_simulation_v1",
+            "launcher_simulation_report.json", "STUB_VALID_PROOF=YES",
+            "STUB_DENIED_PROOF=YES", "MOCK_ACL_DENIAL",
+            "[Console]::Out.WriteLine", "Write-VehicleFailureLog",
+            "function Invoke-VehicleProcess",
+            "function Get-VehicleConfiguration",
+            "function Set-VehicleCaddyEnvironment",
+            "KX_INVALID_PROOF_SERVICE_UNAVAILABLE_DO_NOT_USE",
+            "KX_STAGING_PROXY_PROOF",
+            "Remove-Item -LiteralPath $lab -Recurse",
+            "[IO.File]::Replace($fakeCandidate,$fakeLive,$backedOld)",
+            "[IO.File]::Replace($fakeRollback,$fakeLive,$afterRollback)",
+            "Rollback FICTICIO restaura hash original",
+            "Get-FileHash -LiteralPath $originalLauncher",
+            "Get-NetTCPConnection", "Get-ScheduledTask",
+            "LANZADOR Y ROLLBACK AISLADOS APROBADOS",
+            "CADDYFILE Y LANZADOR PRODUCTIVOS: INTACTOS",
+            "K-V PUBLICO: NO ACTIVADO", "CONTROL FISICO: OFF")) {
+            if(-not $src.Contains($required)){
+              throw "Missing isolated launcher safety marker: $required"
+            }
+          }
+          $cmds=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object { $_.GetCommandName() })
+          foreach($forbidden in @("Stop-ScheduledTask","Start-ScheduledTask",
+            "Set-ScheduledTask","Register-ScheduledTask",
+            "Stop-Process","Start-Process", "Restart-Service",
+            "Restart-Computer", "New-NetFirewallRule", "Invoke-WebRequest",
+            "curl.exe","Set-Acl")) {
+            if($cmds -contains $forbidden) {
+              throw "Isolated test may alter production or start process: $forbidden"
+            }
+          }
+          if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME variable"}
+          $stub=[regex]::Match($src,"(?s)\x24mockCode=@'\r?\n(.*?)\r?\n'@")
+          if(-not $stub.Success){throw "Missing mock common.ps1"}
+          if($stub.Groups[1].Value -match '(?i)\b(?:Start-Process|Stop-Process|Invoke-WebRequest|Register-ScheduledTask)\b'){
+            throw "Mock common.ps1 cannot invoke real processes or network"
+          }
+          Write-Host "PASS: isolated Caddy launcher test PS5.1 syntax, mock helper, no live Caddy changes"
