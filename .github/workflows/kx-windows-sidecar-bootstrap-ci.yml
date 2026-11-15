@@ -7,6 +7,7 @@ on:
       - scripts/kx_install_virtual_sidecar_loopback.ps1
       - scripts/kx_rollback_virtual_sidecar_loopback.ps1
       - scripts/kx_validate_virtual_sidecar_restart.ps1
+      - scripts/kx_enable_virtual_sidecar_boot.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -111,3 +112,25 @@ jobs:
           Write-Host "PASS: GET body guard, optional param semantics and fail-closed cleanup"
           Write-Host "PASS: safe PowerShell variable names and backend API response contract"
           Write-Host "PASS: sidecar restart and epoch fencing script syntax"
+      - name: Parse auto-start trigger guard in Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $file = "scripts/kx_enable_virtual_sidecar_boot.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+          if (@($errors).Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "PowerShell K-X auto-start script syntax invalid"
+          }
+          $source = Get-Content $file -Raw
+          foreach ($marker in @("New-ScheduledTaskTrigger -AtStartup", "Set-ScheduledTask", "Disable-ScheduledTask", "boot_recovery_verified", "loopback_only_not_public", "original_caddy_sha256")) {
+            if (-not $source.Contains($marker)) {
+              throw "K-X auto-start contract missing: $marker"
+            }
+          }
+          if ($source -match '(?im)^\s*\$home\s*=') { throw "Reserved HOME assignment" }
+          if ($source -match '(?im)^\s*(Restart-Computer|Stop-Computer|Set-NetFirewallRule|New-NetFirewallRule)\b') {
+            throw "Unsafe side effect in auto-start validator"
+          }
+          Write-Host "PASS: auto-start PowerShell syntax, guarded preconditions, no reboot"
