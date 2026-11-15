@@ -21,6 +21,7 @@ on:
       - scripts/kx_caddy_xdg_autosave_readonly.ps1
       - scripts/kx_runtime_proxy_proof_local_lab.ps1
       - scripts/kx_caddy_stale_autosave_secret_exposure_readonly.ps1
+      - scripts/kx_rotate_virtual_proxy_proof_remove_stale_autosave.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -638,3 +639,47 @@ jobs:
           }
           if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME assignment"}
           Write-Host "PASS: stale Caddy autosave read-only security audit with no secret output"
+      - name: Check controlled K-X proxy proof rotation safety and Windows PS5.1 syntax
+        shell: powershell
+        run: |
+          $path = "scripts/kx_rotate_virtual_proxy_proof_remove_stale_autosave.ps1"
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+          if (@($errors).Count -gt 0) {
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "K-X proxy proof rotation is not PowerShell 5.1 compatible"
+          }
+          $src = Get-Content $path -Raw
+          $pythonMatch = [regex]::Match($src, '(?s)\$pyCode=@''\s+?(.*?)\s+''@')
+          if(-not $pythonMatch.Success){throw "Missing Python read-only ticket preflight"}
+          $pyFile = Join-Path $env:RUNNER_TEMP "kx_rotation_ticket_ro.py"
+          [IO.File]::WriteAllText($pyFile,$pythonMatch.Groups[1].Value,[Text.Encoding]::UTF8)
+          & python -B -m py_compile $pyFile
+          if($LASTEXITCODE -ne 0){throw "Invalid Python read-only ticket preflight"}
+          foreach($required in @("virtual_loopback_only","APPDATA", "proxy_proof",
+            "admin_proof", "MakeProof", "RandomNumberGenerator",
+            "GetOwnerSid", "Get-ScheduledTask", "Get-FileHash", "CheckACL",
+            "SELECT COUNT(*) FROM kr_ticket", "PRAGMA query_only=ON",
+            "mode=ro", "Stop-ScheduledTask", "Start-ScheduledTask",
+            "[IO.File]::Replace", "No hay solicitudes ni turnos virtuales activos",
+            "TOKEN_ANTIGUO_REVOCADO", "TOKEN_NUEVO_AUTORIZADO",
+            "Remove-Item -LiteralPath $oldAuto", "Contencion", "API KEY ACADEMICA",
+            "No se pudo restaurar el arranque de K-V",
+            "ROTACION K-V Y CONTENCION APROBADAS",
+            "CONTROL FISICO: OFF")) {
+            if(-not $src.Contains($required)){
+              throw "Missing proxy proof rotation security contract: $required"
+            }
+          }
+          foreach($forbidden in @("caddy reload", "Restart-Computer",
+            "Restart-Service", "Set-ScheduledTask", "Register-ScheduledTask",
+            "Unregister-ScheduledTask", "New-NetFirewallRule",
+            "Invoke-WebRequest", "curl.exe", "POST", "Set-Acl",
+            "XDG_CONFIG_HOME","XDG_DATA_HOME")) {
+            if($src -match [regex]::Escape($forbidden)){
+              throw "Forbidden action / data in proof rotation: $forbidden"
+            }
+          }
+          if($src -match '(?im)^\s*\$home\s*=') { throw "Reserved HOME variable assignment" }
+          Write-Host "PASS: 64-char CSPRNG credential replacement, K-V-only restart, old denied/new allowed, retire stale autosave"
