@@ -30,6 +30,7 @@ on:
       - scripts/kx_stage_caddy_launcher_offline.ps1
       - scripts/kx_simulate_caddy_launcher_and_rollback_offline.ps1
       - scripts/kx_public_https_go_nogo_preflight_readonly.ps1
+      - scripts/kx_system_real_proxy_proof_dryrun_once.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -1083,3 +1084,81 @@ jobs:
           }
           if($src -match '(?im)^\s*\$pid\s*='){throw "Reserved PID variable"}
           Write-Host "PASS: final offline Go/No-Go inventory is read-only and PowerShell 5.1 parsable"
+      - name: Validate real SYSTEM proof reader dry-run with temporary task only
+        shell: powershell
+        run: |
+          $path="scripts/kx_system_real_proxy_proof_dryrun_once.ps1"
+          $tokens=$null; $errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors|ForEach-Object {Write-Host $_.Message}
+            throw "SYSTEM dry-run orchestrator invalid under PS5.1"
+          }
+          $src=Get-Content $path -Raw
+          foreach($needle in @(
+            "system_proof_dryrun_lab",
+            "system_proof_dryrun_result.json",
+            "system_worker.ps1",
+            "inheritance_child.ps1",
+            "Get-KXValidatedVirtualProxyProof",
+            "FunctionDefinitionAst",
+            "ScriptBlock]::Create",
+            "New-ScheduledTaskAction",
+            "New-ScheduledTaskPrincipal",
+            "Register-ScheduledTask",
+            "Start-ScheduledTask",
+            "Stop-ScheduledTask",
+            "Unregister-ScheduledTask",
+            "New-ScheduledTaskSettingsSet",
+            "Get-ScheduledTaskInfo",
+            "Get-FileHash",
+            "env:KX_STAGING_PROXY_PROOF",
+            "KX_STAGING_PROXY_PROOF",
+            "TEMPORAL: ELIMINADA",
+            "CUENTA SYSTEM REAL: LECTURA Y VALIDACION K-V PASS",
+            "K-V PUBLICO: NO ACTIVADO",
+            "CONTROL FISICO: OFF",
+            "SIN RELOAD, RESTART DE CADDY, HTTP, RDS, ESP NI MOTORES")) {
+            if($needle -eq "TEMPORAL: ELIMINADA"){continue}
+            if(-not $src.Contains($needle)){throw "SYSTEM dry-run missing safety marker: $needle"}
+          }
+          $commands=@($ast.FindAll({
+            param($node) $node -is [System.Management.Automation.Language.CommandAst]
+          },$true)|ForEach-Object {$_.GetCommandName()})
+          foreach($forbidden in @("Set-ScheduledTask","Register-Service",
+            "Start-Service","Stop-Service","Restart-Service","Restart-Computer",
+            "New-NetFirewallRule","Set-NetFirewallRule","Set-Acl",
+            "Invoke-WebRequest","Invoke-RestMethod","curl.exe",
+            "Disable-ScheduledTask","Enable-ScheduledTask")) {
+            if($commands -contains $forbidden){
+              throw "SYSTEM dry-run has forbidden service operation: $forbidden"
+            }
+          }
+          foreach($name in @("workerSource","childSource")){
+            $match=[regex]::Match($src,'(?s)\x24'+$name+'=@''\r?\n(.*?)\r?\n''@')
+            if(-not $match.Success){throw "Missing here-string $name"}
+            $t=$null;$e=$null
+            $subAst=[System.Management.Automation.Language.Parser]::ParseInput(
+              $match.Groups[1].Value,[ref]$t,[ref]$e)
+            if(@($e).Count -ne 0){throw "Embedded $name not PowerShell 5.1 compatible"}
+            $subCommands=@($subAst.FindAll({
+              param($node) $node -is [System.Management.Automation.Language.CommandAst]
+            },$true)|ForEach-Object {$_.GetCommandName()})
+            foreach($blocked in @("Register-ScheduledTask","Start-ScheduledTask",
+              "Stop-ScheduledTask","Unregister-ScheduledTask",
+              "Set-ScheduledTask","Restart-Service","Stop-Service",
+              "New-NetFirewallRule","Set-Acl","Invoke-WebRequest",
+              "curl.exe","Set-Content")) {
+              if($subCommands -contains $blocked){
+                throw "Embedded worker/child unexpectedly mutates infrastructure: $blocked"
+              }
+            }
+          }
+          $worker=[regex]::Match($src,'(?s)\x24workerSource=@''\r?\n(.*?)\r?\n''@')
+          $child=[regex]::Match($src,'(?s)\x24childSource=@''\r?\n(.*?)\r?\n''@')
+          if($worker.Groups[1].Value -notmatch 'Get-KXValidatedVirtualProxyProof' -or
+             $child.Groups[1].Value -notmatch 'exit 0' -or
+             $worker.Groups[1].Value -notmatch 'Remove-Item Env:KX_STAGING_PROXY_PROOF'){
+             throw "Dry-run worker does not establish/clear environment or child return"
+          }
+          Write-Host "PASS: real SYSTEM temporary-task dry-run PS5.1 syntax, embedded workers, fail-closed cleanup"
