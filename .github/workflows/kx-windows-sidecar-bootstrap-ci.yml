@@ -10,6 +10,7 @@ on:
       - scripts/kx_enable_virtual_sidecar_boot.ps1
       - scripts/kx_install_bootstrap_helper.ps1
       - scripts/kx_caddy_offline_candidate.ps1
+      - scripts/kx_caddy_loopback_header_route_lab.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -212,3 +213,37 @@ jobs:
           }
           if ($source -match '(?im)^\s*\$home\s*=') { throw "Reserved PowerShell HOME assignment" }
           Write-Host "PASS: offline Caddy candidate PowerShell AST and safety markers"
+      - name: Parse loopback Caddy route lab and embedded Python
+        shell: powershell
+        run: |
+          $file = "scripts/kx_caddy_loopback_header_route_lab.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+          if (@($errors).Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "PowerShell loopback lab syntax invalid"
+          }
+          $source = Get-Content $file -Raw
+          $match = [regex]::Match($source, '(?s)\$echoSrc=@''\s+?(.*?)\s+''@')
+          if (-not $match.Success) { throw "Embedded Python echo heredoc missing" }
+          $echo = Join-Path $env:RUNNER_TEMP "kx_lab_echo.py"
+          [IO.File]::WriteAllText($echo,$match.Groups[1].Value,[Text.Encoding]::UTF8)
+          & python -B -m py_compile $echo
+          if($LASTEXITCODE -ne 0){throw "Echo Python code invalid"}
+          foreach ($require in @("Port 9481", "Port 9482", "Port 9483",
+                "http://127.0.0.1:9481", "admin off",
+                "reverse_proxy 127.0.0.1:9482",
+                "reverse_proxy 127.0.0.1:9483",
+                "ATTACKER_TOKEN", "X-Forwarded-For",
+                "OFFLINE_INVALID_TOKEN_NOT_FOR_DEPLOYMENT",
+                "Stop-Process", "Get-FileHash", "NO ACTIVAR CADDY CANDIDATO")) {
+            if(-not $source.Contains($require)){
+              throw "Loopback lab safety assertion missing: $require"
+            }
+          }
+          if ($source -match '(?im)^\s*\$home\s*=') { throw "Reserved HOME assignment" }
+          if ($source -match '(?im)^\s*(Restart-Computer|Restart-Service|Set-ScheduledTask|New-NetFirewallRule)\b') {
+            throw "Disallowed state mutation in ephemeral lab"
+          }
+          Write-Host "PASS: Caddy header/route lab syntax and embedded echo server"
