@@ -1,0 +1,60 @@
+name: K-V duraciones supervisadas — pruebas aisladas sin AWS
+
+on:
+  push:
+    branches:
+      - feature/kv-duraciones-supervisadas-virtuales
+  pull_request:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  virtual-lease-safety:
+    name: SQLite + FastAPI virtual, no motors
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Código exclusivamente del commit del PR
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias aisladas
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
+
+      - name: Comprobar sintaxis
+        run: |
+          python -m compileall -q app/public_control/kr_ticket_ledger.py app/public_control/kv_virtual_staging.py tests/test_kv_supervised_durations.py
+
+      - name: Pruebas de duraciones, SQLite y perímetro HTTP K-V
+        env:
+          APP_ENV: staging
+          ADMISSION_VIRTUAL_ONLY: enabled
+          CONTROL_PUBLICO_ENABLED: "false"
+          DEVICE_LAB_ENABLED: "false"
+        run: |
+          python -m pytest -q tests/test_kv_supervised_durations.py tests/test_kr_ticket_ledger.py tests/test_kv_virtual_staging.py
+
+      - name: Contrato del backend no físico
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src = Path('app/public_control/kv_virtual_staging.py').read_text(encoding='utf-8')
+          ledger = Path('app/public_control/kr_ticket_ledger.py').read_text(encoding='utf-8')
+          assert 'canDrive": False' in src
+          assert 'APP_ENV' in src and 'ADMISSION_VIRTUAL_ONLY' in src
+          assert 'virtual_until=?' in ledger
+          assert "approval_mode='supervised'" in ledger
+          assert 'CONTROL_PUBLICO_ENABLED' not in ledger
+          print('OK: contrato K-V virtual sin autorización de motores')
+          PY
