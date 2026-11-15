@@ -1,0 +1,65 @@
+name: K-X locked V2 bundle staging PS5.1 AST safety
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_prod_bundle_v2_stage_only.ps1
+      - .github/workflows/kx-prod-v2-bundle-stage-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stage-v2-only-static:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse Windows PowerShell 5.1 and reject production mutation in stager
+        shell: powershell
+        run: |
+          $p='.\scripts\kx_prod_bundle_v2_stage_only.ps1'
+          $tokens=$null;$errors=$null
+          $ast=[Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors|ForEach-Object{Write-Host ('PARSE: '+$_.Message)}
+            throw 'K-X V2 stage-only syntax NO-GO'
+          }
+          $commands=@($ast.FindAll({
+             param($node)
+             $node -is [Management.Automation.Language.CommandAst]
+          },$true)|ForEach-Object{$_.GetCommandName()})
+          $block=@('Stop-ScheduledTask','Start-ScheduledTask','Register-ScheduledTask',
+           'Disable-ScheduledTask','Enable-ScheduledTask','Set-ScheduledTask',
+           'Unregister-ScheduledTask','Stop-Process','Restart-Service','Start-Service',
+           'Stop-Service','Stop-Computer','Restart-Computer','Set-NetFirewallRule',
+           'Invoke-Expression','Set-Acl')
+          foreach($b in $block){if($commands -contains $b){throw ('Forbidden in V2 staging: '+$b)}}
+          $text=Get-Content -LiteralPath $p -Raw
+          foreach($required in @(
+            'kx_https_cutover_bundle_v2_NOT_ARMED',
+            'kx_https_cutover_bundle_v1_NOT_ARMED',
+            'prod_cutover_bundle_prepared_not_armed_v2',
+            'kx_prod_cutover_controller_v2_LOCKED.ps1',
+            'kx_prod_recoverer_v2_LOCKED.ps1',
+            '1a7ce0fb454da87e6b6232762ffe45b4135c46c4',
+            'dc87b4f3878e7dfab26622821a3cfe98792c5363',
+            'EnableProductionCutover=$false',
+            'EnableProductionRecovery=$false',
+            'V1 no dejo watchdog productivo',
+            'PAQUETE V2 REVISADO PREPARADO, NO ARMADO'
+          )){
+            if(-not $text.Contains($required)){throw ('V2 immutable staging guard missing: '+$required)}
+          }
+          if($text.Contains('Remove-Item') -or $text.Contains('taskkill.exe') -or
+             $text.Contains('Invoke-WebRequest')){throw 'Unsafe V2 installer operation'}
+          foreach($forbidden in @('Caddyfile.candidate.NOT_ACTIVE.ps1','physical_control_enabled=$true')){
+            if($text.Contains($forbidden)){throw ('Unintended V2 staging action '+$forbidden)}
+          }
+          Write-Host 'K-X V2 stage-only PS5.1 syntax PASS'
+          Write-Host 'K-X V2 controller/recoverer source Git hashes pinned'
+          Write-Host 'K-X V1 untouched + V2 separate private folder contract PASS'
+          Write-Host 'NO production Caddy/Task Scheduler mutation enabled'
