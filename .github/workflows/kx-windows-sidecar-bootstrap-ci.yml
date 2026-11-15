@@ -1017,6 +1017,10 @@ jobs:
           if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME variable"}
           $stub=[regex]::Match($src,"(?s)\x24mockCode=@'\r?\n(.*?)\r?\n'@")
           if(-not $stub.Success){throw "Missing mock common.ps1"}
+          $stubTokens=$null; $stubErrors=$null
+          $null=[System.Management.Automation.Language.Parser]::ParseInput(
+            $stub.Groups[1].Value,[ref]$stubTokens,[ref]$stubErrors)
+          if(@($stubErrors).Count -ne 0){throw "Mock common.ps1 itself is not PS5.1 syntax-safe"}
           if($stub.Groups[1].Value -match '(?i)\b(?:Start-Process|Stop-Process|Invoke-WebRequest|Register-ScheduledTask)\b'){
             throw "Mock common.ps1 cannot invoke real processes or network"
           }
