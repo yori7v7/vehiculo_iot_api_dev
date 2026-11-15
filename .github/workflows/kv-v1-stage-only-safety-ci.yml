@@ -73,7 +73,7 @@ jobs:
           # VehIoT_KXSvc. No aceptar SIDs desconocidos ni alterar ACLs.
           if(-not $raw.Contains('Get-LocalUser -Name ([string]$install.dedicated_user)') -or
              -not $raw.Contains('$dedicated.SID.Value -ceq [string]$install.dedicated_sid') -or
-             -not $raw.Contains('Assert-Private ''C:\ProgramData\VehiculoIoT-KX-State'' @([string]$install.dedicated_sid)') -or
+             -not $raw.Contains('Assert-Private $state @([string]$install.dedicated_sid)') -or
              -not $raw.Contains('Assert-Private $state @([string]$install.dedicated_sid)') -or
              -not $raw.Contains('$allowed -ccontains [string]$rule.IdentityReference.Value')) {
             throw 'NO-GO: SID dedicado no verificado por manifiesto y cuenta local'
