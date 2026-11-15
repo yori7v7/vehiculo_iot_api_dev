@@ -151,3 +151,10 @@ Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
 - Informe de hallazgos y gates en docs/kx_v1_staged_v2_review_findings_NO_EXECUTE.md.
 - Siguiente accion: verificar V2 en laboratorio extremo-a-extremo con fallos que no cubrio V1, ensamblar v2 en bundle nuevo y disenar/pruebar recuperacion operativa real antes de un corte deliberado. Evitar repetir pruebas ya aprobadas.
 - Estado GO_PAQUETE_V1_PRIVADO + GO_REVISION_ESTATICA_V2 / NO-GO_443.
+
+## 2026-11-15: V2 STAGED aprobado en EC2 tras reconexion RDP
+
+- Resultado confirmado por la salida del operador: `PAQUETE V2 REVISADO PREPARADO, NO ARMADO`; copias originales/candidatas verificadas, controlador y recuperador presentes pero BLOQUEADOS, tareas reales y HTTPS 443 intactos, ninguna tarea recovery registrada.
+- Path: `C:\ProgramData\VehiculoIoT-KX-Installer\kx_https_cutover_bundle_v2_NOT_ARMED`; V1 permanece en ruta independiente.
+- Reconectar RDP por inactividad no demuestra reboot ni failover del servidor.
+- Proxima compuerta limitada: comprobacion `-Action Review` de ambos ejecutables ya stageados, sin pasar Cutover/Recover. Permanece NO-GO_PUBLICACION.
