@@ -110,6 +110,10 @@ try{
  $who=[Security.Principal.WindowsPrincipal]::new(
   [Security.Principal.WindowsIdentity]::GetCurrent())
  Check ($who.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) "Consola elevada"
+ $profileAppData=[IO.Path]::GetFullPath((Join-Path $env:USERPROFILE "AppData")).TrimEnd("\")
+ $appDataRoot=[IO.Path]::GetFullPath($env:APPDATA).TrimEnd("\")
+ Check ($appDataRoot.StartsWith($profileAppData+"\",[StringComparison]::OrdinalIgnoreCase)) "APPDATA corresponde al perfil actual"
+ NoReparse (Split-Path -Parent $oldAuto) "Carpeta Caddy del perfil Administrador"
  foreach($p in @($installer,$service,$manifestPath,$configPath,$launcher,
   $bootCertificate,$caddyPath,$prodAutosave,$backup,$oldAuto)){
   NoReparse $p ([IO.Path]::GetFileName($p))
@@ -150,6 +154,9 @@ try{
   $config.proxy_proof -cmatch '^[A-Za-z0-9_-]{64}$' -and
   $config.admin_proof -cmatch '^[A-Za-z0-9_-]{64}$' -and
   $config.proxy_proof -cne $config.admin_proof) "Secretos actuales validos; no se muestran"
+ $expectedKeys=@("schema_version","mode","bind_host","bind_port","database_path","admin_proof","proxy_proof")
+ $actualKeys=@($config.PSObject.Properties.Name | Sort-Object)
+ Check (($actualKeys -join ",") -eq ((@($expectedKeys | Sort-Object)) -join ",")) "Estructura de config sin propiedades inesperadas"
  $oldProof=[string]$config.proxy_proof
  $adminProof=[string]$config.admin_proof
  $originalConfigHash=(Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
