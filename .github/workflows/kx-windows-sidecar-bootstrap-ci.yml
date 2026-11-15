@@ -22,6 +22,7 @@ on:
       - scripts/kx_runtime_proxy_proof_local_lab.ps1
       - scripts/kx_caddy_stale_autosave_secret_exposure_readonly.ps1
       - scripts/kx_rotate_virtual_proxy_proof_remove_stale_autosave.ps1
+      - scripts/kx_file_replace_dummy_acl_diagnostic.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -683,3 +684,38 @@ jobs:
           }
           if($src -match '(?im)^\s*\$home\s*=') { throw "Reserved HOME variable assignment" }
           Write-Host "PASS: 64-char CSPRNG credential replacement, K-V-only restart, old denied/new allowed, retire stale autosave"
+      - name: Parse K-X safe dummy File.Replace ACL diagnosis in Windows PS5.1
+        shell: powershell
+        run: |
+          $path = "scripts/kx_file_replace_dummy_acl_diagnostic.ps1"
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "K-X dummy File.Replace diagnosis invalid under Windows PowerShell 5.1"
+          }
+          $src = Get-Content $path -Raw
+          foreach($required in @("KX_REPLACE_", "DUMMY_NEW_", "DUMMY_OLD_",
+            "Set-Acl -LiteralPath $dest", "THREE_ARGUMENTS", "FOUR_IGNORE_METADATA",
+            "[IO.File]::Replace($src,$dest,$null)",
+            "[IO.File]::Replace($src,$dest,$null,$true)",
+            "Get-FileHash", "Get-NetTCPConnection", "GetOwnerSid",
+            "Get-ScheduledTask", "ReadOnlyAclSummary", "ReadData", "WriteData",
+            "no se muestran", "ROTACION: PENDIENTE", "AUTOSAVE ANTIGUO: SIN ELIMINAR",
+            "CONFIG ORIGINAL: SIN REEMPLAZAR","CONTROL FISICO: OFF")) {
+            if(-not $src.Contains($required)) {
+              throw "Dummy NTFS diagnostic missing safety marker: $required"
+            }
+          }
+          foreach($forbidden in @("Stop-ScheduledTask","Start-ScheduledTask",
+            "Register-ScheduledTask", "Set-ScheduledTask", "Stop-Process",
+            "Start-Process", "Restart-Service", "Restart-Computer",
+            "New-NetFirewallRule", "Invoke-WebRequest", "Copy-Item",
+            "Move-Item", "icacls.exe")) {
+              if($src -match [regex]::Escape($forbidden)){
+                throw "Forbidden production mutation in dummy NTFS test: $forbidden"
+              }
+          }
+          if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved HOME assignment"}
+          Write-Host "PASS: PS5.1 parse of two disposable ACL replica File.Replace probes, no config mutation"
