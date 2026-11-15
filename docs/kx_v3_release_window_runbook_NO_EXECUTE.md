@@ -106,3 +106,19 @@ El operador reporto estas salidas completas del staging V4 y la revision de los 
 Estado: GO_PREPARACION_V4_EN_EC2. NO declarar publicado K-V aun. El proximo hito es una sola ejecucion explicita de -Action Cutover -AuthorizeRealCutover en una ventana con usuario presente, bloque atomico que NO imprima PASS tras errores. El codigo V4 usado en el staging CI-green d3fa200c09b908e1fa268105c5ade62aabe47851; archivo controlador blob f79bdb467e0f05a86aed6a5e25b6e88caa7e9a17 y recuperador blob 0bbdc10158be2d8193d2f670437a6e482b9e49d3. NO repetir V3.
 
 La ejecucion real puede interrumpir HTTPS. El watchdog SYSTEM y su arranque bajo estado PREPARED se verifican antes del cierre, pero su recuperacion bajo condiciones de caida de Windows/RDP real no se considera certificada. Ante cualquier NO-GO no relanzar, inspeccionar transaccion y tareas solo lectura.
+
+## 2026-11-15: REAL HTTPS V4 CUTOVER COMMITTED (operator evidence)
+
+**Salida real completa reportada por el operador en EC2:**
+- PRE-FLIGHT V4: hashes/versiones y backups verificados; HTTPS GET / y /openapi.json devolvieron HTTP 200.
+- `=== K-X CUTOVER COMMITTED: PUBLIC CHECKS PASSED ===` del controlador, tras las pruebas de candidato K-V y legado definidas en su codigo.
+- `=== RESULTADO: K-X V4 CUTOVER CONFIRMADO ===` del bloque de operador con cierre positivo.
+- `TRANSACCION: COMMITTED_VERIFIED`.
+- `CADDY: RUNNING`; `ARCHIVOS CANDIDATOS: VERIFICADOS`; `HTTPS LEGADO: 200`; `WATCHDOG: RETIRADO`.
+- No se reporto fallo del controlador ni del bloque. El commit es el primer cutover real verificado. No implica que se haya probado una recuperacion real tras fallo; watchdog se desarmo al confirmar commit.
+
+**Estado**: GO_PUBLICACION_HTTPS_V4_COMMITTED. Falta comprobacion final independiente y de solo lectura de lectura publica/seguridad, sin invocar comandos de control. V4 es ahora la version activa en produccion. NO ejecutar `-Action Review` sobre V4 ni repetir `-Action Cutover` porque sus checks de estado PREPARED/originales ya no deben cumplirse.
+
+**Seguridad**: K-V sigue virtual (sin control fisico), el controlador verifico origen permitido, 200 admin autentico, 401 sin credencial, 403 credencial falsa y 403 origin invalido, TLS/legacy original y propiedad SYSTEM de Caddy sobre 443. No se publico el 9444 de K-V: listener solo 127.0.0.1. No registrar ni imprimir tokens.
+
+**Siguiente paso unico**: lectura no mutadora de transaction.phase, hashes productivos candidatos, tarea Caddy, watchdog ausente y GET /, /openapi.json (200), ruta admin anonima (401) y ruta invitado sin sesion (401 con Origin permitido, 403 sin Origin). No crear solicitudes POST. Cierre final tras dicho PASS.
