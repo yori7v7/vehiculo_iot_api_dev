@@ -17,7 +17,7 @@ class KXDeviceIdentityError(ValueError):
 
 def load_private_key(path: Path) -> tuple[bytes, str]:
     """Devuelve clave binaria y huella de auditoria; nunca expone la clave en logs."""
-    if type(path) is not Path:
+    if not isinstance(path, Path):
         raise KXDeviceIdentityError("Ruta privada de K-X invalida")
     if not path.is_absolute() or path.is_symlink():
         raise KXDeviceIdentityError("Se exige archivo regular absoluto, sin enlaces")
