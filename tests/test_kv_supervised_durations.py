@@ -154,6 +154,11 @@ def test_http_contract_rejects_inconsistent_modes_and_never_drives(tmp_path, mon
         ticket = client.post(GUEST, headers=headers)
         assert ticket.status_code == 201
         row = ticket.json()
+        capabilities = client.get(INBOX, headers=AUTH)
+        assert capabilities.status_code == 200
+        assert capabilities.json()["duraciones_segundos"] == [120, 300, 600, 1200]
+        assert capabilities.json()["modo_supervisado"] is True
+        assert capabilities.json()["canDrive"] is False
         endpoint = INBOX + "/" + row["request_id"] + "/aprobar"
         assert client.post(INBOX + "/supervision", headers=AUTH).status_code == 200
 
