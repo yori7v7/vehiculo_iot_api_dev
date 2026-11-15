@@ -1,0 +1,46 @@
+name: K-X rollback doble en copias (Windows PS 5.1)
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_dual_file_rollback_fault_lab.ps1
+      - .github/workflows/kx-dual-rollback-fault-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dual-rollback-fixture:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout de rama experimental sin credenciales persistentes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verificar parser real Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            '.\scripts\kx_dual_file_rollback_fault_lab.ps1',
+            [ref]$tokens, [ref]$errors
+          )
+          if (@($errors).Count -ne 0) { throw 'K-X: syntax PS 5.1 NO-GO' }
+          Write-Host 'K-X: syntax PowerShell 5.1 PASS'
+      - name: Comprobar aislamiento y operaciones prohibidas
+        shell: powershell
+        run: |
+          $text = Get-Content -LiteralPath '.\scripts\kx_dual_file_rollback_fault_lab.ps1' -Raw
+          foreach ($bad in @('Stop-ScheduledTask','Start-ScheduledTask','Disable-ScheduledTask','Enable-ScheduledTask','Stop-Process','Start-Process','taskkill.exe','caddy.exe')) {
+            if ($text.Contains($bad)) { throw ('K-X: prohibited executable operation ' + $bad) }
+          }
+          if (-not $text.Contains("ValidateSet('FixtureCI','EC2CopyLab')")) { throw 'K-X: explicit mode required' }
+          Write-Host 'K-X: no task/process/Caddy invocations PASS'
+      - name: Fallos provocados, doble rollback aislado
+        shell: powershell
+        run: |
+          & '.\scripts\kx_dual_file_rollback_fault_lab.ps1' -Mode FixtureCI
+          if ($LASTEXITCODE -ne 0) { throw 'K-X: dual-file fixture rollback NO-GO' }
+          Write-Host 'K-X: three isolated rollback scenarios PASS'
