@@ -19,6 +19,7 @@ on:
       - scripts/kx_caddy_launcher_autosave_readonly.ps1
       - scripts/kx_caddy_launcher_acl_diagnosis_readonly.ps1
       - scripts/kx_caddy_xdg_autosave_readonly.ps1
+      - scripts/kx_runtime_proxy_proof_local_lab.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -552,3 +553,45 @@ jobs:
              if($commands -contains $forbidden) {throw "XDG audit mutating command: $forbidden"}
           }
           Write-Host "PASS: redirected Caddy autosave, original delegation, and read-only ACL audit"
+      - name: Parse runtime env Caddy proxy proof lab, no file secrets, Windows PS5.1
+        shell: powershell
+        run: |
+          $file = "scripts/kx_runtime_proxy_proof_local_lab.ps1"
+          $tokens = $null
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "K-X runtime placeholder lab script invalid under PS5.1"
+          }
+          $src = Get-Content $file -Raw
+          $match = [regex]::Match($src, '(?s)\$pyCode=@''\s+?(.*?)\s+''@')
+          if(-not $match.Success){throw "Missing SQLite read-only ticket precheck"}
+          $probe = Join-Path $env:RUNNER_TEMP "kx_runtime_env_active_tickets.py"
+          [IO.File]::WriteAllText($probe,$match.Groups[1].Value,[Text.Encoding]::UTF8)
+          & python -B -m py_compile $probe
+          if($LASTEXITCODE -ne 0){throw "Embedded Python precheck invalid"}
+          foreach($required in @('{env.KX_STAGING_PROXY_PROOF}',
+              "adapt --config", "persist_config off", " admin off",
+              "JSON adaptado conserva placeholder literal",
+              "Autosave temporal deshabilitado", "API administrativa 2019",
+              "XDG_CONFIG_HOME", "XDG_DATA_HOME", "SetEnvironmentVariable",
+              "LABORATORIO 9481: ELIMINADO","Get-ChildItem",
+              "real_proxy_proof_saved_to_file", "runtime_env_placeholder_in_adapted_json",
+              "ADMIN_VALIDO_POR_CADDY", "ADMIN_SIN_CLAVE_POR_CADDY",
+              "HEADERS_SPOOFED_FILTRADOS","PROXY PROOF RUNTIME SIN PERSISTENCIA APROBADO",
+              "Wait-Local 9481", "Stop-Process", "Get-FileHash",
+              "GetOwnerSid", "control_fisico", "NO REPETIR NI CAMBIAR CADDY PUBLICO")) {
+            if(-not $src.Contains($required)) {
+              throw "Runtime env lab missing safety marker: $required"
+            }
+          }
+          foreach($forbidden in @("Set-ScheduledTask","Register-ScheduledTask",
+              "Restart-Computer", "Restart-Service", "New-NetFirewallRule",
+              "caddy reload","Invoke-WebRequest","Set-Acl")) {
+            if($src.Contains($forbidden)){throw "Forbidden mutation in temporary Caddy lab: $forbidden"}
+          }
+          $adapters = [regex]::Matches($src, '\$temp\.Contains\(''\{env\.KX_STAGING_PROXY_PROOF\}''\)')
+          if($adapters.Count -lt 1){throw "Missing strict placeholder replacement guard"}
+          if($src -match '(?im)^\s*\$home\s*=') {throw "Reserved PowerShell HOME assignment"}
+          Write-Host "PASS: Caddy runtime env placeholder probe, PS5.1 syntax and secret-persistence guards"
