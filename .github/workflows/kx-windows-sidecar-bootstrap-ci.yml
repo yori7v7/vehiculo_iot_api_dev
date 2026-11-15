@@ -265,7 +265,7 @@ jobs:
           }
           $source = Get-Content $file -Raw
           foreach($marker in @("Export-ScheduledTask", "Get-FileHash",
-            "127.0.0.1:9444", "Probe-Denial", "Control fisico", "NO-GO",
+            "127.0.0.1:9444", "Probe-Denial", "CONTROL FISICO", "NO-GO",
             "CacheControl.NoStore", "new_public_routes_activated", "rollback_execution_tested",
             "GetOwnerSid", "Get-NetTCPConnection", "icacls.exe")) {
             if(-not $source.Contains($marker)) { throw "Missing preflight safety marker: $marker" }
