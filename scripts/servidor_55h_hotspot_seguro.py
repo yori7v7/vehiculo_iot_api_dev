@@ -94,8 +94,17 @@ async def send_virtual(ws: WebSocket, fence: AckFence, order: DeviceOrder) -> No
     await ws.send_json(fence.queue(order))
     for expected in ("recibida", "neutral_reportado_no_fisico"):
         reply = await receive_strict(ws, seconds=5)
-        if fence.consume(reply) != expected:
-            raise WireProtocolError("Secuencia ACK virtual incompatible")
+        try:
+            received = fence.consume(reply)
+        except WireProtocolError as exc:
+            # Diagnostico seguro: codigo/fase, sin imprimir trama, HMAC ni sesion.
+            raise WireProtocolError(
+                f"ACK virtual codigo {order.code}, fase esperada {expected}: {exc}"
+            ) from None
+        if received != expected:
+            raise WireProtocolError(
+                f"ACK virtual codigo {order.code}: fase {received}, esperada {expected}"
+            )
 
 
 def create_55h_hotspot_lab_app(private_dir: Path = PRIVATE_DIR) -> FastAPI:
@@ -147,7 +156,10 @@ def create_55h_hotspot_lab_app(private_dir: Path = PRIVATE_DIR) -> FastAPI:
             await ws.close(code=1000)
         except (TimeoutError, LabDeviceProtocolError, WireProtocolError,
                 json.JSONDecodeError, WebSocketDisconnect) as exc:
-            print(f"[55-H] Sesion rechazada en modo seguro: {type(exc).__name__}")
+            # Mensajes WireProtocolError del contrato son descriptivos y NO
+            # incluyen las tramas, identificadores, firmas ni claves HMAC.
+            motivo = str(exc) if isinstance(exc, WireProtocolError) else type(exc).__name__
+            print(f"[55-H] Sesion rechazada en modo seguro: {motivo}")
             if accepted:
                 try:
                     await ws.close(code=1008)
