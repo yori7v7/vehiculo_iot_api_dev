@@ -36,4 +36,4 @@ def test_does_not_mutate_accounts_processes_firewall_or_caddy():
     ):
         # Get-Command New-LocalUser is a read-only capability check,
         # not a call to create a user.
-        assert re.search(r"(?m)^\\s*(?:&\\s*)?" + re.escape(forbidden) + r"\\b", c) is None
+        assert re.search(r"(?m)^\s*(?:&\s*)?" + re.escape(forbidden) + r"\b", c) is None
