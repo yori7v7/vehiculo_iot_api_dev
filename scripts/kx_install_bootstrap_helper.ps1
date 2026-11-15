@@ -177,7 +177,113 @@ exit 2
  $registered=Get-ScheduledTask -TaskPath "\" -TaskName $bootTask -ErrorAction Stop
  Assert-KX (@($registered.Triggers|Where-Object{$null -ne $_}).Count -eq 1 -and
    [string]$registered.Triggers[0].CimClass.CimClassName -like '*BootTrigger') "Nuevo trigger solo en bootstrap"
- Assert-KX ([string]$registered.Principal.UserId -in @("SYSTEM","S-1-5-18","NT AUTHORITY\SYSTEM")) "Bootstrap bajo SYSTEM"
+ $bootIdentity=[string]$registered.Principal.UserId
+ Assert-KX (-not [string]::IsNullOrWhiteSpace($bootIdentity)) "Identidad SYSTEM especificada"
+ if($bootIdentity -match '^S-1-[0-9]+(?:-[0-9]+)+
+ Assert-KX (@($registered.Actions).Count -eq 1 -and [string]$registered.Actions[0].Arguments -match 'kx_boot_worker\.ps1') "Bootstrap solo ejecuta trabajador protegido"
+ Assert-KX (@((Get-ScheduledTask -TaskPath "\" -TaskName $legacyTask).Triggers | Where-Object{$null -ne $_}).Count -eq 0) "K-V original sin triggers"
+
+ Write-Host ""
+ Write-Host "=== PRUEBA MANUAL DEL BOOTSTRAP CON REINICIO DE K-V ===" -ForegroundColor Cyan
+ $stopped=$true
+ Stop-ScheduledTask -TaskPath "\" -TaskName $legacyTask -ErrorAction Stop
+ Assert-KX (Wait-KX $false 35) "K-V temporalmente detenido, 9444 cerrado"
+ Assert-KX (@(Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue).Count -gt 0) "8000 no interrumpido"
+ Start-ScheduledTask -TaskPath "\" -TaskName $bootTask -ErrorAction Stop
+ $completed=$false
+ for($i=0;$i -lt 180;$i++){
+   Start-Sleep -Milliseconds 500
+   $bootNow=Get-ScheduledTask -TaskPath "\" -TaskName $bootTask -ErrorAction Stop
+   if((Test-Path -LiteralPath $bootReport) -and $bootNow.State -ne "Running"){$completed=$true;break}
+ }
+ Assert-KX ($completed) "Tarea bootstrap temporal finalizada"
+ $report=Get-Content -LiteralPath $bootReport -Raw -ErrorAction Stop|ConvertFrom-Json
+ Write-Host ("BOOTSTRAP STATUS: "+$report.status)
+ Write-Host ("BOOTSTRAP PHASE: "+$report.phase)
+ Write-Host ("BOOTSTRAP EXCEPTION: "+$report.exception_type)
+ $info=Get-ScheduledTaskInfo -TaskPath "\" -TaskName $bootTask -ErrorAction Stop
+ Write-Host ("WINDOWS TASK RESULT: "+$info.LastTaskResult)
+ Assert-KX ($report.status -eq "PASS" -and $report.phase -eq "complete" -and $info.LastTaskResult -eq 0) "Bootstrap puede reiniciar K-V bajo identidad guardada"
+ Assert-KX (Wait-KX $true 2) "9444 regresó a loopback"
+ Assert-KX (Check-Python-Sid $manifest.dedicated_sid) "Python sigue siendo cuenta dedicada"
+ Assert-KX (@((Get-ScheduledTask -TaskPath "\" -TaskName $legacyTask).Triggers | Where-Object{$null -ne $_}).Count -eq 0) "K-V original aun sin trigger"
+ Assert-KX ((Get-FileHash -LiteralPath $caddy -Algorithm SHA256).Hash -eq $originalCaddyHash) "Caddy intacto"
+ foreach($n in @("VehiculoIoT-FastAPI","VehiculoIoT-Caddy")){
+   Assert-KX ((Get-ScheduledTask -TaskPath "\" -TaskName $n -ErrorAction Stop).State -eq "Running") ("Original intacta: "+$n)
+ }
+ $stateRecord=[ordered]@{
+  schema_version=1;mode="bootstrap_system_starts_virtual_only"
+  helper_task=$bootTask;legacy_task=$legacyTask;worker_sha256=$sha
+  boot_tested=$false;manual_starter_test_passed=$true
+  main_task_modified=$false;caddy_modified=$false;physical_control_enabled=$false
+  registered_utc=[DateTime]::UtcNow.ToString("o")
+ }
+ $stateRecord|ConvertTo-Json -Depth 4|Set-Content -LiteralPath $bootManifest -Encoding UTF8 -ErrorAction Stop
+ $success=$true
+ Write-Host ""
+ Write-Host "=== RESULTADO: BOOTSTRAP AUTOMATICO K-V VALIDADO ===" -ForegroundColor Green
+ Write-Host "TAREA BOOT SYSTEM: ACTIVA CON TRIGGER ATSTARTUP"
+ Write-Host "TAREA K-V ORIGINAL: SIN MODIFICACIONES, RUNNING"
+ Write-Host "CREDENCIALES DEDICADAS: SIN CAMBIOS"
+ Write-Host "BOOT REAL EC2: AUN NO PROBADO"
+ Write-Host "9444: SOLO LOOPBACK; CADDY: INTACTO; MOTORES: OFF"
+} catch {
+ Write-Host ""
+ Write-Host "=== RESULTADO: NO-GO DE BOOTSTRAP ===" -ForegroundColor Red
+ Write-Host ("TIPO: "+$_.Exception.GetType().Name) -ForegroundColor Yellow
+ Write-Host ("MENSAJE: "+$_.Exception.Message) -ForegroundColor Yellow
+ if($_.FullyQualifiedErrorId){Write-Host ("ERROR ID: "+$_.FullyQualifiedErrorId) -ForegroundColor Yellow}
+} finally {
+ if(-not $success){
+   Write-Host ""
+   Write-Host "=== CONTENCION DE BOOTSTRAP FALLIDO ===" -ForegroundColor Cyan
+   try {
+      $bootExisting=Get-ScheduledTask -TaskPath "\" -TaskName $bootTask -ErrorAction SilentlyContinue
+      if($null -ne $bootExisting){
+         if($bootExisting.State -eq "Running"){
+           Stop-ScheduledTask -TaskPath "\" -TaskName $bootTask -ErrorAction Stop
+         }
+         Unregister-ScheduledTask -TaskPath "\" -TaskName $bootTask -Confirm:$false -ErrorAction Stop
+      }
+      Assert-KX ($null -eq (Get-ScheduledTask -TaskPath "\" -TaskName $bootTask -ErrorAction SilentlyContinue)) "No quedo autoarranque SYSTEM"
+   } catch {
+      Write-Host "NO-GO: no se pudo retirar bootstrap; NO REINICIAR EC2" -ForegroundColor Red
+   }
+   if($stopped){
+     try {
+       $main=Get-ScheduledTask -TaskPath "\" -TaskName $legacyTask -ErrorAction Stop
+       if($main.State -ne "Running"){Start-ScheduledTask -TaskPath "\" -TaskName $legacyTask -ErrorAction Stop}
+       Assert-KX (Wait-KX $true 70) "Servicio K-V recuperado"
+       if($null -ne $manifest){Assert-KX (Check-Python-Sid $manifest.dedicated_sid) "Identidad K-V recuperada"}
+     } catch {
+       Write-Host "NO-GO: recuperacion K-V no confirmada; preservar Caddy sin cambios" -ForegroundColor Red
+     }
+   }
+   try {
+      foreach($p in @($bootManifest,$bootReport,$bootScript)){
+         if(Test-Path -LiteralPath $p){Remove-Item -LiteralPath $p -Force -ErrorAction Stop}
+      }
+      Write-Host "OK: Archivos de bootstrap fallido retirados" -ForegroundColor Green
+   } catch {
+      Write-Host "NO-GO: no se retiraron todos los archivos; no repetir" -ForegroundColor Red
+   }
+ }
+ if($null -ne $originalCaddyHash -and (Test-Path -LiteralPath $caddy)){
+   if((Get-FileHash -LiteralPath $caddy -Algorithm SHA256).Hash -eq $originalCaddyHash){
+      Write-Host "OK: Caddy original intacto" -ForegroundColor Green
+   }else{
+      Write-Host "NO-GO: Hash de Caddy inesperado" -ForegroundColor Red
+   }
+ }
+ Write-Host "NO REINICIAR EC2 AUN; SIN RDS, ESP, MOTORES NI EXPOSICION PUBLICA"
+ Write-Host "=== FIN K-X BOOTSTRAP ===" -ForegroundColor Cyan
+}
+){
+   $bootSid=([Security.Principal.SecurityIdentifier]::new($bootIdentity)).Value
+ } else {
+   $bootSid=([Security.Principal.NTAccount]::new($bootIdentity)).Translate([Security.Principal.SecurityIdentifier]).Value
+ }
+ Assert-KX ($bootSid -eq "S-1-5-18") "Bootstrap bajo SYSTEM comprobado por SID"
  Assert-KX (@($registered.Actions).Count -eq 1 -and [string]$registered.Actions[0].Arguments -match 'kx_boot_worker\.ps1') "Bootstrap solo ejecuta trabajador protegido"
  Assert-KX (@((Get-ScheduledTask -TaskPath "\" -TaskName $legacyTask).Triggers | Where-Object{$null -ne $_}).Count -eq 0) "K-V original sin triggers"
 
