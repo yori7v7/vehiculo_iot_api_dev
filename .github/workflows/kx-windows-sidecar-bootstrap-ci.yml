@@ -246,6 +246,8 @@ jobs:
           if ($source -match '(?im)^\s*(Restart-Computer|Restart-Service|Set-ScheduledTask|New-NetFirewallRule)\b') {
             throw "Disallowed state mutation in ephemeral lab"
           }
+          if (-not $source.Contains(' bind 127.0.0.1')) { throw "Missing explicit Caddy loopback bind" }
+          if (-not $source.Contains('DIAGNOSTICO CADDY:')) { throw "Missing sanitized Caddy startup diagnostics" }
           if (-not $source.Contains('$python -B -m py_compile $echoFile')) { throw "Unsafe Python syntax-check command; use py_compile" }
           if ($source.Contains('ast.parse(open(')) { throw "Legacy quoted inline Python still present" }
           Write-Host "PASS: Caddy header/route lab syntax and embedded echo server"
