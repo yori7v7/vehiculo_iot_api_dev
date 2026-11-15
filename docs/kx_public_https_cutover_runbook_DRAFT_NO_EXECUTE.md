@@ -110,3 +110,10 @@ Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
 - SIGUE PENDIENTE: watchdog durable armado automaticamente antes del cutover, recovery ante cierre de RDP / reinicio, orquestacion segura de reintentos reales, activacion publica y rollback operativo real.
 
 **NO-GO_PUBLICACION sigue vigente.**
+
+## Ensayo de auto-disparo de watchdog SYSTEM (no activado en produccion)
+
+- Nuevo script `scripts/kx_watchdog_auto_trigger_mirror_lab.ps1`, codigo independiente del ensayo anterior, usa Task Scheduler `-Once` configurado *antes* de iniciar el Worker ficticio, sin llamadas a `Start-ScheduledTask`.
+- GitHub Actions Windows PowerShell 5.1: PASS run 43694395316, commit `f848df549d67b00a3cf4571e86eef280e74019fa`. Una sola prueba nueva: FAIL_AFTER_SECOND, recuperacion automatica de 2 archivos espejo tras matar el Worker, tarea temporal SYSTEM eliminada.
+- PENDIENTE: repetir `-Mode EC2CopyLab` en la ruta nueva de laboratorio `kx_watchdog_task_trigger_lab_v1` con hashes productivos verificados. No afecta la tarea VehiculoIoT-Caddy, HTTPS 443, ni motores.
+- Esta validacion NO equivale a tolerancia a reinicio Windows/RDP ni rollback operativo del servidor. NO-GO_PUBLICACION sigue vigente.
