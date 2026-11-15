@@ -581,7 +581,9 @@ jobs:
               "ADMIN_VALIDO_POR_CADDY", "ADMIN_SIN_CLAVE_POR_CADDY",
               "HEADERS_SPOOFED_FILTRADOS","PROXY PROOF RUNTIME SIN PERSISTENCIA APROBADO",
               "Wait-Local 9481", "Stop-Process", "Get-FileHash",
-              "GetOwnerSid", "control_fisico", "NO REPETIR NI CAMBIAR CADDY PUBLICO")) {
+              "GetOwnerSid", "control_fisico", "NO REPETIR NI CAMBIAR CADDY PUBLICO",
+              "SIN FILTRACION DEL LABORATORIO ANTERIOR",
+              "Autosave anterior sin token K-V expuesto")) {
             if(-not $src.Contains($required)) {
               throw "Runtime env lab missing safety marker: $required"
             }
