@@ -1,0 +1,79 @@
+name: 55-K Shadow Controller - No Motors
+
+on:
+  push:
+    branches:
+      - lab/55k-integracion-fisica-inhibida
+    paths:
+      - 'firmware/Excavadora_IoT_55H_Hotspot_Seguro/**'
+      - 'tests/55k_shadow_selftest.cpp'
+      - 'tests/test_55k_guardrails.py'
+      - '.github/workflows/55k-shadow-controller-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shadow-controller:
+    name: Native C++ and Safety Contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run safety contracts
+        run: |
+          python -m unittest discover \
+            -s tests \
+            -p "test_55k_guardrails.py" \
+            -v
+
+      - name: Compile native C++ controller test
+        run: |
+          g++ -std=c++11 -O0 -Wall -Wextra -Werror \
+            tests/55k_shadow_selftest.cpp \
+            -o "$RUNNER_TEMP/55k_shadow_selftest"
+
+      - name: Execute C++ controller tests
+        run: |
+          "$RUNNER_TEMP/55k_shadow_selftest"
+
+      - name: Confirm virtual-only controller
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path("firmware/Excavadora_IoT_55H_Hotspot_Seguro")
+          header = (root / "Controlador55KInhibido.h").read_text()
+          firmware = (
+              root / "Excavadora_IoT_55H_Hotspot_Seguro.ino"
+          ).read_text()
+
+          assert not re.search(
+              r"\b(shiftOut|digitalWrite|pinMode)\s*\(",
+              header
+          )
+
+          calls = re.findall(
+              r"\bshiftOut\s*\(([^;]+)\);",
+              firmware
+          )
+
+          assert len(calls) == 1
+          assert re.sub(r"\s+", "", calls[0]).endswith(
+              "uint8_t(0)"
+          )
+
+          print("GO: Controller virtual only; GPIO inhibited")
+          PY
