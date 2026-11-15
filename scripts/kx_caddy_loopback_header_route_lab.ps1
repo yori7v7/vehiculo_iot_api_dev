@@ -138,11 +138,16 @@ b.serve_forever()
  & $python -B -m py_compile $echoFile
  Check ($LASTEXITCODE -eq 0) "Sintaxis echo Python correcta"
  $derived=$raw.Replace("100-30-4-62.nip.io {","http://127.0.0.1:9481 {")
+ # El host localhost NO implica bind: Caddy puede usar interfaz comodin.
+ # Forzar socket exclusivamente loopback, incluso durante el laboratorio.
+ $derived=$derived.Replace("http://127.0.0.1:9481 {",
+  "http://127.0.0.1:9481 {"+[Environment]::NewLine+" bind 127.0.0.1")
  $derived=$derived.Replace("reverse_proxy 127.0.0.1:9444","reverse_proxy 127.0.0.1:9482")
  $derived=$derived.Replace("reverse_proxy 127.0.0.1:8000","reverse_proxy 127.0.0.1:9483")
  $prefix=[string]::Join([Environment]::NewLine,@("{"," admin off","}",""))
  $derived=$prefix+[Environment]::NewLine+$derived
  Check ($derived.Contains("http://127.0.0.1:9481") -and
+  $derived.Contains(" bind 127.0.0.1") -and
   $derived.Contains("reverse_proxy 127.0.0.1:9482") -and
   $derived.Contains("reverse_proxy 127.0.0.1:9483") -and
   -not $derived.Contains("reverse_proxy 127.0.0.1:9444") -and
@@ -164,7 +169,30 @@ b.serve_forever()
   RedirectStandardError=(Join-Path $lab 'caddy.stderr')
  }
  $caddyProcess=Start-Process @caddyArgs
- Check (Poll-Port 9481) "Caddy temporal escuchando solo en loopback"
+ $listenReady=Poll-Port 9481
+ if(-not $listenReady){
+  $sockets=@(Port 9481)
+  Write-Host ("DIAGNOSTICO: sockets encontrados en 9481 = "+$sockets.Count) -ForegroundColor Yellow
+  foreach($socket in $sockets){
+   Write-Host ("DIAGNOSTICO: LocalAddress="+$socket.LocalAddress+"; PID="+$socket.OwningProcess) -ForegroundColor Yellow
+  }
+  if($caddyProcess.HasExited){
+   Write-Host ("DIAGNOSTICO: Caddy temporal termino, codigo="+$caddyProcess.ExitCode) -ForegroundColor Yellow
+  } else {
+   Write-Host "DIAGNOSTICO: Caddy temporal sigue ejecutandose sin socket loopback confirmado" -ForegroundColor Yellow
+  }
+  $stderr=Join-Path $lab "caddy.stderr"
+  if(Test-Path -LiteralPath $stderr){
+   $errorLines=@(Get-Content -LiteralPath $stderr -Tail 12 -ErrorAction SilentlyContinue)
+   foreach($line in $errorLines){
+    if($null -ne $line -and $line.Trim().Length -gt 0){
+     $safeLine=$line -replace "OFFLINE_INVALID_TOKEN_NOT_FOR_DEPLOYMENT_[A-Za-z0-9_]+","[TOKEN_DE_LABORATORIO]"
+     Write-Host ("DIAGNOSTICO CADDY: "+$safeLine.Substring(0,[Math]::Min(350,$safeLine.Length))) -ForegroundColor Yellow
+    }
+   }
+  }
+ }
+ Check ($listenReady) "Caddy temporal escuchando solo en loopback"
  Add-Type -AssemblyName System.Net.Http
  $handler=[Net.Http.HttpClientHandler]::new()
  $handler.UseProxy=$false;$handler.UseCookies=$false;$handler.AllowAutoRedirect=$false
