@@ -14,6 +14,7 @@ on:
       - scripts/kx_caddy_release_preflight_readonly_http.ps1
       - scripts/kx_caddy_restore_copy_rehearsal.ps1
       - scripts/kx_admin_get_local_contract_readonly_http.ps1
+      - scripts/kx_caddy_real_kv_local_get_lab.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -346,3 +347,46 @@ jobs:
           }
           if($source -match '(?im)^\s*\$home\s*=') {throw "Reserved PowerShell HOME assignment"}
           Write-Host "PASS: guarded local GET script, no-active-ticket Python check, and anti-spoofing cases"
+      - name: Parse ephemeral Caddy to K-V real GET test and memory-only proof
+        shell: powershell
+        run: |
+          $file = "scripts/kx_caddy_real_kv_local_get_lab.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0) {
+            $errors | ForEach-Object {Write-Host $_.Message}
+            throw "Caddy -> K-V real GET lab script invalid under PowerShell 5.1"
+          }
+          $source = Get-Content $file -Raw
+          $match = [regex]::Match($source, '(?s)\$pyCode=@''\s+?(.*?)\s+''@')
+          if(-not $match.Success){throw "Missing embedded SQLite precheck"}
+          $probe = Join-Path $env:RUNNER_TEMP "kx_real_caddy_precheck.py"
+          [IO.File]::WriteAllText($probe,$match.Groups[1].Value,[Text.Encoding]::UTF8)
+          & python -B -m py_compile $probe
+          if($LASTEXITCODE -ne 0){throw "Invalid embedded Python sqlite precheck"}
+          foreach($required in @("mode=ro", "PRAGMA query_only=ON",
+            "SELECT COUNT(*) FROM kr_ticket",
+            "admin off", " bind 127.0.0.1",
+            'Join([Environment]::NewLine,@("{"," admin off","}",""))',
+            'header_up X-Admission-Client-IP 1.1.1.1',
+            '{$KX_STAGING_PROXY_PROOF}', "VISITOR_FALSE_TOKEN",
+            "reverse_proxy 127.0.0.1:9444", "respond 404",
+            "Caddy publico sigue escuchando 443",
+            "Wait-Local 9481", "Stop-Process", "Get-FileHash",
+            "ADMIN_VALIDO_POR_CADDY","ADMIN_SIN_CLAVE_POR_CADDY",
+            "ADMIN_CLAVE_FALSA_POR_CADDY", "ORIGIN_FALSO_POR_CADDY",
+            "HEADERS_SPOOFED_FILTRADOS",
+            "CABECERA DE IP PUBLICA: SIMULADA, NO PROBADA EN INTERNET",
+            "production_caddy_modified", "GetOwnerSid")) {
+            if(-not $source.Contains($required)) {
+              throw "Missing local real-KV lab safety requirement: $required"
+            }
+          }
+          foreach($forbidden in @("Register-ScheduledTask", "Set-ScheduledTask",
+            "Restart-Computer", "Restart-Service", "New-NetFirewallRule",
+            "caddy reload", "Invoke-WebRequest")) {
+            if($source.Contains($forbidden)){throw "Forbidden production change in lab: $forbidden"}
+          }
+          if($source -match '(?im)^\s*\$home\s*=') {throw "Reserved PowerShell HOME variable"}
+          Write-Host "PASS: ephemeral Caddy to real virtual K-V GET lab and memory-only proof"
