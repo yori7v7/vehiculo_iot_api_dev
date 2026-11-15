@@ -13,6 +13,7 @@ $restarted = $false
 $initialHash = $null
 $taskSid = $null
 $checks = 0
+$success = $false
 function Assert-KX([bool]$condition, [string]$label) {
   if(-not $condition){throw ("NO-GO: "+$label)}
   Write-Host ("OK: "+$label) -ForegroundColor Green
@@ -42,7 +43,8 @@ function Invoke-KV([string]$method,[string]$path,[hashtable]$extra,[string]$payl
     foreach($key in $headers.Keys) {
       Assert-KX ([bool]$req.Headers.TryAddWithoutValidation($key,[string]$headers[$key])) ("Cabecera valida: "+$key)
     }
-    if($null -ne $payload) {
+    if($PSBoundParameters.ContainsKey("payload")) {
+      if($method -ne "POST"){throw "GET nunca puede contener cuerpo"}
       $req.Content = [Net.Http.StringContent]::new($payload,[Text.Encoding]::UTF8,"application/json")
     }
     $res = $http.SendAsync($req).GetAwaiter().GetResult()
@@ -111,6 +113,12 @@ try {
   Write-Host "=== SOLICITUD Y APROBACION VIRTUAL ===" -ForegroundColor Cyan
   $guestPath = "/publico/vehiculos/1/solicitudes"
   $adminPath = "/admin/vehiculos/1/control-publico/solicitudes"
+  # Prevuelo GET SIN CUERPO para no mutar estado si el cliente HTTP falla.
+  $preflight = Invoke-KV "GET" ($guestPath+"/estado") @{}
+  Assert-KX ($preflight.Status -eq 401) "Prevuelo GET sin body, status 401"
+  # Revocar cualquier turno virtual residual antes de crear una solicitud nueva.
+  $oldRevocation = Invoke-KV "POST" ($adminPath+"/revocar") @{"X-API-Key"=$config.admin_proof}
+  Assert-KX ($oldRevocation.Status -eq 200 -and $oldRevocation.Data.canDrive -eq $false) "Turnos virtuales previos revocados"
   $idem = New-BrowserKey
   $proposal = New-BrowserKey
   Assert-KX ($idem -ne $proposal) "Claves de solicitud distintas"
@@ -170,6 +178,7 @@ try {
   Write-Host "SESIONES ANTERIORES: INVALIDADAS"
   Write-Host "PUERTO 9444: SOLO LOOPBACK"
   Write-Host "CADDY: INTACTO; MOTOR: NO HABILITADO"
+  $success = $true
 } catch {
   Write-Host ""
   Write-Host "=== RESULTADO: NO-GO ===" -ForegroundColor Red
@@ -188,6 +197,24 @@ try {
       Assert-KX (Wait-KX $true 80) "Servicio virtual restaurado en loopback"
     } catch {
       Write-Host "NO-GO: No se pudo restaurar K-V; conservar Caddy intacto" -ForegroundColor Red
+    }
+  }
+  # Falla cerrada: si la prueba termina despues de crear un turno virtual,
+  # intentamos revocar desde el propio endpoint, sin encender ni detener motores.
+  if(-not $success -and $null -ne $http -and $null -ne $config){
+    Write-Host ""
+    Write-Host "=== LIMPIEZA DE AUTORIZACION VIRTUAL ===" -ForegroundColor Cyan
+    try {
+      if(Wait-KX $true 4){
+        $cleanupRevocation = Invoke-KV "POST" "/admin/vehiculos/1/control-publico/solicitudes/revocar" @{
+          "X-API-Key"=$config.admin_proof
+        }
+        Assert-KX ($cleanupRevocation.Status -eq 200 -and $cleanupRevocation.Data.canDrive -eq $false) "Autorizacion virtual revocada tras NO-GO"
+      } else {
+        Write-Host "NO-GO: K-V no escucha; comprobar servicio antes de continuar" -ForegroundColor Red
+      }
+    } catch {
+      Write-Host "NO-GO: no se confirmo revocacion virtual; no habilitar acceso publico" -ForegroundColor Red
     }
   }
   if($null -ne $http){$http.Dispose()}
