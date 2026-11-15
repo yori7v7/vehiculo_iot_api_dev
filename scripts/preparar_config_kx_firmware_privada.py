@@ -118,11 +118,16 @@ def prepare(
         raise ValueError("La cabecera actual no debe desbloquear la compilacion")
     if "#define LAB55H_CONFIG_VALID" not in original:
         raise ValueError("No existe validacion de cabecera del 55-H")
-    # Conservar exactamente los literales WiFi originales, sin imprimirlos.
+    # Aceptar C++ como const char* o const char NOMBRE[] = "valor".
+    # La WiFi de Arduino 55-H puede declararse con arreglo [].
+    # No leer/imprimir los valores; conservar el contenido byte a byte.
     literal = r'"(?:\\.|[^"\\\r\n])*"'
     for name in ("LAB55H_WIFI_SSID", "LAB55H_WIFI_PASSWORD"):
         wi = re.compile(
-            r"(?m)^[^\r\n;]*\b" + re.escape(name) + r"\s*=\s*" + literal + r"\s*;"
+            r"(?m)^\s*(?:static\s+)?(?:const\s+)?char\s*\*?\s*"
+            + re.escape(name)
+            + r"\s*(?:\[\s*\d*\s*\])?\s*=\s*"
+            + literal + r"\s*;"
         )
         if len(wi.findall(original)) != 1:
             raise ValueError("Formato WiFi privado no reconocido: " + name)
