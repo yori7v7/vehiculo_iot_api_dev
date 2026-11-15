@@ -25,7 +25,7 @@ function Get-ACL-Rules([string]$Path) {
     $rules = @($acl.GetAccessRules(
         $true, $true, [Security.Principal.SecurityIdentifier]
     ))
-    return ,@($rules)
+    return $rules
 }
 
 function Has-Public-Write([string]$Path) {
