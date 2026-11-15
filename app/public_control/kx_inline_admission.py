@@ -39,6 +39,13 @@ class TimedVirtualApproval(BaseModel):
     segundos: int = Field(strict=True, ge=30, le=120)
 
 
+class VirtualActionRequest(BaseModel):
+    """Contrato de orden virtual. Ninguna accion llega a GPIO ni WSS."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+    codigo: Literal[0, 1, 2, 4, 5, 6, 8, 9, 10]
+    duracion_ms: int = Field(strict=True, ge=100, le=500)
+
+
 class KXWriteFence:
     """En modo K-X ninguna ruta de escritura legacy puede enviar eventos al ESP.
 
@@ -136,6 +143,28 @@ async def visitor_status(id_vehiculo: int, request: Request):
         estado="autorizado" if row["estado"] == "autorizado_virtual" else row["estado"],
         display_code=row["display_code"],
     )
+
+
+
+@router.post(GUEST_PREFIX + "/verificar-accion")
+async def verify_virtual_action(id_vehiculo: int, request: Request,
+                                data: VirtualActionRequest):
+    """Verifica autorizacion del invitado. NO despacha ni agenda una orden."""
+    ledger = _context(request, id_vehiculo)
+    if (request.headers.getlist("content-type") != ["application/json"]
+            or request.headers.get("transfer-encoding") is not None):
+        raise HTTPException(415, "Se requiere JSON sin transferencia fragmentada")
+    secrets = request.headers.getlist("x-browser-session")
+    if len(secrets) != 1 or not _TOKEN.fullmatch(secrets[0]):
+        raise HTTPException(401, "Sesion de navegador requerida")
+    _run(lambda: ledger.verify_virtual_action(secrets[0]), denied=403)
+    # Ninguna comprobacion previa puede ser usada luego como permiso fisico.
+    return _virtual(
+        permiso_virtual_verificado=True, codigo=data.codigo,
+        duracion_ms=data.duracion_ms, despacho_wss=False,
+        stop_fisico_confirmado=False,
+    )
+
 
 
 def _admin(request: Request, vehicle_id: int):
