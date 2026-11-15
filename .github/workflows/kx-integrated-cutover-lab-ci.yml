@@ -1,0 +1,47 @@
+name: K-X integrated cutover + SYSTEM recoverer LAB Windows 5.1
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_integrated_operator_LAB_ONLY.ps1
+      - scripts/kx_integrated_recoverer_LAB_ONLY.ps1
+      - .github/workflows/kx-integrated-cutover-lab-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integrated-system-lab:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout experimental branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Windows PS 5.1 syntax and hard production boundary
+        shell: powershell
+        run: |
+          foreach($name in @('kx_integrated_operator_LAB_ONLY.ps1','kx_integrated_recoverer_LAB_ONLY.ps1')){
+            $path=Join-Path '.\scripts' $name
+            $tokens=$null; $errors=$null
+            $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+            if(@($errors).Count -ne 0){
+              $errors | ForEach-Object { Write-Host ('PARSE: '+$_.Message) }
+              throw ('K-X PS5.1 syntax NO-GO '+$name)
+            }
+            $src=Get-Content -LiteralPath $path -Raw
+            foreach($bad in @('proxy_proof','admin_proof','Stop-VehicleDeployment','Start-VehicleDeployment','taskkill.exe','Set-NetFirewallRule')){
+              if($src.Contains($bad)){throw ('Forbidden text: '+$bad)}
+            }
+            if(-not $src.Contains('kx_integrated_cutover_lab_v1')){
+              throw ('K-X isolated EC2 path absent: '+$name)
+            }
+          }
+          Write-Host 'K-X operator/recoverer PS5.1 parsing and scope check PASS'
+      - name: Integrated mock SYSTEM service, crash and healthy commit
+        shell: powershell
+        run: |
+          & '.\scripts\kx_integrated_operator_LAB_ONLY.ps1' -Mode FixtureCI
+          if($LASTEXITCODE -ne 0){throw 'K-X integrated LAB failed'}
+          Write-Host 'K-X integrated recovery fixtures PASS'
