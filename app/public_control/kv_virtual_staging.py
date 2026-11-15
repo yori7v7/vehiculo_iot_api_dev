@@ -41,7 +41,7 @@ class KVirtualApproval(BaseModel):
     def validate_duration(self):
         if self.modo == "timed" and self.segundos is None:
             raise ValueError("El turno temporal requiere segundos")
-        if self.modo == "supervised" and self.segundos is not None:
+        if self.modo == "supervised" and "segundos" in self.model_fields_set:
             raise ValueError("El turno indefinido no admite segundos")
         return self
 
