@@ -80,7 +80,7 @@ async def run_reconnection_demo(app, gate: DisconnectGate, *, timeout=75):
         expect(await client.post(
             inbox + f"/{created['request_id']}/aprobar",
             headers=admin_headers,
-            json={"modo": "timed", "segundos": 1200},
+            json={"modo": "timed", "segundos": 120},
         ), 200, "aprobacion")
         session_headers = {**headers, "X-Browser-Session": browser_session}
 
@@ -111,6 +111,11 @@ async def run_reconnection_demo(app, gate: DisconnectGate, *, timeout=75):
         if hub._session is None or hub._session.session_id == original_session:
             raise RuntimeError("NO-GO: reconexion reutilizo sesion anterior")
         print("[55-J] Nueva sesion HMAC + STOP inicial firmado: OK", flush=True)
+        # K-V supervision is only a 15-second heartbeat. Refresh using
+        # the in-process authenticated admin after the network gap.
+        expect(await client.post(inbox + "/supervision",
+                                 headers=admin_headers), 200,
+               "supervision tras reconectar")
         try:
             result = expect(await client.post(
                 action, headers=session_headers,
