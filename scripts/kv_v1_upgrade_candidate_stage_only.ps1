@@ -48,7 +48,7 @@ function GitBlobSha1([string]$Path) {
 function Assert-Private([string]$Path,[string[]]$ExtraSids=@()) {
     $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
     Require ($acl.AreAccessRulesProtected) ('Herencia cerrada: ' + [IO.Path]::GetFileName($Path))
-    $allowed=@('S-1-5-18','S-1-5-32-544') + @($ExtraSids)
+    $allowed = @('S-1-5-18','S-1-5-32-544') + @($ExtraSids)
     foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
         if($rule.AccessControlType -eq 'Allow') {
             Require ($allowed -ccontains [string]$rule.IdentityReference.Value) 'Solo SID de servicio y cuentas del sistema'
@@ -69,95 +69,10 @@ function Assert-Baseline {
              $install.physical_control_enabled -eq $false -and
              $install.task_name -ceq $taskName -and
              $install.dedicated_user -ceq 'VehIoT_KXSvc' -and
-             [string]$install.dedicated_sid -match '^S-1-5-21-(?:[0-9]+-){3}[0-9]+
-    $transaction = Get-Content -LiteralPath (Join-Path $v4 'transaction.json') -Raw -ErrorAction Stop | ConvertFrom-Json
-    Require ($transaction.phase -ceq 'COMMITTED_VERIFIED') 'Caddy V4 ya COMMITTED_VERIFIED'
-    $task = Get-ScheduledTask -TaskPath '\' -TaskName $taskName -ErrorAction Stop
-    Require ($task.State -eq 'Running' -and @($task.Actions).Count -eq 1) 'Tarea dedicada Running'
-    Require (@($task.Triggers | Where-Object { $null -ne $_ }).Count -eq 0) 'K-V sin disparadores'
-    foreach($name in @('VehiculoIoT-Caddy','VehiculoIoT-FastAPI')) {
-        Require ((Get-ScheduledTask -TaskPath '\' -TaskName $name -ErrorAction Stop).State -eq 'Running') ($name + ' Running')
-    }
-    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 9444 -ErrorAction SilentlyContinue)
-    Require ($listeners.Count -eq 1 -and $listeners[0].LocalAddress -ceq '127.0.0.1') 'K-V solo 127.0.0.1:9444'
-    foreach($item in $expected) {
-        $path=Join-Path $live $item.Name
-        Require (Test-Path -LiteralPath $path -PathType Leaf) ('Archivo original: ' + $item.Name)
-        Assert-NoLink $path
-        $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash
-        Require ($hash -ceq $item.OriginalSHA256) ('SHA256 original: ' + $item.Name)
-    }
-    Require (Test-Path -LiteralPath (Join-Path $state 'data\admission.sqlite') -PathType Leaf) 'SQLite original presente'
-    Require (-not(Test-Path -LiteralPath $stage)) 'Destino exclusivo libre: no sobreescrituras'
-}
-
-Write-Host ''
-Write-Host '=== K-V V1: STAGING AISLADO, NUNCA CUTOVER ===' -ForegroundColor Cyan
-try {
-    Assert-Baseline
-    if($ProbeOnly) {
-        Write-Host 'GO: PREFLIGHT SOLO LECTURA. NINGUN ARCHIVO MODIFICADO.' -ForegroundColor Green
-    } else {
-        # Staging nuevo sin herencia: el servicio K-V existente NO necesita
-        # acceso a estos ficheros ni puede leerlos o alterarlos.
-        New-Item -ItemType Directory -Path $stage -ErrorAction Stop | Out-Null
-        & icacls.exe $stage /inheritance:r | Out-Null
-        Require ($LASTEXITCODE -eq 0) 'Cerrar herencia de staging'
-        & icacls.exe $stage /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-        Require ($LASTEXITCODE -eq 0) 'Conceder SOLO SYSTEM y Administradores'
-        & icacls.exe $stage /setowner '*S-1-5-32-544' | Out-Null
-        Require ($LASTEXITCODE -eq 0) 'Propietario Administradores'
-        Assert-Private $stage
-
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $manifestFiles = @()
-        foreach($item in $expected) {
-            $name = [string]$item.Name
-            $target = Join-Path $stage $name
-            $url = 'https://raw.githubusercontent.com/yori7v7/vehiculo_iot_api_dev/' + $expectedCommit + '/app/public_control/' + $name
-            Invoke-WebRequest -Uri $url -UseBasicParsing -OutFile $target -MaximumRedirection 2 -ErrorAction Stop
-            Require (Test-Path -LiteralPath $target -PathType Leaf) ('Descarga: ' + $name)
-            Assert-NoLink $target
-            $bytes=(Get-Item -LiteralPath $target -ErrorAction Stop).Length
-            Require ($bytes -gt 1000 -and $bytes -lt 100000) ('Tamano fuente: ' + $name)
-            Require ((GitBlobSha1 $target) -ceq $item.Blob) ('Blob Git inmutable: ' + $name)
-            $sha=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
-            $manifestFiles += [ordered]@{
-                name=$name
-                git_blob=$item.Blob
-                sha256=$sha
-                length=$bytes
-            }
-        }
-        $manifest=[ordered]@{
-            schema_version=1
-            mode='candidate_staged_offline_not_installed'
-            candidate_commit=$expectedCommit
-            active_task_untouched=$true
-            legacy_untouched=$true
-            caddy_untouched=$true
-            sqlite_untouched=$true
-            physical_control_enabled=$false
-            files=$manifestFiles
-        }
-        $manifestPath=Join-Path $stage 'candidate.json'
-        $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding UTF8 -ErrorAction Stop
-        Assert-NoLink $manifestPath
-        Assert-Private $stage
-        Write-Host 'GO: CANDIDATO AISLADO, FIRMAS VERIFICADAS; PRODUCCION SIN CAMBIOS.' -ForegroundColor Green
-    }
-}
-catch {
-    # Sin borrar evidencia ni tocar produccion. Staging incompleto queda
-    # aislado y NO debe instalarse.
-    Write-Host ('NO-GO: ' + $_.Exception.Message) -ForegroundColor Red
-    throw
-}
-) 'Contrato de instalacion original'
-    $dedicated = Get-LocalUser -Name $install.dedicated_user -ErrorAction Stop
+             [string]$install.dedicated_sid -match '^S-1-5-21-(?:[0-9]+-){3}[0-9]+$') 'Contrato de instalacion original'
+    $dedicated = Get-LocalUser -Name ([string]$install.dedicated_user) -ErrorAction Stop
     Require ($dedicated.SID.Value -ceq [string]$install.dedicated_sid) 'SID de servicio coincide con manifiesto'
-    # K-X asignó a la cuenta dedicada permisos en la raíz de estado.
-    # Un SID ajeno sigue siendo NO-GO; jamás cambiar ACL para superar esta puerta.
+    # La cuenta K-X dedicada tiene acceso esperado al estado. No modificar ACL.
     Assert-Private 'C:\ProgramData\VehiculoIoT-KX-State' @([string]$install.dedicated_sid)
     Assert-Private $state @([string]$install.dedicated_sid)
     $transaction = Get-Content -LiteralPath (Join-Path $v4 'transaction.json') -Raw -ErrorAction Stop | ConvertFrom-Json
