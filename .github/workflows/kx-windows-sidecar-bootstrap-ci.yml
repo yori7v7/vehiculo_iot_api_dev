@@ -29,6 +29,7 @@ on:
       - scripts/kx_run_caddy_launcher_candidate_not_active.ps1
       - scripts/kx_stage_caddy_launcher_offline.ps1
       - scripts/kx_simulate_caddy_launcher_and_rollback_offline.ps1
+      - scripts/kx_public_https_go_nogo_preflight_readonly.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -1025,3 +1026,60 @@ jobs:
             throw "Mock common.ps1 cannot invoke real processes or network"
           }
           Write-Host "PASS: isolated Caddy launcher test PS5.1 syntax, mock helper, no live Caddy changes"
+      - name: PowerShell 5.1 validate read-only public HTTPS final cutover preflight
+        shell: powershell
+        run: |
+          $file="scripts/kx_public_https_go_nogo_preflight_readonly.ps1"
+          $tokens=$null; $errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $file),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){
+            $errors|ForEach-Object {Write-Host $_.Message}
+            throw "K-X Go/No-Go preflight invalid under PowerShell 5.1"
+          }
+          $src=Get-Content $file -Raw
+          foreach($needle in @(
+            'kx_proxy_proof_rotation_result.json',
+            'kx_runtime_env_caddy_lab_result.json',
+            'kx_https_public_release_v1_offline',
+            'launcher_stage_report.json',
+            'launcher_simulation_report.json',
+            'launcher_candidate_staged_offline_not_installed',
+            'isolated_launcher_and_rollback_simulation_not_production',
+            'Get-FileHash',
+            'Get-NetTCPConnection',
+            'Get-ScheduledTask',
+            'GetOwnerSid',
+            'config.json',
+            'X-Admission-Proxy-Token',
+            '{env.KX_STAGING_PROXY_PROOF}',
+            'AllowReadFor $configFile "S-1-5-18"',
+            'MatchSid $caddyPID "S-1-5-18"',
+            'Simulacion aislada aprobada',
+            'Lanzador staged SHA256 exacto',
+            'Sin token en ',
+            'NO-GO PREFLIGHT READINESS',
+            'ROLLBACK REAL CON SERVICIO SYSTEM: AUN NO PROBADO',
+            'CONTROL FISICO: OFF',
+            'SOLO LECTURA: SIN WRITES, RELOAD, RESTART, HTTP, RDS, ESP NI MOTORES'
+          )){
+            if($needle -eq 'X-Admission-Proxy-Token'){continue}
+            if(-not $src.Contains($needle)){throw "Go/No-Go preflight missing evidence: $needle"}
+          }
+          $cmds=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object {$_.GetCommandName()})
+          foreach($forbidden in @("Stop-ScheduledTask","Start-ScheduledTask",
+            "Set-ScheduledTask","Register-ScheduledTask","Start-Process",
+            "Stop-Process","Stop-Service","Restart-Service",
+            "Restart-Computer","New-NetFirewallRule","Invoke-WebRequest",
+            "Set-Content","Add-Content","Out-File","New-Item",
+            "Copy-Item","Move-Item","Remove-Item","Set-Acl",
+            "curl.exe","Invoke-RestMethod","Invoke-WebRequest")) {
+            if($cmds -contains $forbidden){
+              throw "Read-only preflight includes mutating command: $forbidden"
+            }
+          }
+          if($src -match '(?im)^\s*\$pid\s*='){throw "Reserved PID variable"}
+          Write-Host "PASS: final offline Go/No-Go inventory is read-only and PowerShell 5.1 parsable"
