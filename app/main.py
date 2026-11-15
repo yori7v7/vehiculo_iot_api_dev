@@ -18,6 +18,7 @@ from app.public_control.kk_admin_lab import router as kk_admin_lab_router
 from app.public_control.kx_inline_admission import (
     KXWriteFence, admission_lifespan, router as kx_inline_router,
 )
+from app.public_control.kx_signed_wss import router as kx_diagnostic_router
 from app.public_control.runtime import public_control_runtime
 from app.routers.commands import router as commands_router
 from app.routers.demos import router as demos_router
@@ -89,6 +90,8 @@ def create_app() -> FastAPI:
     # K-X: virtual, in-process, sin despacho fisico ni servicio adicional.
     application.state.kx_enabled = settings.public_virtual_admission_enabled
     application.state.kx_ledger = None
+    # No existe activación por ENV: solo pruebas inyectan un HUB virtual.
+    application.state.kx_diag_hub = None
     application.state.kx_admin_proof = None
     application.state.kf_wss_controller = None
     # K-I: contrato HTTPS solo para pruebas; en produccion siempre cerrado.
@@ -127,6 +130,7 @@ def create_app() -> FastAPI:
     # WSS de laboratorio aislado, sin capacidad de actuación física.
     application.include_router(device_lab_router)
     application.include_router(command_lab_router)
+    application.include_router(kx_diagnostic_router)
     register_exception_handlers(application)
     return application
 
