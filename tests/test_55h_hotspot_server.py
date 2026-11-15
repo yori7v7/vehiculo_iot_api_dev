@@ -91,6 +91,8 @@ def test_signed_wss_55h_hotspot_diagnostic_full_flow(private):
             final = ws.receive_json()
             assert final["tipo"] == "prueba_contrato_terminada"
             assert final["parada_fisica_verificada"] is False
+            assert final["movimiento"] == 9
+            assert final["detener"] == 0
     assert app.state.active_device is False
 
 
