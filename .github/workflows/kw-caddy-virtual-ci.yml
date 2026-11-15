@@ -93,6 +93,11 @@ jobs:
             -v "$GITHUB_WORKSPACE/deploy/staging/kw/Caddyfile.candidate_NOT_DEPLOY:/etc/caddy/Caddyfile:ro" \
             -e KW_PROXY_TOKEN=ONLY-SYNTAX-VALIDATION-NOT-A-SECRET \
             caddy:2.10.2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          # K-X: validar solo la SINTAXIS del nuevo candidato aislado.
+          # No se instala, recarga, conecta a AWS ni reemplaza legacy.
+          docker run --rm --network none \
+            -v "$GITHUB_WORKSPACE/deploy/staging/kw/Caddyfile.kx_diagnostic_NOT_DEPLOY:/etc/caddy/Caddyfile:ro" \
+            caddy:2.10.2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - name: FastAPI K-V aislado en 127.0.0.1 puerto 9444
         shell: bash
