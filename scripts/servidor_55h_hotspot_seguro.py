@@ -121,6 +121,7 @@ def create_55h_hotspot_lab_app(private_dir: Path = PRIVATE_DIR) -> FastAPI:
             handshake = DeviceLabHandshake(1, device_key)
             await ws.accept()
             accepted = True
+            await ws.send_json(handshake.challenge)
             print("[55-H] ESP conectado por WSS TLS; verificando desafio HMAC")
             response = await receive_strict(ws, 5)
             session, confirmation = handshake.verify(response)
