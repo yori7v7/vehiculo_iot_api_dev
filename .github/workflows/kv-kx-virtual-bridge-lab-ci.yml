@@ -1,0 +1,46 @@
+name: K-V K-X virtual bridge isolated contract (NO AWS)
+
+on:
+  pull_request:
+    branches:
+      - feature/kv-v1-upgrade-staging-only
+    paths:
+      - 'app/public_control/kv_kx_virtual_bridge_lab.py'
+      - 'tests/test_kv_kx_virtual_bridge_lab.py'
+      - 'docs/kv_kx_virtual_bridge_lab.md'
+      - '.github/workflows/kv-kx-virtual-bridge-lab-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  virtual-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact proposed branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Isolated shared-authority + signed WSS regression
+        env:
+          APP_ENV: staging
+          ADMISSION_VIRTUAL_ONLY: enabled
+          KX_KV_VIRTUAL_BRIDGE_LAB: isolated_ci_only
+          DEVICE_LAB_ENABLED: 'false'
+          CONTROL_PUBLICO_ENABLED: 'false'
+        run: |
+          python -m pytest -q \
+            tests/test_kv_kx_virtual_bridge_lab.py \
+            tests/test_kx_signed_wss.py \
+            tests/test_kv_virtual_staging.py \
+            tests/test_kv_supervised_durations.py
