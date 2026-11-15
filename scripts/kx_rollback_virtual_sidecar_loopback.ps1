@@ -31,10 +31,16 @@ try {
   }
   $task=Get-ScheduledTask -TaskPath "\" -TaskName $taskName -ErrorAction Stop
   Assert ($null -ne $task) "Tarea sidecar existe"
-  $allowed=@("config.json","launcher.py","install.json","admission.sqlite","admission.sqlite.lock",
-             "admission.sqlite-journal","admission.sqlite-wal","admission.sqlite-shm")
+  $allowed=@("config.json","launcher.py","install.json","data")
   foreach($f in @(Get-ChildItem -LiteralPath $work -Force -ErrorAction Stop)){
-    Assert ($f.Name -in $allowed -and (($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0)) "Archivo privado esperado"
+    Assert ($f.Name -in $allowed -and (($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0)) "Elemento privado esperado"
+  }
+  $dataDir=Join-Path $work "data"
+  Assert (Test-Path -LiteralPath $dataDir -PathType Container) "Datos SQLite presentes"
+  $allowedData=@("admission.sqlite","admission.sqlite.lock","admission.sqlite-journal",
+                 "admission.sqlite-wal","admission.sqlite-shm")
+  foreach($f in @(Get-ChildItem -LiteralPath $dataDir -Force -ErrorAction Stop)){
+    Assert ($f.Name -in $allowedData -and (($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0)) "Archivo SQLite esperado"
   }
   if(-not ("KXRollbackRightsV1" -as [type])){
     Add-Type -Language CSharp -TypeDefinition @'
