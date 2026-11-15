@@ -6,6 +6,7 @@ on:
     paths:
       - scripts/kx_install_virtual_sidecar_loopback.ps1
       - scripts/kx_rollback_virtual_sidecar_loopback.ps1
+      - scripts/kx_validate_virtual_sidecar_restart.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -64,3 +65,19 @@ jobs:
           if (-not $match.Success) { throw "Rollback interop missing" }
           Add-Type -TypeDefinition $match.Groups[1].Value -Language CSharp -ErrorAction Stop
           Write-Host "PASS: independent rollback syntax and C-sharp"
+      - name: Parse sidecar restart and fencing test for PowerShell 5.1
+        shell: powershell
+        run: |
+          $file = "scripts/kx_validate_virtual_sidecar_restart.ps1"
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+          if (@($errors).Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.Message }
+            throw "PowerShell validation script syntax invalid"
+          }
+          $text = Get-Content $file -Raw
+          foreach($required in @("Stop-ScheduledTask", "Start-ScheduledTask", "127.0.0.1:9444", "turno_virtual_activo", "canDrive", "401", "GetOwnerSid")) {
+            if(-not $text.Contains($required)) { throw "Missing restart test contract: $required" }
+          }
+          Write-Host "PASS: sidecar restart and epoch fencing script syntax"
