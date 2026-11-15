@@ -177,7 +177,7 @@ print("OK: sin tickets virtuales waiting / approved_virtual")
   "header_up X-Admission-Client-IP 1.1.1.1")
  $temp=$temp.Replace("OFFLINE_INVALID_TOKEN_NOT_FOR_DEPLOYMENT_000000000000000000",
   '{$KX_STAGING_PROXY_PROOF}')
- $temp=[string]::Join([Environment]::NewLine,@("{"," admin off",""))+
+ $temp=[string]::Join([Environment]::NewLine,@("{"," admin off","}",""))+
   [Environment]::NewLine+$temp
  Check ($temp.Contains("http://127.0.0.1:9481") -and
   $temp.Contains(" bind 127.0.0.1") -and
