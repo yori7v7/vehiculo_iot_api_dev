@@ -47,3 +47,12 @@ El Caddyfile candidato usa un placeholder runtime env.KX_STAGING_PROXY_PROOF. El
 ## Ultima decision registrada
 
 GO_CI_V3_SOLAMENTE / **NO-GO_PUBLICACION** hasta que stage + Review V3 terminen PASS en EC2 y el operador ejecute expresamente el comando de ventana. La autorizacion general del usuario para continuar no equivale a haber realizado el cambio de HTTPS.
+
+
+## 2026-11-15: V3 PREPARED y ambos Review PASS en EC2
+
+- Evidencia del operador: `RESULTADO: K-X V3 PREPARADA Y REVISADA` con `CONTROLADOR V3: REVIEW PASS`, `RECUPERADOR V3: REVIEW PASS`, `TRANSACCION: PREPARED`, `WATCHDOG: NO ARMADO` y `HTTPS 443: NO MODIFICADO`.
+- La prueba en EC2 de las dos entradas `-Action Review` fue exitosa. No equivale a haber ejecutado `-Action Cutover` ni `-Action Recover`.
+- Paquete V3 instalado bajo `C:\ProgramData\VehiculoIoT-KX-Installer\kx_https_cutover_bundle_v3_RELEASE_READY`; V1 y V2 quedan separados e intactos.
+- Siguiente hito: una unica ventana HTTPS real con comprobacion de preflight en vivo, autorizacion explicita de comando y recovery independiente bajo SYSTEM. Si hay NO-GO no relanzar ni reiniciar manualmente hasta inspeccionar estado y tareas.
+- Estado `GO_STAGE_AND_REVIEW_V3_EC2 / NO-GO_443_UNTIL_EXECUTION`.
