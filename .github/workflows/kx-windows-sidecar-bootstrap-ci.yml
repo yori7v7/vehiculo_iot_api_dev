@@ -25,6 +25,7 @@ on:
       - scripts/kx_file_replace_dummy_acl_diagnostic.ps1
       - scripts/kx_file_replace_matrix_dummy.ps1
       - scripts/kx_rotate_virtual_proxy_proof_explicit_backup_v2.ps1
+      - scripts/kx_prepare_public_https_release_offline.ps1
       - .github/workflows/kx-windows-sidecar-bootstrap-ci.yml
   workflow_dispatch:
 permissions:
@@ -843,3 +844,44 @@ jobs:
              Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
           }
           Write-Host "PASS: rotation v2 PS5.1 syntax, no null backup, Python read-only preflight, explicit NTFS smoke"
+      - name: Validate secret-free offline K-X public HTTPS candidate preparation
+        shell: powershell
+        run: |
+          $file="scripts/kx_prepare_public_https_release_offline.ps1"
+          $tokens=$null; $errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -gt 0) {
+            $errors|ForEach-Object {Write-Host $_.Message}
+            throw "Offline K-X release candidate parser invalid under PS5.1"
+          }
+          $src=Get-Content $file -Raw
+          foreach($marker in @("kx_https_public_release_v1_offline",
+             "Caddyfile.kx.ready.NOT_ACTIVE","adapt --config",
+             "OFFLINE_INVALID_TOKEN_NOT_FOR_DEPLOYMENT",
+             "{env.KX_STAGING_PROXY_PROOF}", " persist_config off",
+             " admin 127.0.0.1:2019", "reverse_proxy 127.0.0.1:8000",
+             "reverse_proxy 127.0.0.1:9444",
+             "runtime_env_proxy_proof_local_get_only",
+             "proxy_proof_rotated_kv_loopback_only",
+             "real_proxy_proof_saved_to_file",
+             "runtime_placeholder_retained", "production_caddy_changed",
+             "task_action_changed", "new_public_routes_enabled",
+             "SISTEMA","KIT HTTPS PUBLICO OFFLINE APROBADO",
+             "SIN RELOAD, RESTART, POST, RDS, ESP NI MOTORES",
+             "CONTROL FISICO: OFF")) {
+            if(-not $src.Contains($marker) -and $marker -ne "SISTEMA"){
+              throw "Missing offline-only release contract: $marker"
+            }
+          }
+          $commands=@($ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.CommandAst]
+          },$true) | ForEach-Object { $_.GetCommandName() })
+          foreach($forbidden in @("Stop-ScheduledTask","Start-ScheduledTask",
+             "Set-ScheduledTask","Register-ScheduledTask",
+             "Stop-Process","Stop-Service","Restart-Service",
+             "Restart-Computer","New-NetFirewallRule","Copy-Item","Move-Item",
+             "Set-Acl","Invoke-WebRequest","curl.exe")) {
+            if($commands -contains $forbidden){ throw "Forbidden mutation in offline prep: $forbidden" }
+          }
+          if($src -match '(?im)^\s*\$home\s*='){throw "Reserved HOME assignment"}
+          Write-Host "PASS: offline HTTPS candidate leaves production untouched; no secret persistence"
