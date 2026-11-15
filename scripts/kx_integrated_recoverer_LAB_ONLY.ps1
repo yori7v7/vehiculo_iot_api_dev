@@ -91,10 +91,20 @@ function Recover($s) {
  $task=Get-ScheduledTask -TaskName $service -TaskPath '\' -ErrorAction Stop
  if($task.Principal.UserId -notmatch '^(SYSTEM|S-1-5-18|NT AUTHORITY\\SYSTEM)$'){throw 'NO-GO: service task changed'}
  $action=@($task.Actions)
- if($action.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$action[0].Arguments) -or
-    -not ([string]$action[0].Arguments).Contains((Join-Path ([IO.Path]::GetDirectoryName($CaseDir)) 'kx_integrated_operator.ps1'))){
-  throw 'NO-GO: service task action not from lab'
+ if($action.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$action[0].Arguments)){
+  throw 'NO-GO: service task has unexpected action'
  }
+ # Task Scheduler can serialize C:\Users\runneradmin as C:\Users\RUNNER~1.
+ # Match the unique protected LAB folder and the exact script SHA256, not path spelling.
+ $m=[regex]::Match([string]$action[0].Arguments,'(?i)-File\s+"([^"]+)"')
+ if(-not $m.Success){throw 'NO-GO: service task lacks quoted script argument'}
+ $actualScript=$m.Groups[1].Value
+ $root=[IO.Path]::GetDirectoryName($CaseDir)
+ if([IO.Path]::GetFileName($actualScript) -cne 'kx_integrated_operator.ps1' -or
+    [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($actualScript)) -cne [IO.Path]::GetFileName($root)){
+  throw 'NO-GO: service task action points outside unique LAB'
+ }
+ RequireHash $actualScript ([string]$s.hashes.operator_script)
  # Disable first: prevent retries from competing with restoration.
  Disable-ScheduledTask -TaskName $service -TaskPath '\' -ErrorAction Stop|Out-Null
  if((Get-ScheduledTask -TaskName $service -TaskPath '\').State -eq 'Running'){
