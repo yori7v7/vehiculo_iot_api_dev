@@ -92,3 +92,15 @@ def test_tls_source_has_no_insecure_ssl_or_open_network_bind():
     assert "ssl.CERT_NONE" not in src
     assert "0.0.0.0:9444" not in src
     assert "GPIO" in src
+
+
+def test_http_startup_probe_consumes_integer_status_from_actual_local_stub():
+    """Regresion WinError NO-GO TypeError: 200[0] nunca es valido."""
+    port = tls.free_port({443, 8000, 9444})
+    with tls.legacy_stub(port):
+        code = tls.http_request(port, "GET", "/docs")
+        assert type(code) is int
+        assert code == 200
+    source = Path(tls.__file__).read_text(encoding="utf-8")
+    assert 'if http_request(PORT, "GET", "/docs") == 200:' in source
+    assert 'http_request(PORT, "GET", "/docs")[0]' not in source
