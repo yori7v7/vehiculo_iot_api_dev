@@ -16,6 +16,7 @@ on:
       - 'tests/test_55i_hotspot_bridge.py'
       - 'scripts/servidor_55i_kv_kx_esp_lab.py'
       - 'tests/test_55i_network_guard.py'
+      - 'requirements-dev.txt'
       - 'scripts/servidor_55j_reconexion_esp_lab.py'
       - 'tests/test_55j_network_cut.py'
       - 'tests/test_55j_shutdown_cleanup.py'
