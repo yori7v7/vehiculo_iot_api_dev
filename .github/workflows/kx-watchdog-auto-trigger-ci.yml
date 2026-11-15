@@ -1,0 +1,45 @@
+name: K-X watchdog automatic SYSTEM trigger mirror lab PS 5.1
+on:
+  push:
+    branches:
+      - feature/kx-sidecar-windows-preparacion
+    paths:
+      - scripts/kx_watchdog_auto_trigger_mirror_lab.ps1
+      - .github/workflows/kx-watchdog-auto-trigger-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  watchdog-triggered-mirror:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout experimental
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: PowerShell 5.1 parse and automatic trigger guard
+        shell: powershell
+        run: |
+          $path = '.\scripts\kx_watchdog_auto_trigger_mirror_lab.ps1'
+          $tokens=$null
+          $errors=$null
+          $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'PowerShell 5.1 parser NO-GO'}
+          $commands=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst]},$true) | ForEach-Object {$_.GetCommandName()})
+          if($commands -contains 'Start-ScheduledTask'){throw 'Manual task start is prohibited for auto-trigger rehearsal'}
+          foreach($required in @('New-ScheduledTaskTrigger','Register-ScheduledTask','Unregister-ScheduledTask')){
+            if($commands -notcontains $required){throw ('Missing lab operation '+$required)}
+          }
+          $raw=Get-Content -LiteralPath $path -Raw
+          foreach($blocked in @('proxy_proof','admin_proof','taskkill.exe','Stop-VehicleDeployment','Set-NetFirewallRule')){
+            if($raw.Contains($blocked)){throw ('Forbidden K-X action '+$blocked)}
+          }
+          if(-not $raw.Contains('kx_watchdog_task_trigger_lab_v1')){throw 'Dedicated isolation directory missing'}
+          Write-Host 'K-X PS 5.1 parser / auto-trigger-only guard PASS'
+      - name: Automatic scheduled task restores mirrors after worker crash
+        shell: powershell
+        run: |
+          & '.\scripts\kx_watchdog_auto_trigger_mirror_lab.ps1' -Mode FixtureCI
+          if($LASTEXITCODE -ne 0){throw 'K-X scheduled watchdog auto trigger NO-GO'}
+          Write-Host 'K-X auto-trigger watcher PASS (CI mirror fixture)'
