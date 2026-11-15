@@ -146,5 +146,73 @@ class TestContrato55K(unittest.TestCase):
             self.assertIn(token, s)
 
 
+    def test_08_fallos_wss(self):
+        s = self.safe
+
+        failure = s.split(
+            "void failClosed(", 1
+        )[1].split(
+            "void caducarPendienteVirtual()", 1
+        )[0]
+
+        self.assertIn("authenticated = false;", failure)
+        self.assertIn("pending = false;", failure)
+        self.assertIn("grua.paradaSeguridad();", failure)
+
+        events = s.split(
+            "void event(", 1
+        )[1].split(" public:", 1)[0]
+
+        disconnect = events.split(
+            "if (type == WStype_DISCONNECTED || "
+            "type == WStype_ERROR)", 1
+        )[1].split(
+            "if (type == WStype_CONNECTED)", 1
+        )[0]
+
+        self.assertIn("pending = false;", disconnect)
+        self.assertIn("grua.paradaSeguridad();", disconnect)
+
+        self.assertIn(
+            "if (WiFi.status() != WL_CONNECTED)",
+            s
+        )
+
+    def test_09_stop_antes_del_ack(self):
+        s = self.safe
+
+        order = s.split(
+            "void order(JsonDocument& doc) {", 1
+        )[1].split("void event(", 1)[0]
+
+        stop = order.split(
+            "if (code == 0) {", 1
+        )[1].split("} else {", 1)[0]
+
+        self.assertLess(
+            stop.index("grua.paradaSeguridad();"),
+            stop.index("ack(raw, 1);")
+        )
+
+    def test_10_caducidad_neutraliza(self):
+        s = self.safe
+
+        expire = s.split(
+            "void caducarPendienteVirtual() {", 1
+        )[1].split("void sendJson(", 1)[0]
+
+        self.assertIn(
+            "grua.actualizarSombra55K();", expire
+        )
+        self.assertIn(
+            "grua.paradaSeguridadSilenciosa();", expire
+        )
+        self.assertIn("pending = false;", expire)
+
+        self.assertIn(
+            "sombra55K.detener();", s
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
