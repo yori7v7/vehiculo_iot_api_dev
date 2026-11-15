@@ -74,8 +74,8 @@ function CheckNoBroadWrite([string]$path,[string]$label) {
 function Listeners([int]$port) {
  return @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
 }
-function MatchSid([uint32]$pid,[string]$sid) {
- $p=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$pid) -ErrorAction Stop
+function MatchSid([uint32]$processId,[string]$sid) {
+ $p=Get-CimInstance Win32_Process -Filter ("ProcessId = "+$processId) -ErrorAction Stop
  if($null -eq $p){return $false}
  $owner=(Invoke-CimMethod -InputObject $p -MethodName GetOwnerSid -ErrorAction Stop).Sid
  return $owner -eq $sid
