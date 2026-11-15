@@ -38,11 +38,15 @@ function Inspect-RiskyACL([string]$target){
  foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
   $sidValue=$rule.IdentityReference.Value
   $flags=[int]$rule.FileSystemRights
-  $writeFlags=[int]([Security.AccessControl.FileSystemRights]::Write -bor
-   [Security.AccessControl.FileSystemRights]::Modify -bor
-   [Security.AccessControl.FileSystemRights]::FullControl -bor
+  # Only mutation bits: composite FullControl/Modify masks also include READ.
+  # Testing them as bitmasks falsely flags ReadAndExecute grants.
+  $writeFlags=[int](
    [Security.AccessControl.FileSystemRights]::WriteData -bor
    [Security.AccessControl.FileSystemRights]::AppendData -bor
+   [Security.AccessControl.FileSystemRights]::Delete -bor
+   [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+   [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+   [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
    [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
    [Security.AccessControl.FileSystemRights]::TakeOwnership)
   if($rule.AccessControlType -eq "Allow" -and ($flags -band $writeFlags) -ne 0 -and
