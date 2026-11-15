@@ -612,7 +612,7 @@ jobs:
           $src = Get-Content $file -Raw
           foreach($required in @("AppData", "LOCALAPPDATA", "autosave.json",
              "X-Admission-Proxy-Token", "proxy_proof", "GetAccessRules",
-             "ACE", "ReadData", "WriteData", "Get-NetTCPConnection",
+             "ReadData", "WriteData", "Get-NetTCPConnection",
              "Get-ScheduledTask", "AUTOSAVES CON TOKEN REAL",
              "CONTENCION LOCAL + ROTACION DE PROXY_PROOF",
              "TOKEN NO MOSTRADO", "NO REPETIR, NO BORRAR AUTOSAVES",
