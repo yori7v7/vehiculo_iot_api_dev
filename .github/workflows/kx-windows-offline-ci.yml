@@ -47,6 +47,20 @@ jobs:
           }
           Write-Output 'K-X runtime-readonly syntax: OK, no users or services touched'
 
+      - name: Validar sintaxis K-X runtime independiente en Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            '.\scripts\kx_prepare_isolated_python_runtime.ps1',
+            [ref]$tokens, [ref]$errors
+          )
+          if (@($errors).Count -ne 0) {
+            throw 'K-X isolated Python runtime script PowerShell 5.1 parse failed'
+          }
+          Write-Output 'K-X runtime staging syntax OK; no users, tasks or services touched'
+
       - name: Validar audit Windows PowerShell 5.1 y falla segura
         shell: powershell
         run: |
