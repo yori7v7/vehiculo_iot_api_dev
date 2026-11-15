@@ -89,3 +89,13 @@ Se agregaron scripts/kx_dual_file_rollback_fault_lab.ps1 y .github/workflows/kx-
 - NO IMPLEMENTADO: watchdog independiente, rollback tras cierre abrupto del operador, coordinacion de reintentos y recuperacion real del HTTPS 443.
 
 Este avance NO cambia NO-GO_PUBLICACION ni autoriza el cutover.
+
+## Avance K-X: identidad del supervisor y watchdog por procesos separados (sin publicacion)
+
+- Auditoria read-only EC2 del operador: PASS. `VehiculoIoT-Caddy` tiene 999 reintentos cada 1 min, lanzador original intacto, supervisor e hijo SYSTEM identificados por PID, fecha de creacion e imagen; padre-hijo y unico listener HTTPS 443 coinciden. 9444/8000 loopback y 9481 libre. Esta evidencia NO es una prueba de stop/restart productivo.
+- Nuevo laboratorio en `scripts/kx_watchdog_process_mirror_lab.ps1` con roles Driver, Worker y Watchdog: dos procesos distintos sobre espejos privados. Mutex con posible abandono tras crash, identidad exacta del worker y respaldo con hash antes del rollback.
+- GitHub Actions Windows PowerShell 5.1: PASS run 43693583159 (tres casos: interrupcion del Worker tras primer archivo, tras segundo archivo y commit ficticio con watchdog desarmado). Ejecutado solamente en fixtures del runner, sin afectar EC2.
+- PENDIENTE: ejecutar `-Mode EC2CopyLab` contra copias verificadas del servidor y recopilar resultado; no se interrumpe Caddy productivo.
+- NO DEMOSTRADO: watchdog durable por tarea independiente, supervivencia a cierre de RDP/reinicio Windows, arbitraje de reintentos reales, recuperacion de HTTPS 443 y checks TLS tras reemplazo.
+
+Todos estos avances mantienen NO-GO_PUBLICACION y control fisico deshabilitado.
