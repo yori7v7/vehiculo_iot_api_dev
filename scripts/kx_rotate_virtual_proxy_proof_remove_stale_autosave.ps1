@@ -38,7 +38,7 @@ function NoReparse([string]$path,[string]$label){
 }
 function CheckACL([string]$path,[string]$dedicatedSid,[bool]$allowDedicated) {
  $acl=Get-Acl -LiteralPath $path -ErrorAction Stop
- $trusted=@("S-1-5-18","S-1-5-32-544")
+ $trusted=@("S-1-5-18","S-1-5-32-544",([Security.Principal.WindowsIdentity]::GetCurrent().User.Value))
  if($allowDedicated){$trusted+= $dedicatedSid}
  foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
   if($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
@@ -305,6 +305,14 @@ catch{
  Write-Host ("TIPO: "+$_.Exception.GetType().Name) -ForegroundColor Yellow
  Write-Host "ERROR DETALLADO OMITIDO: NO MOSTRAR CREDENCIALES" -ForegroundColor Yellow
  Write-Host "NO REPETIR ESTE PROCEDIMIENTO"
+ if($stopped -and -not $swapped){
+  Write-Host "DETENCION SIN CAMBIO DE CONFIG: SE INTENTARA REANUDAR K-V ORIGINAL" -ForegroundColor Yellow
+  try{
+   $t=Get-ScheduledTask -TaskPath "\" -TaskName "VehiculoIoT-Admission-Virtual" -ErrorAction Stop
+   if($t.State -ne "Running"){Start-ScheduledTask -TaskPath "\" -TaskName "VehiculoIoT-Admission-Virtual" -ErrorAction Stop}
+   Check (WaitPort $true) "K-V original recuperado, sin rotacion"
+  }catch{Write-Host "NO-GO: No se pudo restaurar el arranque de K-V" -ForegroundColor Red}
+ }
  if($swapped -and -not $verified){
   Write-Host "ROTACION NO CERTIFICADA: SE INTENTARA DETENER K-V, SIN RESTAURAR TOKEN EXPUESTO" -ForegroundColor Red
   try{
