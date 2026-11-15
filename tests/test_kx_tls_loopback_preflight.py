@@ -126,3 +126,67 @@ def test_tls_readiness_diagnostics_are_bounded_and_never_log_secrets():
     assert "print(error)" not in source
     assert "print(_body)" not in source
     assert "print(server_key)" not in source
+
+
+def test_ephemeral_cert_chain_passes_python_x509_strict_tls_handshake(tmp_path):
+    """Regresion exacta del OpenSSL verify_code=85 en Python 3.14.
+
+    No se relaja VERIFY_X509_STRICT. El cliente valida la CA y el SNI
+    por TLS real en 127.0.0.1, sin Caddy ni abrir puertos publicos.
+    """
+    from cryptography import x509
+    import socket
+    import ssl
+    import threading
+
+    ca = tls.create_local_ca(tmp_path)
+    crt_path = tmp_path / "local_server.pem"
+    key_path = tmp_path / "local_server_private.pem"
+    root = x509.load_pem_x509_certificate(ca.read_bytes())
+    leaf = x509.load_pem_x509_certificate(crt_path.read_bytes())
+    root_ski = root.extensions.get_extension_for_class(
+        x509.SubjectKeyIdentifier
+    ).value.digest
+    root_aki = root.extensions.get_extension_for_class(
+        x509.AuthorityKeyIdentifier
+    ).value.key_identifier
+    leaf_aki = leaf.extensions.get_extension_for_class(
+        x509.AuthorityKeyIdentifier
+    ).value.key_identifier
+    leaf.extensions.get_extension_for_class(x509.SubjectKeyIdentifier)
+    assert root_ski == root_aki == leaf_aki
+
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain(str(crt_path), str(key_path))
+    client_ctx = ssl.create_default_context(cafile=str(ca))
+    client_ctx.verify_flags |= ssl.VERIFY_X509_STRICT
+    assert client_ctx.check_hostname
+    assert client_ctx.verify_mode == ssl.CERT_REQUIRED
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(5)
+        port = listener.getsockname()[1]
+        failures = []
+
+        def serve_one():
+            try:
+                conn, _address = listener.accept()
+                with conn:
+                    with server_ctx.wrap_socket(conn, server_side=True) as stream:
+                        stream.recv(1)
+            except Exception as exc:
+                failures.append(type(exc).__name__)
+
+        thread = threading.Thread(target=serve_one, daemon=True)
+        thread.start()
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as raw:
+            with client_ctx.wrap_socket(
+                raw, server_hostname=tls.DOMAIN
+            ) as client:
+                assert client.version() in ("TLSv1.2", "TLSv1.3")
+                client.sendall(b"X")
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert failures == []
