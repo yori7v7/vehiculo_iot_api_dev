@@ -92,5 +92,22 @@ jobs:
           if (-not $text.Contains('$response.Data.turno_activo')) {
             throw "Missing correct HTTP admin snapshot field"
           }
+          if (-not $text.Contains('$PSBoundParameters.ContainsKey("payload")')) {
+            throw "GET/body regression: payload binding guard missing"
+          }
+          if ($text.Contains('if($null -ne $payload)')) {
+            throw "GET/body regression: typed string default null is unsafe"
+          }
+          if (-not $text.Contains('Autorizacion virtual revocada tras NO-GO')) {
+            throw "Virtual approval cleanup missing"
+          }
+          function Test-OptionalPayload([string]$payload = $null) {
+            return $PSBoundParameters.ContainsKey("payload")
+          }
+          if (Test-OptionalPayload) { throw "Omitted body mistaken as supplied" }
+          if (-not (Test-OptionalPayload -payload '{"modo":"timed"}')) {
+            throw "Explicit POST body omitted"
+          }
+          Write-Host "PASS: GET body guard, optional param semantics and fail-closed cleanup"
           Write-Host "PASS: safe PowerShell variable names and backend API response contract"
           Write-Host "PASS: sidecar restart and epoch fencing script syntax"
