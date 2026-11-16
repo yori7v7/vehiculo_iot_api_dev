@@ -46,3 +46,10 @@ jobs:
             -s tests \
             -p "test_55k_guardrails.py" \
             -v
+
+      - name: Verify signed authority to firmware contract
+        run: |
+          python3 -m unittest discover \
+            -s tests \
+            -p "test_55k_auth_chain.py" \
+            -v
