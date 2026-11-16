@@ -8,10 +8,16 @@ class Puente55KActuacionSegura final {
 private:
     Controlador55KInhibido controlador;
     bool canalPreparado = false;
+    uint32_t revisionParada_ = 0;
 
 public:
     void detener() {
+        ++revisionParada_;
         controlador.detener();
+    }
+
+    uint32_t revisionParada() const {
+        return revisionParada_;
     }
 
     void invalidarCanal() {

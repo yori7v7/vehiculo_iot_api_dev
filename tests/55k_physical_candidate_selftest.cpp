@@ -162,5 +162,51 @@ int main() {
     CHECK(salida == 0);
     CHECK(!demo.preparado());
 
+
+    // STOP firmado durante una pulsacion de claxon.
+    Puente55KActuacionSegura stopPuente;
+    Salida55KCandidata stopSalida(stopPuente, escribirSimulado);
+
+    CHECK(stopSalida.iniciar());
+    CHECK(stopPuente.confirmarStopInicial(true));
+    CHECK(stopSalida.registrarAuxiliar(
+        128, 300, 10000, true, true, true, true
+    ));
+
+    CHECK(stopSalida.actualizar(10040, true, true) == 128);
+    CHECK(salida == 128);
+
+    CHECK(stopPuente.recibirMovimiento(
+        0, 0, 10050, true, true
+    ));
+
+    CHECK(stopSalida.actualizar(10051, true, true) == 0);
+    CHECK(salida == 0);
+    CHECK(!stopPuente.preparado());
+
+    // El pulso no debe reaparecer.
+    CHECK(stopSalida.actualizar(10100, true, true) == 0);
+    CHECK(salida == 0);
+
+    // STOP antes de que comience una pulsacion.
+    Puente55KActuacionSegura previoPuente;
+    Salida55KCandidata previoSalida(
+        previoPuente, escribirSimulado
+    );
+
+    CHECK(previoSalida.iniciar());
+    CHECK(previoPuente.confirmarStopInicial(true));
+    CHECK(previoSalida.registrarAuxiliar(
+        16, 300, 20000, true, true, true, true
+    ));
+
+    CHECK(previoPuente.recibirMovimiento(
+        0, 0, 20010, true, true
+    ));
+
+    CHECK(previoSalida.actualizar(20040, true, true) == 0);
+    CHECK(salida == 0);
+    CHECK(!previoPuente.preparado());
+
     return 0;
 }

@@ -19,6 +19,7 @@ private:
     uint8_t auxiliar_ = 0;
     uint32_t auxiliarDesde_ = 0;
     uint32_t auxiliarHasta_ = 0;
+    uint32_t revisionParadaVista_ = 0;
 
     static bool mascaraPermitida(uint8_t codigo) {
         switch (codigo) {
@@ -50,6 +51,7 @@ public:
         auxiliar_ = 0;
         auxiliarDesde_ = 0;
         auxiliarHasta_ = 0;
+        revisionParadaVista_ = puente_.revisionParada();
 
         if (escribir_ == nullptr) {
             return false;
@@ -71,6 +73,7 @@ public:
         auxiliarDesde_ = 0;
         auxiliarHasta_ = 0;
         puente_.invalidarCanal();
+        revisionParadaVista_ = puente_.revisionParada();
     }
 
     // Pulsos auxiliares: luces, velocidad y claxon.
@@ -101,6 +104,7 @@ public:
         // Se neutraliza cualquier direccion previa.
         // Ningun accesorio comparte mascara con un movimiento.
         puente_.detener();
+        revisionParadaVista_ = puente_.revisionParada();
         escribir_(0);
         ultima_ = 0;
 
@@ -116,6 +120,13 @@ public:
         bool permisoVigente
     ) {
         if (!iniciada_ || escribir_ == nullptr) {
+            invalidar();
+            return 0;
+        }
+
+        // Un STOP o invalidacion posterior al pulso lo cancela.
+        if (auxiliar_ != 0 &&
+            revisionParadaVista_ != puente_.revisionParada()) {
             invalidar();
             return 0;
         }
