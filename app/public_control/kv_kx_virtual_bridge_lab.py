@@ -19,14 +19,18 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.public_control.kq_restart_fence import FenceRejected
 from app.public_control.kr_ticket_ledger import KRTicketDenied
 from app.public_control.kv_virtual_staging import (
-    ADMIN, GUEST, _guard, _safe, create_kv_virtual_app,
+    _guard, _safe, create_kv_virtual_app,
 )
 from app.public_control.kx_signed_wss import KXDiagnosticWSSHub, PATH, HOST
 from app.public_control.repository import StoreUnavailable
 from app.public_control.control_evidence_55k import (
     can_dispatch_virtual_55k,
 )
-from app.public_control.control_permissions_55k import ADMIN
+from app.public_control.control_permissions_55k import ADMIN, GUEST
+from app.public_control.demo_programada_55k import (
+    PasoDemo55K, validar_plan,
+)
+from app.public_control.demo_coordinator_55k import DemoCoordinator55K
 
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z", re.ASCII)
 HOTSPOT_PATH = "/ws/dispositivos-lab/1/contrato"
@@ -67,9 +71,12 @@ class VirtualOnlyAuthority:
     def __init__(self, hub: KXDiagnosticWSSHub):
         self.hub = hub
         self.lock = asyncio.Lock()
+        self.demo_busy = False
 
     async def execute(self, ledger, browser_secret: str, code: int, duration_ms: int):
         async with self.lock:
+            if self.demo_busy:
+                raise HTTPException(409, "DEMO virtual en ejecucion")
             try:
                 ledger.verify_virtual_action(browser_secret)
             except KRTicketDenied:
@@ -100,6 +107,8 @@ class VirtualOnlyAuthority:
         code: int, duration_ms: int
     ):
         async with self.lock:
+            if self.demo_busy:
+                raise HTTPException(409, "DEMO virtual en ejecucion")
             if not self.hub.ready:
                 raise HTTPException(503, "WSS virtual no disponible")
 
@@ -146,6 +155,8 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
                                   device_key: bytes, *, clock=None,
                                   hotspot_host: str | None = None,
                                   hotspot_device_ip: str | None = None,
+                                  demo_plan: tuple[PasoDemo55K, ...] | None = None,
+                                  demo_cycles: int = 1,
                                   **limits):
     """Offline-only factory; *not* an alternative production startup entrypoint."""
     mode = os.environ.get("KX_KV_VIRTUAL_BRIDGE_LAB")
@@ -158,6 +169,12 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
         raise ValueError("Puente virtual disponible solo en CI/laboratorio aislado")
     if type(device_key) is not bytes or len(device_key) != 32:
         raise ValueError("Clave HMAC de prueba de exactamente 32 bytes requerida")
+    if demo_plan is not None:
+        if mode != "isolated_ci_only":
+            raise ValueError("Plan virtual solo permitido en CI aislado")
+        validar_plan(demo_plan, demo_cycles)
+    elif demo_cycles != 1:
+        raise ValueError("Ciclos sin plan no permitidos")
 
     # Host y peer LAN se enlazan entre sí: no habilitar modo LAN abierto
     # ni exponerlo en una interfaz pública.
@@ -189,6 +206,8 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
         allow_auxiliary=(mode == "isolated_ci_only"),
     )
     authority = VirtualOnlyAuthority(hub)
+    demo = DemoCoordinator55K(authority, demo_plan, demo_cycles)
+    app.state.kv_demo_coordinator = demo
     app.state.kx_enabled = True
     app.state.kx_diag_hub = hub
     app.state.kx_kv_lab_only = True
@@ -202,6 +221,8 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
             try:
                 yield
             finally:
+                demo.request_cancel()
+                await demo.close()
                 hub.interlock()
                 await hub.shutdown()
 
@@ -223,6 +244,7 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
                 _guard(request, 1, admin=True)
             except HTTPException as exc:
                 return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+            demo.request_cancel()
             hub.interlock()  # Priority: block new sends before awaiting lock.
 
         async with authority.lock:
@@ -242,6 +264,8 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
         if (len(keys) != 1 or not _TOKEN.fullmatch(keys[0]) or
                 request.headers.getlist("x-api-key")):
             raise HTTPException(401, "Sesión de invitado requerida")
+        if demo.active:
+            raise HTTPException(409, "DEMO virtual en ejecucion")
         return await authority.execute(ledger, keys[0], data.codigo, data.duracion_ms)
 
     @app.post(LOCAL_ADMIN_ACTION, include_in_schema=False)
@@ -257,9 +281,65 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
         if len(credentials) != 1:
             raise HTTPException(401, "Credencial requerida")
 
+        if demo.active:
+            raise HTTPException(409, "DEMO virtual en ejecucion")
         return await authority.execute_admin(
             ledger, credentials[0], data.codigo, data.duracion_ms
         )
+
+
+    DEMO_URL = "/__lab__/vehiculos/{id_vehiculo}/demo-programada"
+
+    def demo_actor(request, id_vehiculo, admin):
+        ledger, _ = _guard(request, id_vehiculo, admin=admin)
+        if admin:
+            keys = request.headers.getlist("x-api-key")
+            if len(keys) != 1:
+                raise HTTPException(401, "Clave requerida")
+            return ledger, ADMIN, keys[0]
+
+        keys = request.headers.getlist("x-browser-session")
+        if len(keys) != 1 or not _TOKEN.fullmatch(keys[0]):
+            raise HTTPException(401, "Sesion de invitado requerida")
+        return ledger, GUEST, keys[0]
+
+    @app.post(DEMO_URL + "/iniciar", status_code=202, include_in_schema=False)
+    async def start_guest_demo(id_vehiculo: int, request: Request):
+        ledger, role, proof = demo_actor(request, id_vehiculo, False)
+        if await request.body():
+            raise HTTPException(400, "DEMO sin cuerpo JSON")
+        return await demo.start(ledger, role, proof)
+
+    @app.post(DEMO_URL + "/admin/iniciar", status_code=202, include_in_schema=False)
+    async def start_admin_demo(id_vehiculo: int, request: Request):
+        ledger, role, proof = demo_actor(request, id_vehiculo, True)
+        if await request.body():
+            raise HTTPException(400, "DEMO sin cuerpo JSON")
+        return await demo.start(ledger, role, proof)
+
+    @app.post(DEMO_URL + "/cancelar", include_in_schema=False)
+    async def cancel_guest_demo(id_vehiculo: int, request: Request):
+        _, role, proof = demo_actor(request, id_vehiculo, False)
+        if await request.body():
+            raise HTTPException(400, "Cancelacion sin cuerpo")
+        return await demo.cancel(role, proof)
+
+    @app.post(DEMO_URL + "/admin/cancelar", include_in_schema=False)
+    async def cancel_admin_demo(id_vehiculo: int, request: Request):
+        _, role, proof = demo_actor(request, id_vehiculo, True)
+        if await request.body():
+            raise HTTPException(400, "Cancelacion sin cuerpo")
+        return await demo.cancel(role, proof)
+
+    @app.get(DEMO_URL + "/estado", include_in_schema=False)
+    async def guest_demo_status(id_vehiculo: int, request: Request):
+        _, role, proof = demo_actor(request, id_vehiculo, False)
+        return demo.status(role, proof)
+
+    @app.get(DEMO_URL + "/admin/estado", include_in_schema=False)
+    async def admin_demo_status(id_vehiculo: int, request: Request):
+        _, role, proof = demo_actor(request, id_vehiculo, True)
+        return demo.status(role, proof)
 
     @app.websocket(HOTSPOT_PATH if hotspot_host is not None else PATH)
     async def lab_device_ws(ws: WebSocket):

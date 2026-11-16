@@ -145,3 +145,10 @@ jobs:
             -p no:cacheprovider \
             --basetemp "$RUNNER_TEMP/55k_demo_wss" \
             tests/test_55k_demo_wss_integration.py
+
+      - name: Verify shared-authority DEMO coordinator
+        run: |
+          python -m pytest -v -x \
+            -p no:cacheprovider \
+            --basetemp "$RUNNER_TEMP/55k_demo_coordinator" \
+            tests/test_55k_demo_coordinator.py
