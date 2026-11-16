@@ -20,6 +20,7 @@ ACK_CONTEXT = b"vehiculo-iot|device-order-ack-v1|"
 ORDER = struct.Struct(">BI16s16sIIIQQHB")
 ACK = struct.Struct(">BI16s16sIIIQBB")
 DIRECTIONS = frozenset((1, 2, 4, 5, 6, 8, 9, 10))
+AUXILIARY_55K = frozenset((16, 32, 128))
 MAX_U32 = 2**32 - 1
 MAX_U64 = 2**64 - 1
 MAX_PACKET_TTL_MS = 1000
@@ -132,9 +133,14 @@ class DeviceAck:
 class CommandWire:
     """Mismo formato de bytes para emisor FastAPI y consumidor virtual."""
 
-    def __init__(self, session: SessionLike):
+    def __init__(
+        self, session: SessionLike, *, allow_auxiliary: bool = False
+    ):
+        if type(allow_auxiliary) is not bool:
+            raise WireProtocolError("Invalid auxiliary flag.")
         self._session = session
         self._session_bytes = _session(session)
+        self._allow_auxiliary = allow_auxiliary
 
     def sign_order(self, order: DeviceOrder) -> dict:
         if order.vehicle_id != self._session.vehicle_id or order.session_id != self._session.session_id:
@@ -145,10 +151,18 @@ class CommandWire:
             raise WireProtocolError("Tiempo inválido.")
         if (not 0 < order.expires_at_ms - order.issued_at_ms <= MAX_PACKET_TTL_MS):
             raise WireProtocolError("Plazo de entrega inválido.")
-        if type(order.code) is not int or order.code not in (DIRECTIONS | {0}):
+        auxiliary = (
+            type(order.code) is int and
+            order.code in AUXILIARY_55K
+        )
+        if type(order.code) is not int or (
+            order.code not in (DIRECTIONS | {0}) and
+            not (self._allow_auxiliary and auxiliary)
+        ):
             raise WireProtocolError("Acción inválida.")
+        max_duration = 300 if auxiliary else 500
         if (type(order.duration_ms) is not int or
-                (order.duration_ms != 0 if order.code == 0 else not 100 <= order.duration_ms <= 500)):
+                (order.duration_ms != 0 if order.code == 0 else not 100 <= order.duration_ms <= max_duration)):
             raise WireProtocolError("Duración inválida.")
         if order.duration_ms > order.expires_at_ms - order.issued_at_ms:
             raise WireProtocolError("El plazo no cubre la duración.")

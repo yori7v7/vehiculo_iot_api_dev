@@ -81,3 +81,6 @@ jobs:
             tests/55k_physical_candidate_selftest.cpp \
             -o "$RUNNER_TEMP/55k_physical_candidate_selftest"
           "$RUNNER_TEMP/55k_physical_candidate_selftest"
+      - name: Verify isolated signed auxiliary protocol
+        run: |
+          python3 -m unittest discover -s tests -p "test_55k_aux_wire.py" -v
