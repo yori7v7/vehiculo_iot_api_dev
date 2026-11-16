@@ -138,3 +138,10 @@ jobs:
       - name: Verify virtual programmed DEMO planner
         run: |
           python -m unittest discover -s tests -p "test_55k_demo_programada.py" -v
+
+      - name: Verify programmed DEMO through virtual signed WSS
+        run: |
+          python -m pytest -v -x \
+            -p no:cacheprovider \
+            --basetemp "$RUNNER_TEMP/55k_demo_wss" \
+            tests/test_55k_demo_wss_integration.py
