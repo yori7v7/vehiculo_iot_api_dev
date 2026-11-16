@@ -91,3 +91,10 @@ jobs:
             -s tests \
             -p "test_55k_control_permissions.py" \
             -v
+
+      - name: Verify server-backed K-R control permissions
+        run: |
+          python3 -m unittest discover \
+            -s tests \
+            -p "test_55k_ledger_evidence.py" \
+            -v

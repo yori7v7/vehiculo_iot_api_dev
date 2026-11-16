@@ -431,6 +431,37 @@ class KRTicketLedger:
 
         return self._run(run)
 
+    def verify_admin_virtual_action(self, admin_proof: str) -> bool:
+        """Solo laboratorio: admin cuando NO hay invitado activo.
+
+        Comprueba credencial, supervision y exclusividad desde K-R.
+        No autoriza salidas fisicas ni sustituye el bloqueo de despacho.
+        """
+        self._admin(admin_proof)
+
+        def run(db, now, _salt):
+            if (self._supervisor_at is None
+                    or now < self._supervisor_at
+                    or now >= self._supervisor_at + 15):
+                return KRTicketDenied(
+                    "Supervision administrativa no vigente"
+                )
+
+            ocupado = db.execute(
+                "SELECT 1 FROM kr_ticket "
+                "WHERE epoch=? AND state='approved_virtual' LIMIT 1",
+                (self._epoch,),
+            ).fetchone()
+
+            if ocupado is not None:
+                return KRTicketDenied(
+                    "Invitado ocupa el turno exclusivo"
+                )
+
+            return True
+
+        return self._run(run)
+
     def snapshot(self, admin_proof: str) -> dict:
         self._admin(admin_proof)
 
