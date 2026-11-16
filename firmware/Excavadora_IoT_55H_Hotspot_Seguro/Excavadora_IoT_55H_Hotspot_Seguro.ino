@@ -11,6 +11,7 @@
 #include "config_55h_local.h"
 #include "Controlador55KInhibido.h"
 #include "Puente55KActuacionSegura.h"
+#include "Salida55KProtegida.h"
 
 #ifndef LAB55H_CONFIG_VALID
 #error "Crear config_55h_local.h privado antes de compilar."
@@ -33,8 +34,10 @@ static const time_t EPOCH_MIN_VALIDO = 1735689600;
 class GruaRC {
   Controlador55KInhibido sombra55K;
   Puente55KActuacionSegura puente55K;
+  Salida55KProtegida salida55K{puente55K, &GruaRC::enviarCero};
   uint8_t ultimaMascaraVirtual = 0;
-  void enviarCero() {
+  static void enviarCero(uint8_t valorIgnorado = 0) {
+    (void)valorIgnorado;
     digitalWrite(LATCH_PIN, LOW);
     shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, uint8_t(0));
     digitalWrite(LATCH_PIN, HIGH);
@@ -64,6 +67,11 @@ public:
     enviarCero();
     delay(30);
     enviarCero();
+    if (!salida55K.iniciar()) {
+      enviarCero();
+      Serial.println(F("[55-K] NO-GO: adaptador no iniciado."));
+      return;
+    }
     Serial.println(F("[55-H] 74HC595 SOLO CERO; PC817 inhibidos."));
   }
   bool registrarSombra55K(uint8_t codigo, uint16_t duracionMs) {
@@ -73,8 +81,9 @@ public:
     sombra55K.actualizar(millis());
   }
   void actualizarPuente55K(bool sesionAutenticada) {
-    // Solo observacion virtual: no utiliza la mascara para GPIO.
-    (void)puente55K.obtenerMascara(
+    // Modo virtual: la autenticacion NO sustituye un permiso K-V fisico.
+    // El adaptador descarta toda mascara y escribe exclusivamente cero.
+    (void)salida55K.actualizar(
       millis(), sesionAutenticada, sesionAutenticada);
   }
   bool confirmarStopInicialPuente55K(bool stopValidado) {
@@ -93,7 +102,7 @@ public:
   }
   void paradaSeguridadSilenciosa() {
     sombra55K.detener();
-    puente55K.invalidarCanal();
+    salida55K.invalidar();
     ultimaMascaraVirtual = 0;
     enviarCero();
   }
