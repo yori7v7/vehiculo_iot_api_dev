@@ -159,3 +159,10 @@ jobs:
             -p no:cacheprovider \
             --basetemp "$RUNNER_TEMP/55k_failure_audit" \
             tests/test_55k_demo_failure_audit.py
+
+      - name: Verify DEMO restart and no automatic resume
+        run: |
+          python -m pytest -v -x \
+            -p no:cacheprovider \
+            --basetemp "$RUNNER_TEMP/55k_demo_restart" \
+            tests/test_55k_demo_restart.py
