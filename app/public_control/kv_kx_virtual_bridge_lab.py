@@ -36,13 +36,21 @@ LOCAL_ADMIN_ACTION = "/__lab__/vehiculos/{id_vehiculo}/accion-admin-virtual"
 
 class VirtualAction(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
-    codigo: Literal[0, 1, 2, 4, 5, 6, 8, 9, 10]
+    codigo: Literal[0, 1, 2, 4, 5, 6, 8, 9, 10, 16, 32, 128]
     duracion_ms: int = Field(ge=0, le=500, strict=True)
 
     @model_validator(mode="after")
     def consistent_duration(self):
-        if (self.codigo == 0 and self.duracion_ms != 0) or (
-            self.codigo != 0 and not 100 <= self.duracion_ms <= 500
+        if (
+            (self.codigo == 0 and self.duracion_ms != 0)
+            or (
+                self.codigo in (16, 32, 128)
+                and not 100 <= self.duracion_ms <= 300
+            )
+            or (
+                self.codigo not in (0, 16, 32, 128)
+                and not 100 <= self.duracion_ms <= 500
+            )
         ):
             raise ValueError("Duración incompatible con orden virtual")
         return self
@@ -173,7 +181,13 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
             raise ValueError("NO-GO: destino privado hotspot 55-I invalido")
     app = create_kv_virtual_app(db_path, admin_proof, proxy_proof,
                                 clock=clock, **limits)
-    hub = KXDiagnosticWSSHub(device_key, expected_host=hotspot_host or HOST)
+    hub = KXDiagnosticWSSHub(
+        device_key,
+        expected_host=hotspot_host or HOST,
+        # Solo el simulador CI admite auxiliares.
+        # El laboratorio LAN con ESP real permanece cerrado.
+        allow_auxiliary=(mode == "isolated_ci_only"),
+    )
     authority = VirtualOnlyAuthority(hub)
     app.state.kx_enabled = True
     app.state.kx_diag_hub = hub

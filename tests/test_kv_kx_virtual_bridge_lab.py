@@ -93,7 +93,7 @@ def action(client, secret, code=9, duration_ms=250, *, extra=None):
     }, json={"codigo": code, "duracion_ms": duration_ms})
 
 
-def authenticate(ws):
+def authenticate(ws, *, allow_auxiliary=False):
     challenge = ws.receive_json()
     boot, nonce = secrets.token_bytes(BOOT_LEN), secrets.token_bytes(BOOT_LEN)
     proof = device_auth_reply(DEVICE, challenge, boot=boot, nonce_device=nonce)
@@ -105,7 +105,7 @@ def authenticate(ws):
     command_key = hmac.new(DEVICE, TX_CONTEXT + binding, sha256).digest()
     return CommandWire(SimpleNamespace(vehicle_id=1,
         session_id=confirmation["sesion"], command_key=command_key,
-        telemetry_key=telemetry_key))
+        telemetry_key=telemetry_key), allow_auxiliary=allow_auxiliary)
 
 
 def ack_two_phases(ws, wire):
@@ -148,7 +148,7 @@ def test_headers_schema_exclusivity_heartbeat_and_old_routes_fail_closed(lab):
         assert action(client, secret).status_code == 403  # Awaiting approval
         approve(client, rid)
         assert action(client, secret).status_code == 503  # No authenticated WSS
-        assert action(client, secret, 16).status_code == 422
+        assert action(client, secret, 16, 500).status_code == 422
         assert action(client, secret, 9, 700).status_code == 422
         assert action(client, secret, 0, 250).status_code == 422
         assert action(client, secret, 0, 0).status_code == 503

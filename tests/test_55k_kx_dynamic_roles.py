@@ -152,11 +152,13 @@ def test_invalid_identity_and_unwired_actions_denied(role_lab):
             headers=HEAD,
         ).status_code == 401
 
-        # Aun no conectamos auxiliares al WSS del laboratorio.
-        for code in (16, 32, 64, 128):
-            assert admin_action(
-                client, code, 300
-            ).status_code == 422
+        # La DEMO original requiere tratamiento independiente.
+        assert admin_action(client, 64, 300).status_code == 422
+
+        # Duraciones fuera de contrato permanecen rechazadas.
+        for code in (16, 32, 128):
+            assert admin_action(client, code, 99).status_code == 422
+            assert admin_action(client, code, 301).status_code == 422
 
         # El rol no se puede declarar desde el cuerpo JSON.
         response = client.post(
@@ -169,3 +171,94 @@ def test_invalid_identity_and_unwired_actions_denied(role_lab):
             },
         )
         assert response.status_code == 422
+
+
+
+def test_admin_signed_auxiliaries_without_guest(role_lab):
+    app, _ = role_lab
+
+    with browser(app) as client:
+        assert client.post(
+            INBOX + "/supervision", headers=AUTH
+        ).status_code == 200
+
+        with client.websocket_connect(
+            "wss://100-30-4-62.nip.io" + PATH
+        ) as ws:
+            wire = authenticate(ws, allow_auxiliary=True)
+            assert ack_two_phases(ws, wire).code == 0
+            wait_ready(app)
+
+            for code in (16, 32, 128):
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pending = pool.submit(
+                        admin_action, client, code, 300
+                    )
+
+                    auxiliary = ack_two_phases(ws, wire)
+                    stop = ack_two_phases(ws, wire)
+                    response = pending.result(timeout=7)
+
+                assert auxiliary.code == code
+                assert auxiliary.duration_ms == 300
+                assert stop.code == 0
+                assert response.status_code == 200, response.text
+                assert response.json()["motor"] is False
+                assert response.json()["canDrive"] is False
+
+
+def test_guest_signed_auxiliaries_and_exclusive_turn(role_lab):
+    app, _ = role_lab
+
+    with browser(app) as client:
+        secret, request_id = guest_request(client)
+        approve(client, request_id)
+
+        with client.websocket_connect(
+            "wss://100-30-4-62.nip.io" + PATH
+        ) as ws:
+            wire = authenticate(ws, allow_auxiliary=True)
+            assert ack_two_phases(ws, wire).code == 0
+            wait_ready(app)
+
+            for code in (16, 32, 128):
+                # El admin no puede invadir el turno del invitado.
+                denied = admin_action(client, code, 300)
+                assert denied.status_code == 403, denied.text
+
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pending = pool.submit(
+                        action, client, secret, code, 300
+                    )
+
+                    auxiliary = ack_two_phases(ws, wire)
+                    stop = ack_two_phases(ws, wire)
+                    response = pending.result(timeout=7)
+
+                assert auxiliary.code == code
+                assert auxiliary.duration_ms == 300
+                assert stop.code == 0
+                assert response.status_code == 200, response.text
+                assert response.json()["control_fisico"] is False
+
+
+def test_auxiliary_default_stays_closed(role_lab):
+    app, _ = role_lab
+
+    from app.public_control.kx_signed_wss import KXDiagnosticWSSHub
+    from app.public_control.kv_kx_virtual_bridge_lab import VirtualAction
+    from pydantic import ValidationError
+
+    closed = KXDiagnosticWSSHub(DEVICE)
+    assert closed._allow_auxiliary is False
+
+    # Solo la instancia de CI habilita el protocolo auxiliar.
+    assert app.state.kx_diag_hub._allow_auxiliary is True
+
+    for code in (16, 32, 128):
+        VirtualAction(codigo=code, duracion_ms=300)
+        with pytest.raises(ValidationError):
+            VirtualAction(codigo=code, duracion_ms=301)
+
+    with pytest.raises(ValidationError):
+        VirtualAction(codigo=64, duracion_ms=300)

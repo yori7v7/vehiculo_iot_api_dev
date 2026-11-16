@@ -61,11 +61,18 @@ class KXDiagnosticWSSHub:
     No puede certificar parada física ni usarse como autoridad de motores.
     """
 
-    def __init__(self, device_secret: bytes, *, expected_host: str = HOST):
+    def __init__(
+        self, device_secret: bytes, *,
+        expected_host: str = HOST,
+        allow_auxiliary: bool = False,
+    ):
         # Inyectable SOLO para laboratorio LAN con peer exacto en el router.
         # El host productivo por defecto permanece intacto.
         if type(expected_host) is not str or not expected_host:
             raise ValueError("Host de dispositivo invalido")
+        if type(allow_auxiliary) is not bool:
+            raise ValueError("Bandera auxiliar invalida")
+        self._allow_auxiliary = allow_auxiliary
         self._expected_host = expected_host
         self._secret = check_key(device_secret)
         self._lock = asyncio.Lock()
@@ -276,7 +283,10 @@ class KXDiagnosticWSSHub:
                     raise WireProtocolError("Conexión reemplazada")
                 self._session = session
                 self._queue = asyncio.Queue(maxsize=4)
-                self._fence = AckFence(CommandWire(session))
+                self._fence = AckFence(CommandWire(
+                    session,
+                    allow_auxiliary=self._allow_auxiliary,
+                ))
                 self._seq = 0
                 self._epoch = 0
 
