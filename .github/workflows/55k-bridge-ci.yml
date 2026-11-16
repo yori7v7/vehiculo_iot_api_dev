@@ -152,3 +152,10 @@ jobs:
             -p no:cacheprovider \
             --basetemp "$RUNNER_TEMP/55k_demo_coordinator" \
             tests/test_55k_demo_coordinator.py
+
+      - name: Audit DEMO disconnection expiration and cancellation
+        run: |
+          python -m pytest -v -x \
+            -p no:cacheprovider \
+            --basetemp "$RUNNER_TEMP/55k_failure_audit" \
+            tests/test_55k_demo_failure_audit.py
