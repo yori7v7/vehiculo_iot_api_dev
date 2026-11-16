@@ -134,3 +134,7 @@ jobs:
             --basetemp "$RUNNER_TEMP/55k_pytest" \
             tests/test_kv_kx_virtual_bridge_lab.py \
             tests/test_55k_kx_dynamic_roles.py
+
+      - name: Verify virtual programmed DEMO planner
+        run: |
+          python -m unittest discover -s tests -p "test_55k_demo_programada.py" -v
