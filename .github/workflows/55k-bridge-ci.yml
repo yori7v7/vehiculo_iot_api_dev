@@ -84,3 +84,10 @@ jobs:
       - name: Verify isolated signed auxiliary protocol
         run: |
           python3 -m unittest discover -s tests -p "test_55k_aux_wire.py" -v
+
+      - name: Verify equal control permissions for admin and guest
+        run: |
+          python3 -m unittest discover \
+            -s tests \
+            -p "test_55k_control_permissions.py" \
+            -v
