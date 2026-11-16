@@ -10,6 +10,7 @@
 #include <bearssl/bearssl.h>
 #include "config_55h_local.h"
 #include "Controlador55KInhibido.h"
+#include "Puente55KActuacionSegura.h"
 
 #ifndef LAB55H_CONFIG_VALID
 #error "Crear config_55h_local.h privado antes de compilar."
@@ -31,6 +32,7 @@ static const time_t EPOCH_MIN_VALIDO = 1735689600;
 // SIN API DE MOVIMIENTO FISICO: UNICA ESCRITURA POSIBLE ES CERO.
 class GruaRC {
   Controlador55KInhibido sombra55K;
+  Puente55KActuacionSegura puente55K;
   uint8_t ultimaMascaraVirtual = 0;
   void enviarCero() {
     digitalWrite(LATCH_PIN, LOW);
@@ -70,6 +72,19 @@ public:
   void actualizarSombra55K() {
     sombra55K.actualizar(millis());
   }
+  void actualizarPuente55K(bool sesionAutenticada) {
+    // Solo observacion virtual: no utiliza la mascara para GPIO.
+    (void)puente55K.obtenerMascara(
+      millis(), sesionAutenticada, sesionAutenticada);
+  }
+  bool confirmarStopInicialPuente55K(bool stopValidado) {
+    return puente55K.confirmarStopInicial(stopValidado);
+  }
+  bool registrarPuente55K(uint8_t codigo, uint16_t duracionMs,
+                          bool firmaValidada, bool ordenAdmitida) {
+    return puente55K.recibirMovimiento(
+      codigo, duracionMs, millis(), firmaValidada, ordenAdmitida);
+  }
   void registrarDireccionVirtual(uint8_t codigo) {
     ultimaMascaraVirtual = mascaraVirtual(codigo);
     enviarCero();
@@ -78,6 +93,7 @@ public:
   }
   void paradaSeguridadSilenciosa() {
     sombra55K.detener();
+    puente55K.invalidarCanal();
     ultimaMascaraVirtual = 0;
     enviarCero();
   }
@@ -286,6 +302,7 @@ private:
   // No es watchdog hardware y NUNCA habilita el 74HC595.
   void caducarPendienteVirtual() {
     grua.actualizarSombra55K();
+    grua.actualizarPuente55K(authenticated);
     if (!pending || (int32_t)(millis() - activeUntil) < 0) return;
     pending = false;
     grua.paradaSeguridadSilenciosa();
@@ -453,12 +470,23 @@ private:
       // STOP local ANTES de enviar ACK WSS. El bloqueo GPIO sigue en 1.
       pending = false;
       grua.paradaSeguridad();
+      if (!grua.confirmarStopInicialPuente55K(authenticated && valid)) {
+        failClosed(F("55-K: STOP inicial no validado"));
+        return;
+      }
       ack(raw, 1);
       ack(raw, 2);
       Serial.println(F("[55-H] DETENER 0 HMAC: OK, neutro virtual"));
     } else {
       if (!grua.registrarSombra55K(code, duration)) {
         failClosed(F("55-K: orden virtual rechazada"));
+        return;
+      }
+      // El servidor firmo la orden tras su propia admision.
+      // El permiso K-V aun requiere integracion explicita final.
+      if (!grua.registrarPuente55K(
+              code, duration, authenticated && valid, valid)) {
+        failClosed(F("55-K: puente virtual rechazo orden"));
         return;
       }
       grua.registrarDireccionVirtual(code); // No energiza PC817
