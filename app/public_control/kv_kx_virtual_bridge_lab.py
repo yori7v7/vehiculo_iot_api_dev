@@ -23,10 +23,15 @@ from app.public_control.kv_virtual_staging import (
 )
 from app.public_control.kx_signed_wss import KXDiagnosticWSSHub, PATH, HOST
 from app.public_control.repository import StoreUnavailable
+from app.public_control.control_evidence_55k import (
+    can_dispatch_virtual_55k,
+)
+from app.public_control.control_permissions_55k import ADMIN
 
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z", re.ASCII)
 HOTSPOT_PATH = "/ws/dispositivos-lab/1/contrato"
 LOCAL_ACTION = "/__lab__/vehiculos/{id_vehiculo}/accion-virtual"
+LOCAL_ADMIN_ACTION = "/__lab__/vehiculos/{id_vehiculo}/accion-admin-virtual"
 
 
 class VirtualAction(BaseModel):
@@ -79,6 +84,53 @@ class VirtualOnlyAuthority:
                 "despacho_wss": True, "neutral_virtual_reportado": True,
                 "stop_fisico_confirmado": False, "motor": False,
                 "simulado": True, "control_fisico": False, "canDrive": False,
+            }
+
+
+    async def execute_admin(
+        self, ledger, admin_proof: str,
+        code: int, duration_ms: int
+    ):
+        async with self.lock:
+            if not self.hub.ready:
+                raise HTTPException(503, "WSS virtual no disponible")
+
+            if not can_dispatch_virtual_55k(
+                ledger,
+                server_role=ADMIN,
+                credential=admin_proof,
+                action=code,
+                authenticated_device=self.hub.ready,
+            ):
+                raise HTTPException(403, "Turno administrativo no disponible")
+
+            await self.hub.execute_admin_virtual(
+                ledger, admin_proof, code, duration_ms
+            )
+
+            if not can_dispatch_virtual_55k(
+                ledger,
+                server_role=ADMIN,
+                credential=admin_proof,
+                action=code,
+                authenticated_device=self.hub.ready,
+            ):
+                raise HTTPException(409, "Turno cambio durante orden")
+
+            if not self.hub.ready:
+                raise HTTPException(409, "Canal virtual invalidado")
+
+            return {
+                "aceptada": True,
+                "codigo": code,
+                "duracion_ms": duration_ms,
+                "despacho_wss": True,
+                "neutral_virtual_reportado": True,
+                "stop_fisico_confirmado": False,
+                "motor": False,
+                "simulado": True,
+                "control_fisico": False,
+                "canDrive": False,
             }
 
 
@@ -177,6 +229,23 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
                 request.headers.getlist("x-api-key")):
             raise HTTPException(401, "Sesión de invitado requerida")
         return await authority.execute(ledger, keys[0], data.codigo, data.duracion_ms)
+
+    @app.post(LOCAL_ADMIN_ACTION, include_in_schema=False)
+    async def admin_virtual_action(
+        id_vehiculo: int,
+        data: VirtualAction,
+        request: Request,
+    ):
+        # La credencial se verifica en el servidor.
+        # El navegador no proporciona el rol.
+        ledger, _ = _guard(request, id_vehiculo, admin=True)
+        credentials = request.headers.getlist("x-api-key")
+        if len(credentials) != 1:
+            raise HTTPException(401, "Credencial requerida")
+
+        return await authority.execute_admin(
+            ledger, credentials[0], data.codigo, data.duracion_ms
+        )
 
     @app.websocket(HOTSPOT_PATH if hotspot_host is not None else PATH)
     async def lab_device_ws(ws: WebSocket):

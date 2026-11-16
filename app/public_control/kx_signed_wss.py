@@ -21,6 +21,11 @@ from app.device_channel.command_wire import (
     AckFence, CommandWire, DeviceOrder, WireProtocolError,
 )
 
+from app.public_control.control_evidence_55k import (
+    can_dispatch_virtual_55k,
+)
+from app.public_control.control_permissions_55k import ADMIN, GUEST
+
 router = APIRouter(include_in_schema=False)
 PATH = "/ws/kx-diagnostico/1"
 HOST = "100-30-4-62.nip.io"
@@ -137,6 +142,14 @@ class KXDiagnosticWSSHub:
                 ledger.verify_virtual_action(browser_secret)
             except Exception:
                 raise HTTPException(403, "Turno virtual no vigente") from None
+            if not can_dispatch_virtual_55k(
+                ledger,
+                server_role=GUEST,
+                credential=browser_secret,
+                action=code,
+                authenticated_device=self.ready,
+            ):
+                raise HTTPException(403, "Invitado sin control vigente")
             if self._blocked:
                 raise HTTPException(503, "Coordinador bloqueado")
             try:
@@ -153,8 +166,65 @@ class KXDiagnosticWSSHub:
                 ledger.verify_virtual_action(browser_secret)
             except Exception:
                 raise HTTPException(409, "Turno revocado durante orden virtual") from None
+            if not can_dispatch_virtual_55k(
+                ledger,
+                server_role=GUEST,
+                credential=browser_secret,
+                action=code,
+                authenticated_device=self.ready,
+            ):
+                raise HTTPException(409, "Turno invalidado durante orden")
             if self._blocked:
                 raise HTTPException(409, "Turno revocado durante orden virtual")
+            return True
+
+    async def execute_admin_virtual(
+        self, ledger, admin_proof: str,
+        code: int, duration_ms: int
+    ) -> bool:
+        """Control administrativo virtual, sin GPIO ni motores."""
+        async with self._lock:
+            if not self.ready:
+                raise HTTPException(503, "WSS virtual no disponible")
+
+            if not can_dispatch_virtual_55k(
+                ledger,
+                server_role=ADMIN,
+                credential=admin_proof,
+                action=code,
+                authenticated_device=self.ready,
+            ):
+                raise HTTPException(403, "Administrador sin control exclusivo")
+
+            if self._blocked:
+                raise HTTPException(503, "Coordinador bloqueado")
+
+            try:
+                await self._send(code, 0 if code == 0 else duration_ms)
+                if code != 0:
+                    await self._send(0)
+            except (
+                TimeoutError, RuntimeError, ValueError,
+                WireProtocolError, WebSocketDisconnect
+            ):
+                if self._ws is not None:
+                    await self._drop(self._ws)
+                raise HTTPException(
+                    503, "WSS virtual sin acuses validos"
+                ) from None
+
+            if not can_dispatch_virtual_55k(
+                ledger,
+                server_role=ADMIN,
+                credential=admin_proof,
+                action=code,
+                authenticated_device=self.ready,
+            ):
+                raise HTTPException(409, "Turno modificado durante orden")
+
+            if self._blocked:
+                raise HTTPException(409, "Canal virtual revocado")
+
             return True
 
     async def stop_virtual(self) -> bool:
