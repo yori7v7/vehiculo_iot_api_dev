@@ -53,3 +53,24 @@ jobs:
             -s tests \
             -p "test_55k_auth_chain.py" \
             -v
+
+      - name: Compile and execute protected output adapter
+        run: |
+          g++ -std=c++11 -O0 -Wall -Wextra -Werror \
+            tests/55k_output_selftest.cpp \
+            -o "$RUNNER_TEMP/55k_output_selftest"
+          "$RUNNER_TEMP/55k_output_selftest"
+
+      - name: Verify physical mode remains locked
+        run: |
+          if g++ -std=c++11 -fsyntax-only \
+            -DETAPA55K_SALIDA_FISICA=1 \
+            tests/55k_output_selftest.cpp \
+            2> "$RUNNER_TEMP/55k_guard.log"; then
+            echo "NO-GO: Physical mode unexpectedly compiled"
+            exit 1
+          fi
+          grep -F \
+            "55-K: actuacion fisica requiere revision y autorizacion." \
+            "$RUNNER_TEMP/55k_guard.log"
+          echo "GO: Physical compile guard remains active"
