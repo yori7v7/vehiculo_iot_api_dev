@@ -16,6 +16,9 @@ private:
     Escritor escribir_;
     uint8_t ultima_ = 0;
     bool iniciada_ = false;
+    uint8_t auxiliar_ = 0;
+    uint32_t auxiliarDesde_ = 0;
+    uint32_t auxiliarHasta_ = 0;
 
     static bool mascaraPermitida(uint8_t codigo) {
         switch (codigo) {
@@ -44,6 +47,9 @@ public:
         iniciada_ = false;
         puente_.invalidarCanal();
         ultima_ = 0;
+        auxiliar_ = 0;
+        auxiliarDesde_ = 0;
+        auxiliarHasta_ = 0;
 
         if (escribir_ == nullptr) {
             return false;
@@ -61,7 +67,47 @@ public:
         }
 
         ultima_ = 0;
+        auxiliar_ = 0;
+        auxiliarDesde_ = 0;
+        auxiliarHasta_ = 0;
         puente_.invalidarCanal();
+    }
+
+    // Pulsos auxiliares: luces, velocidad y claxon.
+    // DEMO_ORIGINAL=64 permanece excluida porque su movimiento
+    // autonomo no se cancela necesariamente liberando el 74HC595.
+    bool registrarAuxiliar(
+        uint8_t codigo,
+        uint16_t duracionMs,
+        uint32_t ahoraMs,
+        bool firmaValida,
+        bool permisoVigente,
+        bool funcionAutorizada,
+        bool conexionVigente
+    ) {
+        const bool codigoAuxiliar =
+            codigo == 16 || codigo == 32 || codigo == 128;
+
+        if (!iniciada_ || escribir_ == nullptr ||
+            !puente_.preparado() ||
+            !firmaValida || !permisoVigente ||
+            !funcionAutorizada || !conexionVigente ||
+            !codigoAuxiliar ||
+            duracionMs < 100 || duracionMs > 300) {
+            invalidar();
+            return false;
+        }
+
+        // Se neutraliza cualquier direccion previa.
+        // Ningun accesorio comparte mascara con un movimiento.
+        puente_.detener();
+        escribir_(0);
+        ultima_ = 0;
+
+        auxiliar_ = codigo;
+        auxiliarDesde_ = ahoraMs + 30UL;
+        auxiliarHasta_ = ahoraMs + duracionMs;
+        return true;
     }
 
     uint8_t actualizar(
@@ -79,6 +125,37 @@ public:
             conexionVigente,
             permisoVigente
         );
+
+        if (!conexionVigente || !permisoVigente ||
+            !puente_.preparado()) {
+            invalidar();
+            return 0;
+        }
+
+        if (auxiliar_ != 0) {
+            // Dos acciones simultaneas son un fallo cerrado.
+            if (mascara != 0) {
+                invalidar();
+                return 0;
+            }
+
+            uint8_t deseada = 0;
+
+            if (static_cast<int32_t>(
+                    ahoraMs - auxiliarHasta_) >= 0) {
+                auxiliar_ = 0;
+            } else if (static_cast<int32_t>(
+                    ahoraMs - auxiliarDesde_) >= 0) {
+                deseada = auxiliar_;
+            }
+
+            if (ultima_ != deseada || deseada == 0) {
+                escribir_(deseada);
+                ultima_ = deseada;
+            }
+
+            return deseada;
+        }
 
         if (!mascaraPermitida(mascara)) {
             invalidar();

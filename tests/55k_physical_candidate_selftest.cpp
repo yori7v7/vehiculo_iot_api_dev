@@ -98,5 +98,69 @@ int main() {
     CHECK(candidato.ultimaSalida() == 0);
     CHECK(!cambio.preparado());
 
+
+    // Accesorios: luces, velocidad y claxon.
+    const uint8_t accesorios[] = {16, 32, 128};
+
+    for (uint8_t codigo : accesorios) {
+        Puente55KActuacionSegura p;
+        Salida55KCandidata a(p, escribirSimulado);
+
+        CHECK(a.iniciar());
+        CHECK(p.confirmarStopInicial(true));
+
+        CHECK(a.registrarAuxiliar(
+            codigo, 300, 5000, true, true, true, true
+        ));
+
+        CHECK(a.actualizar(5029, true, true) == 0);
+        CHECK(salida == 0);
+
+        CHECK(a.actualizar(5030, true, true) == codigo);
+        CHECK(salida == codigo);
+
+        CHECK(a.actualizar(5300, true, true) == 0);
+        CHECK(salida == 0);
+    }
+
+    // La DEMO original no puede activarse accidentalmente.
+    Puente55KActuacionSegura demo;
+    Salida55KCandidata d(demo, escribirSimulado);
+
+    CHECK(d.iniciar());
+    CHECK(demo.confirmarStopInicial(true));
+    CHECK(!d.registrarAuxiliar(
+        64, 300, 6000, true, true, true, true
+    ));
+    CHECK(d.actualizar(6050, true, true) == 0);
+    CHECK(!demo.preparado());
+
+    // Sin autorizacion especifica, accesorios denegados.
+    CHECK(demo.confirmarStopInicial(true));
+    CHECK(!d.registrarAuxiliar(
+        16, 300, 7000, true, true, false, true
+    ));
+    CHECK(salida == 0);
+
+    // Revocacion durante una pulsacion.
+    CHECK(demo.confirmarStopInicial(true));
+    CHECK(d.registrarAuxiliar(
+        128, 300, 8000, true, true, true, true
+    ));
+    CHECK(d.actualizar(8040, true, true) == 128);
+    CHECK(d.actualizar(8050, true, false) == 0);
+    CHECK(salida == 0);
+    CHECK(!demo.preparado());
+
+    // Desconexion durante luces.
+    CHECK(demo.confirmarStopInicial(true));
+    CHECK(d.registrarAuxiliar(
+        16, 300, 9000, true, true, true, true
+    ));
+    CHECK(d.actualizar(9040, true, true) == 16);
+    CHECK(d.actualizar(9050, false, true) == 0);
+    CHECK(salida == 0);
+    CHECK(!demo.preparado());
+
     return 0;
 }
