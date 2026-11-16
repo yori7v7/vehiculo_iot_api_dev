@@ -1,0 +1,48 @@
+name: 55-K Bridge Native Safety Tests
+
+on:
+  push:
+    branches:
+      - feature/55k-actuacion-fisica-segura
+
+permissions:
+  contents: read
+
+jobs:
+  bridge-tests:
+    name: Native C++ and Safety Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Compile bridge tests
+        run: |
+          g++ -std=c++11 -O0 -Wall -Wextra -Werror \
+            tests/55k_bridge_selftest.cpp \
+            -o "$RUNNER_TEMP/55k_bridge_selftest"
+
+      - name: Execute bridge tests
+        run: |
+          "$RUNNER_TEMP/55k_bridge_selftest"
+
+      - name: Compile original shadow tests
+        run: |
+          g++ -std=c++11 -O0 -Wall -Wextra -Werror \
+            tests/55k_shadow_selftest.cpp \
+            -o "$RUNNER_TEMP/55k_shadow_selftest"
+
+      - name: Execute original shadow tests
+        run: |
+          "$RUNNER_TEMP/55k_shadow_selftest"
+
+      - name: Verify original safety contracts
+        run: |
+          python3 -m unittest discover \
+            -s tests \
+            -p "test_55k_guardrails.py" \
+            -v
