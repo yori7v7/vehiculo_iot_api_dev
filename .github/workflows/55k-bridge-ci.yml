@@ -74,3 +74,10 @@ jobs:
             "55-K: actuacion fisica requiere revision y autorizacion." \
             "$RUNNER_TEMP/55k_guard.log"
           echo "GO: Physical compile guard remains active"
+
+      - name: Compile and execute physical candidate simulation
+        run: |
+          g++ -std=c++11 -O0 -Wall -Wextra -Werror \
+            tests/55k_physical_candidate_selftest.cpp \
+            -o "$RUNNER_TEMP/55k_physical_candidate_selftest"
+          "$RUNNER_TEMP/55k_physical_candidate_selftest"
