@@ -64,6 +64,12 @@ class DemoCoordinator55K:
             and compare_digest(run.credential, credential)
         )
 
+    def owns_active(self, role, credential):
+        run = self._active
+        return run is not None and self._owns(
+            run, role, credential
+        )
+
     async def start(self, ledger, role, credential):
         async with self.authority.lock:
             if not self._authorized(ledger, role, credential):

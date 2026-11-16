@@ -257,6 +257,38 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
                     await hub.shutdown()  # Require fresh authentication later.
             return response
 
+    async def stop_demo_virtual(role: str, credential: str):
+        """Interlock y STOP firmado; no confirma parada fisica."""
+        if not demo.active:
+            raise HTTPException(409, "No existe DEMO activa")
+
+        if role == GUEST and not demo.owns_active(role, credential):
+            raise HTTPException(403, "No es titular de la DEMO")
+
+        # Bloquear envios nuevos ANTES de esperar cualquier lock.
+        demo.request_cancel()
+        hub.interlock()
+
+        # Esperar el cierre cooperativo del tramo pendiente.
+        await demo.close()
+
+        # STOP adicional firmado, aunque el permiso ya no exista.
+        if not await hub.stop_virtual():
+            raise HTTPException(503, "STOP virtual no confirmado")
+
+        return {
+            "aceptada": True,
+            "codigo": 0,
+            "duracion_ms": 0,
+            "demo_cancelada": True,
+            "neutral_virtual_reportado": True,
+            "stop_fisico_confirmado": False,
+            "motor": False,
+            "simulado": True,
+            "control_fisico": False,
+            "canDrive": False,
+        }
+
     @app.post(LOCAL_ACTION, include_in_schema=False)
     async def virtual_action(id_vehiculo: int, data: VirtualAction, request: Request):
         ledger, _ = _guard(request, id_vehiculo, admin=False)
@@ -265,6 +297,8 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
                 request.headers.getlist("x-api-key")):
             raise HTTPException(401, "Sesión de invitado requerida")
         if demo.active:
+            if data.codigo == 0:
+                return await stop_demo_virtual(GUEST, keys[0])
             raise HTTPException(409, "DEMO virtual en ejecucion")
         return await authority.execute(ledger, keys[0], data.codigo, data.duracion_ms)
 
@@ -282,6 +316,10 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
             raise HTTPException(401, "Credencial requerida")
 
         if demo.active:
+            if data.codigo == 0:
+                return await stop_demo_virtual(
+                    ADMIN, credentials[0]
+                )
             raise HTTPException(409, "DEMO virtual en ejecucion")
         return await authority.execute_admin(
             ledger, credentials[0], data.codigo, data.duracion_ms
