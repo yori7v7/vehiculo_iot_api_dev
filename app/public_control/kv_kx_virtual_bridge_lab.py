@@ -379,6 +379,22 @@ def create_kv_kx_virtual_lab_app(db_path, admin_proof: str, proxy_proof: str,
         _, role, proof = demo_actor(request, id_vehiculo, True)
         return demo.status(role, proof)
 
+    @app.get(
+        "/__lab__/vehiculos/{id_vehiculo}/monitoreo-demo",
+        include_in_schema=False,
+    )
+    async def monitoring_demo(id_vehiculo: int, request: Request):
+        # Solo perimetro del laboratorio. Sin login ni
+        # divulgacion de tickets o tokens de usuario.
+        _guard(request, id_vehiculo, admin=False)
+
+        if request.headers.getlist("x-browser-session"):
+            raise HTTPException(
+                403, "Monitoreo no recibe sesiones privadas"
+            )
+
+        return demo.monitoring_snapshot()
+
     @app.websocket(HOTSPOT_PATH if hotspot_host is not None else PATH)
     async def lab_device_ws(ws: WebSocket):
         # Host exacto verificado por el Hub; peer exacto en modo hotspot.

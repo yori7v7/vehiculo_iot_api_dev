@@ -26,6 +26,7 @@ class DemoRun55K:
     done: asyncio.Event = field(default_factory=asyncio.Event)
     status: str = "ejecutando"
     chunks: int = 0
+    attempted_chunks: int = 0
     task: asyncio.Task | None = None
 
 
@@ -118,6 +119,7 @@ class DemoCoordinator55K:
                 if run.cancel.is_set() or not authorized():
                     raise HTTPException(409, "Turno cancelado")
 
+                run.attempted_chunks += 1
                 if run.role == ADMIN:
                     await self.hub.execute_admin_virtual(
                         ledger, run.credential, code, duration
@@ -184,6 +186,38 @@ class DemoCoordinator55K:
             return self._reply("sin_demo", 0)
 
         return self._reply(run.status, run.chunks)
+
+    def monitoring_snapshot(self):
+        """Estado publico agregado, sin identidad ni credenciales."""
+        run = self._active or self._last
+
+        if run is None:
+            state = "sin_demo"
+            attempted = 0
+            confirmed = 0
+        else:
+            state = (
+                "cancelando"
+                if run is self._active and run.cancel.is_set()
+                else run.status
+            )
+            attempted = run.attempted_chunks
+            confirmed = run.chunks
+
+        return {
+            "estado": state,
+            "demo_activa": self.active,
+            "tramos_intentados": attempted,
+            "tramos_confirmados": confirmed,
+            "tramos_sin_confirmar": attempted - confirmed,
+            # Todavia no existe medicion separada en el Hub:
+            "ordenes_wss_emitidas": None,
+            "wss_disponible": self.hub.ready,
+            "simulado": True,
+            "control_fisico": False,
+            "canDrive": False,
+            "stop_fisico_confirmado": False,
+        }
 
     def request_cancel(self):
         if self._active is not None:

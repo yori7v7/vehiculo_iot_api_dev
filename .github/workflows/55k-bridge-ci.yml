@@ -173,3 +173,10 @@ jobs:
             -p no:cacheprovider \
             --basetemp "$RUNNER_TEMP/55k_demo_priority_stop" \
             tests/test_55k_demo_priority_stop.py
+
+      - name: Verify safe virtual DEMO monitoring snapshot
+        run: |
+          python -m pytest -v -x \
+            -p no:cacheprovider \
+            --basetemp "$RUNNER_TEMP/55k_demo_monitoring" \
+            tests/test_55k_demo_monitoring.py
