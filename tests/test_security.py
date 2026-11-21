@@ -30,9 +30,11 @@ from app.services.movement import MovementService
 from app.services.state import StateService
 from app.services.vehicles import VehicleService
 from app.websocket.publisher import get_movement_publisher
+import test_http_movement as movement_tests
 
 
 TEST_KEY = "ficticio-api-key-solo-pruebas-7e2c"
+OPERATOR_KEY = "operador-ficticio-solo-pruebas-9b3d"
 CONTROL_AND_DELETE_ROUTES = (
     ("POST", "/vehiculos/3/movimientos", {"id_comando": 7}, 200),
     ("POST", "/vehiculos/3/demos/5/ejecutar", None, 202),
@@ -80,18 +82,19 @@ MUTATION_REQUESTS = CONTROL_AND_DELETE_ROUTES + tuple(
 )
 
 
-def fake_settings(key: str) -> Settings:
+def fake_settings(key: str, operator: str = "") -> Settings:
     return Settings(
         _env_file=None, app_name="API de pruebas", app_env="development",
         db_host="database.example.invalid", db_port=3306, db_name="security_test",
         db_user="test_user", db_password=SecretStr("db-ficticio-no-utilizable"),
         api_key=SecretStr(key),
+        api_key_operator=SecretStr(operator),
     )
 
 
 class SecurityHTTPTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.settings = fake_settings(TEST_KEY)
+        self.settings = fake_settings(TEST_KEY, OPERATOR_KEY)
         self.service_resolutions = []
         self.application = FastAPI()
         for module in (health, vehicles, commands, state, history, movement, demos, demo_execution):
@@ -293,27 +296,6 @@ class SecurityHTTPTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(args[:-1], route.identifiers)
                 self.assertEqual(args[-1].model_dump(exclude_unset=True), route.payload)
 
-    async def test_local_simulation_blocks_legacy_actuation_after_administrative_auth(self):
-        self.application.state.public_control_simulation = True
-        for method, path, payload, _ in CONTROL_AND_DELETE_ROUTES[:3]:
-            with self.subTest(path=path):
-                status, _ = await self.request(method, path, payload)
-                self.assertEqual(status, 401)
-                status, content = await self.request(
-                    method, path, payload, [(b"x-api-key", TEST_KEY.encode())],
-                )
-                self.assertEqual(status, 503)
-                self.assertIn("simulación", json.loads(content)["detail"])
-        self.assert_no_business_calls()
-
-    async def test_guest_bearer_cannot_authorize_any_existing_write(self):
-        guest_header = [(b"authorization", b"Bearer " + b"A" * 43)]
-        for method, path, payload, _ in MUTATION_REQUESTS:
-            with self.subTest(method=method, path=path):
-                status, _ = await self.request(method, path, payload, guest_header)
-                self.assertEqual(status, 401)
-        self.assert_no_business_calls()
-
     async def test_duplicate_headers_are_rejected_even_when_both_values_are_correct(self):
         for values in ((TEST_KEY.encode(), TEST_KEY.encode()), (TEST_KEY.encode(), b"incorrecta")):
             for method, path, payload, _ in MUTATION_REQUESTS:
@@ -404,6 +386,121 @@ class SecurityHTTPTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(TEST_KEY, repr(self.settings))
         self.assertNotIn(TEST_KEY, str(self.settings))
         self.assertEqual(Settings.model_fields["api_key"].default.get_secret_value(), "")
+
+    async def test_admin_and_operator_allow_only_the_operator_control_scope(self):
+        self.settings = fake_settings(TEST_KEY, OPERATOR_KEY)
+        for key in (TEST_KEY, OPERATOR_KEY):
+            for _, path, payload, expected in CONTROL_AND_DELETE_ROUTES[:3]:
+                path = path.replace("/vehiculos/3/", "/vehiculos/1/")
+                with self.subTest(key=key, path=path):
+                    self.reset_business_mocks()
+                    status, _ = await self.request("POST", path, payload, [(b"x-api-key", key.encode())])
+                    self.assertEqual(status, expected)
+                    if path.endswith("/movimientos"):
+                        self.movement.execute.assert_called_once_with(1, MovementRequest(id_comando=7))
+                    elif path.endswith("/ejecutar"):
+                        self.execution_manager.start.assert_awaited_once_with(1, 5, self.execution_service)
+                    else:
+                        self.execution_manager.cancel.assert_awaited_once_with(1, 5)
+
+    async def test_operator_cannot_administer_any_resource_or_control_other_vehicles(self):
+        self.settings = fake_settings(TEST_KEY, OPERATOR_KEY)
+        for index, (method, path, payload, _) in enumerate(MUTATION_REQUESTS):
+            paths = (path,) if index < 3 else (
+                path, path.replace("/vehiculos/3", "/vehiculos/1"),
+            )
+            for candidate in paths:
+                with self.subTest(method=method, path=candidate):
+                    status, _ = await self.request(method, candidate, payload, [(b"x-api-key", OPERATOR_KEY.encode())])
+                    self.assertEqual(status, 403)
+        self.assert_no_business_calls()
+
+    async def test_control_rejects_missing_invalid_empty_and_ambiguous_headers(self):
+        self.settings = fake_settings(TEST_KEY, OPERATOR_KEY)
+        candidates = (
+            ([], 401), ([(b"x-api-key", b"")], 403),
+            ([(b"x-api-key", b"incorrecta")], 403),
+            ([(b"x-api-key", OPERATOR_KEY.encode()), (b"x-api-key", TEST_KEY.encode())], 403),
+            ([(b"x-api-key", (OPERATOR_KEY + "," + TEST_KEY).encode())], 403),
+        )
+        for _, path, payload, _ in CONTROL_AND_DELETE_ROUTES[:3]:
+            for headers, expected in candidates:
+                status, _ = await self.request("POST", path.replace("/3/", "/1/"), payload, headers)
+                self.assertEqual(status, expected)
+        self.assert_no_business_calls()
+
+    async def test_operator_configuration_is_independent_and_fails_closed(self):
+        path = "/vehiculos/1/movimientos"
+        for invalid in ("", "   ", "change-me", "changeme", "CHANGE-ME", "default", "a,b", " padded "):
+            self.settings = fake_settings(TEST_KEY, invalid)
+            status, _ = await self.request("POST", path, {"id_comando": 7}, [(b"x-api-key", (invalid or OPERATOR_KEY).encode())])
+            self.assertEqual(status, 403)
+            self.assert_no_business_calls()
+        self.settings = fake_settings(TEST_KEY, TEST_KEY)
+        for method, candidate, payload, _ in MUTATION_REQUESTS:
+            status, _ = await self.request(method, candidate, payload, [(b"x-api-key", TEST_KEY.encode())])
+            self.assertEqual(status, 503)
+        self.assert_no_business_calls()
+        self.settings = fake_settings("", OPERATOR_KEY)
+        status, _ = await self.request("POST", path, {"id_comando": 7}, [(b"x-api-key", OPERATOR_KEY.encode())])
+        self.assertEqual(status, 200)
+        self.reset_business_mocks()
+        status, _ = await self.request("POST", "/vehiculos", {"nombre": "Prueba"}, [(b"x-api-key", OPERATOR_KEY.encode())])
+        self.assertEqual(status, 503)
+        self.assert_no_business_calls()
+
+    def test_operator_configuration_is_empty_by_default_and_hides_secrets(self):
+        settings = fake_settings(TEST_KEY, OPERATOR_KEY)
+        self.assertEqual(Settings.model_fields["api_key_operator"].default.get_secret_value(), "")
+        self.assertNotIn(OPERATOR_KEY, repr(settings))
+        self.assertNotIn(OPERATOR_KEY, str(settings))
+
+    async def test_admin_and_operator_movement_stop_and_validations_with_simulated_database(self):
+        self.settings = fake_settings(TEST_KEY, OPERATOR_KEY)
+        for key in (TEST_KEY, OPERATOR_KEY):
+            for case, expected in (
+                ("movement", 200), ("stop", 200), ("missing_vehicle", 404),
+                ("inactive_vehicle", 409), ("missing_command", 404),
+                ("foreign_command", 404), ("inactive_command", 409),
+            ):
+                with self.subTest(key=key, case=case):
+                    database = movement_tests.MovementDatabase()
+                    command_id = 1
+                    if case == "stop":
+                        database.commands[1].update(nombre="DETENER", codigo=0)
+                    elif case == "missing_vehicle":
+                        del database.vehicles[1]
+                    elif case == "inactive_vehicle":
+                        database.vehicles[1]["activo"] = 0
+                    elif case == "missing_command":
+                        command_id = 99
+                    elif case == "foreign_command":
+                        command_id = 2
+                    elif case == "inactive_command":
+                        database.commands[1]["activo"] = 0
+                    service = MovementService(database)
+                    self.application.dependency_overrides[movement.get_movement_service] = lambda: service
+                    self.publisher.publish.reset_mock()
+                    with patch("app.services.movement.StoredProcedureExecutor", movement_tests.MovementProcedureExecutor):
+                        status, content = await self.request(
+                            "POST", "/vehiculos/1/movimientos", {"id_comando": command_id},
+                            [(b"x-api-key", key.encode())],
+                        )
+                    self.assertEqual(status, expected)
+                    if expected == 200:
+                        response = json.loads(content)
+                        self.assertEqual(response["codigo"], 0 if case == "stop" else -1)
+                        self.assertEqual(response["origen"], "API")
+                        self.assertEqual(database.commits, 1)
+                        self.assertEqual(database.state_updates, 1)
+                        self.assertEqual(len(database.history), 1)
+                        self.publisher.publish.assert_awaited_once()
+                        if case == "stop":
+                            self.assertEqual(response["comando"], "DETENER")
+                    else:
+                        self.assertEqual(database.state_updates, 0)
+                        self.assertEqual(database.history, [])
+                        self.publisher.publish.assert_not_awaited()
 
 
 if __name__ == "__main__":

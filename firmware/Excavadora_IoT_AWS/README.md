@@ -1,5 +1,7 @@
 # Firmware ESP8266 - Excavadora IoT AWS
 
+> **Referencia histórica.** Esta guía corresponde a Unidad 3 y 4.2. El sketch de esta rama incorpora el canal autenticado 4.3 y se documenta en la [portada de la API](../../README.md). La identidad binaria del firmware instalado quedó sin verificar en este cierre.
+
 Firmware final del dispositivo fisico Mini RC Forklift IoT basado en NodeMCU ESP8266, 74HC595 y optoacopladores PC817.
 
 ## Estado

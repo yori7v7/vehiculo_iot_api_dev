@@ -56,6 +56,7 @@ class MySQLDatabase:
                 password=settings.db_password.get_secret_value(),
                 charset="utf8mb4",
                 cursorclass=DictCursor,
+                binary_prefix=True,
                 autocommit=False,
                 connect_timeout=settings.db_connect_timeout,
                 read_timeout=settings.db_read_timeout,

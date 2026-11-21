@@ -95,12 +95,13 @@ class WebSocketManager:
                 raise
             group.clients[id(websocket)] = websocket
 
-    async def disconnect(self, vehicle_id: int, websocket: WebSocketConnection) -> None:
+    async def disconnect(self, vehicle_id: int, websocket: WebSocketConnection, *, close: bool = True) -> None:
         async with self._group(vehicle_id, create=False) as group:
             if group is None or group.clients.get(id(websocket)) is not websocket:
                 return
             try:
-                await self._close_socket(websocket, code=1000)
+                if close:
+                    await self._close_socket(websocket, code=1000)
             finally:
                 group.clients.pop(id(websocket), None)
 

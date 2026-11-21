@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 *.pem
+Platform43Secrets.h
 *.key
 *.sqlite
 *.sqlite-*

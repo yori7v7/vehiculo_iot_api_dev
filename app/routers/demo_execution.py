@@ -10,7 +10,6 @@ from app.execution.dependencies import get_demo_execution_manager
 from app.execution.manager import DemoExecutionManager
 from app.models.common import EntityId, ErrorResponse
 from app.models.demo_execution import DemoExecutionResponse
-from app.public_control.legacy_guard import require_legacy_dispatch
 from app.services.demo_execution import DemoExecutionService
 from app.security.api_key import SECURITY_RESPONSES, require_api_key
 
@@ -26,7 +25,7 @@ def get_demo_execution_service(
 
 @router.post(
     "/ejecutar", status_code=202, response_model=DemoExecutionResponse,
-    dependencies=[Depends(require_api_key), Depends(require_legacy_dispatch)],
+    dependencies=[Depends(require_api_key)],
     summary="Iniciar DEMO en segundo plano",
     description=(
         "Sin cuerpo. Comprueba vehículo activo mediante sp_obtener_vehiculo y DEMO "
@@ -60,7 +59,7 @@ async def execute_demo(
 
 @router.post(
     "/cancelar", response_model=DemoExecutionResponse,
-    dependencies=[Depends(require_api_key), Depends(require_legacy_dispatch)],
+    dependencies=[Depends(require_api_key)],
     summary="Cancelar la DEMO activa del vehículo",
     description=(
         "Sin cuerpo ni SP propio. Interrumpe inmediatamente las esperas de duración "
