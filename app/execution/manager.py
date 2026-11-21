@@ -202,6 +202,17 @@ class DemoExecutionManager:
         finally:
             await self._finish_cleanup(self._remove(run))
 
+    def is_active(self, vehicle_id: int) -> bool:
+        return vehicle_id in self._runs
+
+    async def cancel_vehicle(self, vehicle_id: int) -> None:
+        async with self._lock:
+            run = self._runs.get(vehicle_id)
+            if run is None:
+                return
+            self._stop(run)
+        await self._finish_cleanup(run.done.wait())
+
     async def cancel(self, vehicle_id: int, demo_id: int) -> DemoExecutionResponse:
         async with self._lock:
             run = self._runs.get(vehicle_id)

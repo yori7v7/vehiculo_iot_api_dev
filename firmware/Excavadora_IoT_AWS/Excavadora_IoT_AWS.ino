@@ -4,6 +4,14 @@
 #include <ArduinoJson.h>
 #include <time.h>
 
+#if __has_include("Platform43Secrets.h")
+#include "Platform43Secrets.h"
+static_assert(sizeof(IOT43_DEVICE_TOKEN) == 44 && IOT43_DEVICE_ID > 0, "Credencial 4.3 o ID invalidos.");
+static_assert(sizeof(IOT43_AP_PASSWORD) >= 9 && sizeof(IOT43_AP_PASSWORD) <= 64, "Clave de configuracion Wi-Fi invalida.");
+#elif defined(IOT43_REQUIRE_AUTH)
+#error "La compilacion 4.3 requiere Platform43Secrets.h aprovisionado."
+#endif
+
 // =====================================================
 // CONFIGURACION GENERAL
 // =====================================================
@@ -16,10 +24,12 @@ const uint8_t LATCH_PIN = D7;
 // Reset Wi-Fi
 const uint8_t RESET_WIFI_PIN = D2;
 
-// IMPORTANTE:
-// Configurar localmente antes de compilar.
-// No subir la contraseña real al repositorio.
+#ifdef IOT43_DEVICE_ID
+const char* AP_PASSWORD = IOT43_AP_PASSWORD;
+#else
+// Configurar localmente para una compilacion 4.2.
 const char* AP_PASSWORD = "CONFIGURAR_LOCALMENTE";
+#endif
 
 const unsigned long RESET_HOLD_TIME = 5000;
 const unsigned long RECONNECT_INTERVAL = 10000;
@@ -30,9 +40,24 @@ const unsigned long RECONNECT_INTERVAL = 10000;
 
 const char* AWS_HOST = "100-30-4-62.nip.io";
 const uint16_t AWS_PORT = 443;
+#ifdef IOT43_DEVICE_ID
+#define IOT43_TEXT_INNER(x) #x
+#define IOT43_TEXT(x) IOT43_TEXT_INNER(x)
+const char* AWS_WS_PATH = "/plataforma/ws/dispositivos/" IOT43_TEXT(IOT43_DEVICE_ID);
+const char* IOT43_AUTH_HEADER = "Authorization: Bearer " IOT43_DEVICE_TOKEN
+#ifdef IOT43_ENABLE_PHYSICAL_DEMO
+  "\r\nX-IoT-Demo: q6-q7-v1"
+#endif
+  ;
+#else
 const char* AWS_WS_PATH = "/ws/vehiculos/1";
+#endif
 
+#ifdef IOT43_DEVICE_ID
+const int ID_VEHICULO = IOT43_DEVICE_ID;
+#else
 const int ID_VEHICULO = 1;
+#endif
 
 // =====================================================
 // NTP / VALIDACION DE TIEMPO TLS
@@ -155,6 +180,14 @@ private:
   bool movimientoSostenido = false;
   unsigned long ultimaOrdenMovimiento = 0;
   static constexpr unsigned long MAX_MOVIMIENTO_INDIVIDUAL_MS = 12000UL;
+#ifdef IOT43_DEVICE_ID
+  bool claxonLiberado = false;
+  unsigned long ultimoClaxon = 0;
+#endif
+#if defined(IOT43_DEVICE_ID) && defined(IOT43_ENABLE_PHYSICAL_DEMO)
+  bool originalPendiente = false;
+  unsigned long inicioOriginal = 0;
+#endif
 
   void escribirRegistro(uint8_t valor) {
     digitalWrite(latchPin, LOW);
@@ -165,13 +198,33 @@ private:
   void enviar(uint8_t valor) {
     // Antes de un cambio entre salidas activas, liberar todos los PC817.
     // Esto evita invertir sentido sin un intervalo neutro.
-    if (salidaActual != 0 && valor != 0 && salidaActual != valor) {
+    if (salidaActual != 0 && valor != 0 && (salidaActual != valor
+#ifdef IOT43_DEVICE_ID
+        || valor == Q7_CLAXON
+#endif
+        )) {
+#ifdef IOT43_DEVICE_ID
+      if (salidaActual == Q7_CLAXON) {
+        claxonLiberado = true;
+        ultimoClaxon = millis();
+      }
+#endif
       escribirRegistro(0);
       salidaActual = 0;
       movimientoSostenido = false;
       delay(30);  // 30 ms de liberacion electrica segura.
     }
 
+#ifdef IOT43_DEVICE_ID
+    if (salidaActual == Q7_CLAXON && valor == 0) {
+      claxonLiberado = true;
+      ultimoClaxon = millis();
+    }
+    if (valor == Q7_CLAXON && claxonLiberado) {
+      const unsigned long transcurrido = millis() - ultimoClaxon;
+      if (transcurrido < 30) delay(30 - transcurrido);
+    }
+#endif
     escribirRegistro(valor);
     salidaActual = valor;
 
@@ -236,6 +289,9 @@ private:
     enviar(Q7_CLAXON);
     delay(300);
     detener();
+#if defined(IOT43_DEVICE_ID) && defined(IOT43_ENABLE_PHYSICAL_DEMO)
+    originalPendiente = false;
+#endif
   }
 
 public:
@@ -266,13 +322,16 @@ public:
     Serial.println("H = Luces");
     Serial.println("V = Velocidad");
     Serial.println("C = Claxon");
+#ifndef IOT43_DEVICE_ID
     Serial.println("L = Demo original");
+#endif
     Serial.println("0 = Detener");
     Serial.println("R = Reset Wi-Fi");
     Serial.println("========================================");
   }
 
   void procesarComandoManual(char comando) {
+    if (demoOriginalPendiente() && comando != 'C' && comando != '0') return;
     switch (comando) {
       case 'W': avanzar(); Serial.println("[GRUA] AVANZANDO"); break;
       case 'S': retroceder(); Serial.println("[GRUA] RETROCEDIENDO"); break;
@@ -281,13 +340,16 @@ public:
       case 'H': luces(); Serial.println("[GRUA] LUCES"); break;
       case 'V': velocidad(); Serial.println("[GRUA] VELOCIDAD"); break;
       case 'C': claxon(); Serial.println("[GRUA] CLAXON"); break;
+#ifndef IOT43_DEVICE_ID
       case 'L': demoOriginal(); Serial.println("[GRUA] DEMO ORIGINAL"); break;
+#endif
       case '0': detener(); Serial.println("[GRUA] DETENIDO"); break;
       default: break;
     }
   }
 
   void ejecutarCodigoAWS(int codigo) {
+    if (demoOriginalPendiente() && codigo != 0 && codigo != 128) return;
     switch (codigo) {
       case 0: detener(); Serial.println("[GRUA/AWS] DETENIDO - codigo 0"); break;
       case 1: avanzar(); Serial.println("[GRUA/AWS] AVANZANDO - codigo 1"); break;
@@ -300,7 +362,16 @@ public:
       case 10: retrocederDerecha(); Serial.println("[GRUA/AWS] RETROCEDER + DERECHA - codigo 10"); break;
       case 16: luces(); Serial.println("[GRUA/AWS] LUCES - codigo 16"); break;
       case 32: velocidad(); Serial.println("[GRUA/AWS] VELOCIDAD - codigo 32"); break;
-      case 64: demoOriginal(); Serial.println("[GRUA/AWS] DEMO ORIGINAL - codigo 64"); break;
+      case 64:
+#if defined(IOT43_DEVICE_ID) && defined(IOT43_ENABLE_PHYSICAL_DEMO)
+        // Marcar el intento antes del pulso; Q6 no informa el estado mecanico.
+        originalPendiente = true;
+        inicioOriginal = millis();
+        demoOriginal();
+#elif !defined(IOT43_DEVICE_ID)
+        demoOriginal();
+#endif
+        break;
       case 128: claxon(); Serial.println("[GRUA/AWS] CLAXON - codigo 128"); break;
       default:
         Serial.print("[GRUA/AWS] Codigo desconocido: ");
@@ -323,7 +394,9 @@ public:
       case 10: retrocederDerecha(); break;
       case 16: enviar(Q4_LUCES); break;
       case 32: enviar(Q5_VELOCIDAD); break;
+#ifndef IOT43_DEVICE_ID
       case 64: enviar(Q6_DEMO_ORIGINAL); break;
+#endif
       case 128: enviar(Q7_CLAXON); break;
       default:
         detener();
@@ -341,6 +414,11 @@ public:
   // Evita una salida indefinidamente activa si se pierde un STOP
   // pero Wi-Fi/WSS permanecen conectados.
   void actualizarSeguridad() {
+#if defined(IOT43_DEVICE_ID) && defined(IOT43_ENABLE_PHYSICAL_DEMO)
+    if (originalPendiente && millis() - inicioOriginal >= MAX_MOVIMIENTO_INDIVIDUAL_MS) {
+      claxon();  // Solicitar interrupcion local; no hay confirmacion del controlador RC.
+    }
+#endif
     if (movimientoSostenido &&
         millis() - ultimaOrdenMovimiento >= MAX_MOVIMIENTO_INDIVIDUAL_MS) {
       Serial.println("[SEGURIDAD] Tiempo maximo del movimiento: DETENER.");
@@ -354,8 +432,17 @@ public:
   }
 
   void paradaSeguridad() {
-    detener();
-    Serial.println("[SEGURIDAD] Vehiculo detenido.");
+    if (demoOriginalPendiente()) claxon();
+    else detener();
+    Serial.println("[SEGURIDAD] Salidas liberadas; estado mecanico no confirmado.");
+  }
+
+  bool demoOriginalPendiente() const {
+#if defined(IOT43_DEVICE_ID) && defined(IOT43_ENABLE_PHYSICAL_DEMO)
+    return originalPendiente;
+#else
+    return false;
+#endif
   }
 };
 
@@ -673,6 +760,12 @@ private:
     // Dos POST con el mismo codigo tendran IDs distintos; un reenvio WSS
     // del mismo mensaje conservara el mismo ID y se ignorara.
     const char* idEvento = documento["id_evento"] | "";
+#ifdef IOT43_DEVICE_ID
+    if (idEvento[0] == '\0') {
+      finalizarDemoLocal();
+      return;
+    }
+#endif
     if (idEvento[0] != '\0') {
       if (!identificadorValido(idEvento)) {
         Serial.println("[RN07] ID de evento invalido: parada segura.");
@@ -699,6 +792,9 @@ private:
       }
 
       int codigo = documento["codigo"].as<int>();
+#ifdef IOT43_DEVICE_ID
+      if (codigo == 64 && demoActiva) return;
+#endif
       const char* comando = documento["comando"] | "DESCONOCIDO";
       int idComando = documento["id_comando"] | -1;
 
@@ -715,6 +811,7 @@ private:
       return;
     }
 
+    if (grua.demoOriginalPendiente()) return;
     if (strcmp(tipoEvento, "demo_inicio") == 0) {
       demoActiva = true;
       pasoDemoActivo = false;
@@ -731,6 +828,10 @@ private:
     }
 
     if (strcmp(tipoEvento, "demo_movimiento") == 0) {
+#ifdef IOT43_DEVICE_ID
+      // Tras una desconexión o interrupción local, no reanudar pasos huérfanos.
+      if (!demoActiva) return;
+#endif
       if (
         !documento["codigo"].is<int>() ||
         !documento["duracion_ms"].is<int>() ||
@@ -743,6 +844,12 @@ private:
 
       demoActiva = true;
       codigoPasoDemo = documento["codigo"].as<int>();
+#ifdef IOT43_DEVICE_ID
+      if (codigoPasoDemo == 64) {
+        finalizarDemoLocal();
+        return;
+      }
+#endif
       long duracionRecibida = documento["duracion_ms"].as<long>();
       long pausaRecibida = documento["pausa_ms"].as<long>();
 
@@ -751,6 +858,13 @@ private:
         finalizarDemoLocal();
         return;
       }
+#ifdef IOT43_DEVICE_ID
+      if (duracionRecibida < 30 || duracionRecibida > 12000 || pausaRecibida > 12000 ||
+          (codigoPasoDemo == 128 && duracionRecibida > 300)) {
+        finalizarDemoLocal();
+        return;
+      }
+#endif
 
       duracionPasoDemo = (unsigned long)duracionRecibida;
       pausaPasoDemo = (unsigned long)pausaRecibida;
@@ -824,6 +938,9 @@ private:
         break;
 
       case WStype_CONNECTED:
+#ifdef IOT43_DEVICE_ID
+        finalizarDemoLocal();
+#endif
         websocketConectado = true;
         paradaDesconexionAplicada = false;
         Serial.println();
@@ -884,6 +1001,9 @@ private:
       }
     );
 
+#ifdef IOT43_DEVICE_ID
+    webSocket.setExtraHeaders(IOT43_AUTH_HEADER);
+#endif
     webSocket.beginSslWithCA(
       AWS_HOST,
       AWS_PORT,
@@ -927,6 +1047,12 @@ public:
   bool conectado() {
     return websocketConectado;
   }
+
+#ifdef IOT43_DEVICE_ID
+  void interrumpirProgramadaPorSerial() {
+    if (demoActiva) finalizarDemoLocal();
+  }
+#endif
 };
 
 GruaRC grua(DATA_PIN, CLOCK_PIN, LATCH_PIN);
@@ -952,6 +1078,12 @@ void procesarSerial() {
     return;
   }
 
+#ifdef IOT43_DEVICE_ID
+  if (clienteAWS.conectado()) {
+    if (comando != '0' && comando != 'C') return;
+    clienteAWS.interrumpirProgramadaPorSerial();
+  }
+#endif
   grua.procesarComandoManual(comando);
 }
 
